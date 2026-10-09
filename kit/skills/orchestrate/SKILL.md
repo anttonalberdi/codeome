@@ -67,7 +67,7 @@ Work through tasks in dependency order. For each task:
 **Usage limits.** Codeome tracks the 5-hour and weekly limits of every Claude and Codex account and holds new jobs back near them. Run `.codeome/bin/codeome-agent usage` before Gate 1 and include a one-line budget note with the plan when an account is above 75%.
 - A Codex job that is held back exits with code 75 and a line starting `codeome-agent: job NOT started (usage limit)`. Codex jobs pick an account with headroom on their own, so this means every Codex account is past the limit.
 - A Claude subagent that is held back comes back as a denied Agent call whose reason starts `Codeome: Claude account`. You cannot switch your own account.
-- Either way: do not retry. Move the remaining jobs whose role allows it to the other engine and say so. If nothing can move, stop dispatching, update the plan file with what is done and what is left, and tell the user which account is out, when it resets, and that they can continue on another account from Codeome's Agents view (*Resume a plan*).
+- Either way: do not retry. Move the remaining jobs whose role allows it to the other engine and say so. If nothing can move, stop dispatching, update the plan file with what is done and what is left, and tell the user which account is out, when it resets, and that they can continue on another account with *Resume plan* in Codeome's Agent chat.
 
 ## 4. Cross-review
 
@@ -95,7 +95,7 @@ When the task is `resume [plan file]`, a previous orchestrator stopped part-way,
 
 ## Rules
 
-- The plan file and the job records in `.codeome/jobs/` are the shared state. The user watches jobs in Codeome's Agents view, so give jobs short, meaningful titles.
+- The plan file and the job records in `.codeome/jobs/` are the shared state. Codeome shows each job as a card in the chat and in its Jobs list, so give jobs short, meaningful titles.
 - Keep the user's context light. Relay each specialist's Status line and decisive findings, not their full reports.
 - If something unexpected changes the plan (a hidden dependency, a failing unrelated test, a needed schema change), stop and return to the user, rather than widening the scope yourself.
 - `.codeome/bin/codeome-agent list` shows recent jobs; `show <id>` prints a job's result.

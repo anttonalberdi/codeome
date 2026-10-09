@@ -76,15 +76,13 @@
   // ---------- welcome ----------
   function renderWelcome() {
     const w = document.getElementById('welcome'); w.innerHTML = '';
-    const agents = App.cfg.agents;
     w.append(h('div.welcome-inner',
       h('h1', App.project ? App.basename(App.project) : 'Codeome'),
       h('p', App.project ? App.project : 'Open a project folder to start. Your files, the cluster, and your agents live side by side here.'),
       h('div.quick',
         h('button', { onclick: () => App.openProject() }, h('b', App.project ? 'Open another project' : 'Open folder'), h('span', App.project ? 'It gets its own card on the left; this one keeps running' : 'A local project with your R and Python code')),
         h('button', { onclick: () => App.views.editor.newFile() }, h('b', 'New file'), h('span', 'Script, notebook or report')),
-        agents[0] ? h('button', { onclick: () => App.views.terminals.agentLocal(agents[0]) }, h('b', agents[0].name), h('span', 'Start a session in this folder')) : null,
-        agents[1] ? h('button', { onclick: () => App.views.terminals.agentLocal(agents[1]) }, h('b', agents[1].name), h('span', 'Start a session in this folder')) : null,
+        App.project ? h('button', { onclick: () => App.views.chat.ask('') }, h('b', 'Ask the agent'), h('span', 'One chat; it hands work to Codex and Claude specialists')) : null,
         h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login and VPN check')),
         h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts'))),
       App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null,
@@ -93,7 +91,7 @@
         h('kbd', '⇧⌘↩'), h('span', 'Run the whole file'),
         h('kbd', '⇧⌘V'), h('span', 'Preview or render the current file'),
         h('kbd', '⌘J'), h('span', 'Show or hide the terminal panel'),
-        h('kbd', '⌘1–6'), h('span', 'Files, Slurm, Git, Publish, Python packages, Agents'),
+        h('kbd', '⌘1–6'), h('span', 'Files, Slurm, Git, Publish, Python packages, Agent chat'),
         h('kbd', '⌃⇥'), h('span', 'Next project (⌃⇧⇥ previous)'))));
   }
   App.listen('hpc', renderWelcome);
@@ -103,7 +101,7 @@
     const rz = document.getElementById('sidebar-resizer');
     rz.addEventListener('mousedown', (e) => {
       const start = e.clientX, w = document.getElementById('sidebar').getBoundingClientRect().width;
-      const move = (ev) => document.documentElement.style.setProperty('--side-w', Math.max(220, Math.min(560, w + ev.clientX - start)) + 'px');
+      const move = (ev) => document.documentElement.style.setProperty('--side-w', Math.max(220, Math.min(760, w + ev.clientX - start)) + 'px');
       const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); App.views.editor.layout(); };
       addEventListener('mousemove', move); addEventListener('mouseup', up);
     });

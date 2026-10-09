@@ -81,6 +81,8 @@
     render(side);
   };
   F.refresh = (side) => F[side].dir && F.go(side, F[side].dir);
+  // How to name a local path to the agent: relative to the project when inside it.
+  F.relRef = (p) => (App.project && p === App.project ? 'the project root' : App.project && p.startsWith(App.project + '/') ? p.slice(App.project.length + 1) : App.tildify(p));
 
   function renderRemoteState() {
     const p = F.remotePane; if (!p) return;
@@ -130,7 +132,7 @@
       remote ? { label: other ? `Download to ${App.basename(other)}` : 'Download', disabled: !other, run: () => F.transfer('down', full, F.local.dir) }
         : { label: other ? `Upload to HPC: ${App.basename(other)}` : 'Upload to HPC', disabled: !other || !App.hpcConnected, run: () => F.transfer('up', full, F.remote.dir) },
       e.dir ? { label: 'Terminal here', run: () => remote ? App.views.terminals.hpcShell(full) : App.views.terminals.localShell(full) } : null,
-      ...(e.dir ? App.cfg.agents.map((a) => ({ label: `${a.name} here`, run: () => remote ? App.views.terminals.agentHpc(a, full) : App.views.terminals.agentLocal(a, full) })) : []),
+      ...(e.dir ? (remote ? App.cfg.agents.map((a) => ({ label: `${a.name} here`, run: () => App.views.terminals.agentHpc(a, full) })) : [{ label: 'Ask the agent about this folder', run: () => App.views.chat.ask(`About ${App.views.files.relRef(full)}: `) }]) : []),
       '-',
       { label: 'Copy path', run: () => navigator.clipboard.writeText(full) },
       !remote ? { label: 'Reveal in Finder', run: () => codeome.shell.reveal(full) } : null,
@@ -149,7 +151,7 @@
       remote ? { label: 'Upload files from Mac…', disabled: !dir, run: async () => { const fs = await codeome.dialog.files({ defaultPath: F.local.dir }); fs.forEach((f) => F.transfer('up', f, dir)); } } : { label: 'Open another project…', run: () => App.openProject() },
       '-',
       { label: 'Terminal here', disabled: !dir, run: () => remote ? App.views.terminals.hpcShell(dir) : App.views.terminals.localShell(dir) },
-      ...App.cfg.agents.map((a) => ({ label: `${a.name} here`, disabled: !dir, run: () => remote ? App.views.terminals.agentHpc(a, dir) : App.views.terminals.agentLocal(a, dir) })),
+      ...(remote ? App.cfg.agents.map((a) => ({ label: `${a.name} here`, disabled: !dir, run: () => App.views.terminals.agentHpc(a, dir) })) : [{ label: 'Ask the agent about this folder', disabled: !dir, run: () => App.views.chat.ask(`About ${App.views.files.relRef(dir)}: `) }]),
       remote ? '-' : null,
       remote ? { label: 'Storage quota', run: async () => { const r = await codeome.hpc.quota(); App.modal({ title: 'Storage on ' + App.cfg.hpc.host, body: h('pre.logbox', r.text || 'No quota information.'), cancel: null }); } } : null,
       remote && dir ? { label: 'Set as HPC start folder', run: () => { App.cfg.hpc.remoteRoot = dir; App.saveConfig(); App.toast('HPC start folder set.'); } } : null,

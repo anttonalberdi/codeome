@@ -1,6 +1,6 @@
 # Codeome
 
-One Mac app for research computing that spans your laptop and the HPC: a code editor, terminals, Claude Code and Codex sessions, Slurm jobs, file transfer, report previews, Git/GitHub, Zenodo and PyPI — in a single window, without the parts of VS Code you never use.
+One Mac app for research computing that spans your laptop and the HPC: a code editor, terminals, one agent chat that coordinates Claude Code and Codex, Slurm jobs, file transfer, report previews, Git/GitHub, Zenodo and PyPI — in a single window, without the parts of VS Code you never use.
 
 ## What it does
 
@@ -10,16 +10,22 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **Editor** — Monaco (the VS Code editor core) with syntax highlighting for R, Python, shell, Quarto, R Markdown, Snakemake, YAML and more. Opens files on your Mac *and* directly on the HPC.
 - `⌘↩` sends the current line or selection to the active terminal (R, Python or shell REPL), RStudio-style; `⇧⌘↩` runs the whole file.
-- Right-click → *Ask agent about selection* sends the code reference to your Claude Code / Codex session.
+- Right-click → *Ask the agent about this…* puts a reference to the file and selected lines in the Agent chat.
 
-**Terminals & agents** — tabs in the bottom panel (`⌘J`): local shells, HPC shells, and Claude Code / Codex sessions either on the Mac or on the cluster. HPC agent sessions run inside `tmux`, so they keep working if the VPN drops and reattach when you reopen them.
+**Terminals** — tabs in the bottom panel (`⌘J`): local shells, HPC shells, and Claude Code / Codex sessions on the cluster. HPC agent sessions run inside `tmux`, so they keep working if the VPN drops and reattach when you reopen them.
 
-**Agents** (`⌘6`) — a team of specialists coordinated by Claude Code. Install the *agent kit* into a project and Claude Code becomes an orchestrator that hands jobs to Claude subagents and to Codex:
+**Agent chat** (`⌘6`) — one chat per project, instead of separate Claude Code and Codex windows. Behind it is a headless Claude Code session acting as the orchestrator. It answers questions and makes small changes itself. For anything bigger it plans the work, checks with you, and hands it to specialists, whether Claude subagents or Codex jobs.
+- Replies are rendered as Markdown. Tool calls appear as one-line entries you can expand. Each specialist job appears as a card with live status; open a card for the job's brief, log and result.
+- Permission prompts, questions and the approval gates appear as buttons in the chat. The selector under the message box sets what the agent may do without asking: *Ask before changes*, *Accept edits*, *Auto* or *Plan only*.
+- Conversations are saved (in `~/.codeome/chats/`) and keep running while you work in another project. The ⋯ menu reopens recent chats or moves the current one into a Claude Code terminal session.
+- The chat runs the first Claude command in Settings → Agents (for example `claude --model opus`).
+
+**The team** — install the *agent kit* into a project (from the banner in the chat) and the agent gains a team:
 - 15 roles in four groups, chosen at install: core (planner, explorer, implementer, debugger, tester, reviewer), research computing (analyst, pipeline-engineer, hpc-operator, report-writer), web stack (backend, frontend, security-reviewer), release & docs (docs-writer, release-manager).
 - Jobs are routed by type. Well-specified implementation and debugging go to Codex; planning, exploration, docs and anything that needs the network or the HPC go to Claude. Reviews run on whichever engine did *not* write the change.
-- `/orchestrate <task>` runs the pipeline: size → plan → **you approve** → specialists implement, the orchestrator verifies each result → cross-review → **you approve** → commit. `/delegate` sends a single job; `/cross-review` reviews the current changes.
-- Type a task in the Agents view and press *Start* to open the orchestrator in the panel. Every specialist job — Codex runs and Claude subagents alike — appears in the list with its brief, live log and result.
-- **Accounts and limits.** Codex jobs run on the active Codex account while it has headroom, and otherwise on the account with the most. New orchestrators do the same with Claude accounts. Once an account passes the stop threshold (90% of either window by default), Codeome holds new jobs back. A Codex job exits with code 75 and a Claude subagent call is refused, and the orchestrator re-routes the work or pauses and tells you. *Resume a plan* starts a fresh orchestrator, on another account if you like, that picks up the plan where the last one stopped.
+- The agent picks the level of each message itself. Larger tasks run the pipeline: size → plan → **you approve** → specialists implement, the orchestrator verifies each result → cross-review → **you approve** → commit. You can still type `/orchestrate <task>`, `/delegate` (one job) or `/cross-review` to choose yourself.
+- Codex jobs run in the background; the chat wakes up when one finishes. The chat's *Jobs* tab lists every job, Codex runs and Claude subagents alike.
+- **Accounts and limits.** Codex jobs run on the active Codex account while it has headroom, and otherwise on the account with the most. New chats do the same with Claude accounts (pick one under the message box before the first message; a conversation stays on its account). Once an account passes the stop threshold (90% of either window by default), Codeome holds new jobs back. A Codex job exits with code 75 and a Claude subagent call is refused, and the orchestrator re-routes the work or pauses and tells you. *Resume plan on …* (in the chat's usage notice) starts a new chat on another account that picks up the plan where the last one stopped.
 
 **HPC connection** — uses your system `ssh`, so `~/.ssh/config`, keys, ProxyJump and the VPN behave exactly as in iTerm2. You log in once (password or one-time code prompts appear in a terminal tab); every other operation reuses that connection for 12 hours. The title bar shows VPN reachability, connection state and your running / waiting / failed jobs.
 
@@ -75,11 +81,11 @@ Open **Settings** (`⌘,`):
 
 ### Where the usage numbers come from
 - **Codex**: Codeome asks `codex app-server` for each account every few minutes and when a Codex job ends.
-- **Claude**: Claude Code reports its rate limits to its status line. Claude Code sessions started from Codeome get a status line, `~/.codeome/bin/codeome-statusline`, that records them and then shows your own status line, so your settings files are untouched. The Claude bars therefore update while a Claude Code session started from Codeome is in use, and they show readings older than 30 minutes as stale. Windows that have reset since count as empty.
+- **Claude**: Claude Code reports its rate limits to its status line. Claude Code sessions started from Codeome get a status line, `~/.codeome/bin/codeome-statusline`, that records them and then shows your own status line, so your settings files are untouched. The Agent chat records the rate limits Claude Code reports with each reply in the same place. The Claude bars therefore update while the chat or a Claude Code session started from Codeome is in use, and they show readings older than 30 minutes as stale. Windows that have reset since count as empty.
 - Codeome writes the combined picture to `~/.codeome/usage.json`. `codeome-agent` reads it to choose accounts and hold jobs back. Without it (Codeome closed, or on the HPC) jobs run on the default account with no limit checks. Codeome never reads or stores the CLIs' credentials.
 
 ### Agent kit
-Agents view → **Install…** writes into the project:
+Agent chat → **Install…** (in the banner, or the ⋯ menu) writes into the project:
 
 | Path | What |
 |---|---|
@@ -89,7 +95,7 @@ Agents view → **Install…** writes into the project:
 | `.claude/settings.json` | hooks that record Claude subagent jobs, and permission to run the job runner (merged into your existing settings) |
 | `.codeome/bin/codeome-agent` | the job runner (Python 3, standard library only, so it also works on the HPC) |
 
-Commit `.claude/` and `.codeome/bin/` + `.codeome/kit.json` so collaborators get the same team; job records, plans and worktrees are git-ignored. Updating the kit never overwrites a role or skill you have edited. Codex jobs run in Codex's sandbox (read-only for reviewers and planners, workspace-write otherwise, no network). From a terminal: `.codeome/bin/codeome-agent list`, `show <id>`, `cancel <id>`, `usage`. Pass `--account <name>` to run a Codex job on a specific account, or `--ignore-limits` to start one past the threshold.
+Commit `.claude/` and `.codeome/bin/` + `.codeome/kit.json` so collaborators get the same team. The chat approves its own job-runner calls (`codeome-agent` with a brief and no other shell syntax), except `--ignore-limits`; job records, plans and worktrees are git-ignored. Updating the kit never overwrites a role or skill you have edited. Codex jobs run in Codex's sandbox (read-only for reviewers and planners, workspace-write otherwise, no network). From a terminal: `.codeome/bin/codeome-agent list`, `show <id>`, `cancel <id>`, `usage`. Pass `--account <name>` to run a Codex job on a specific account, or `--ignore-limits` to start one past the threshold.
 
 Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `quarto`, `Rscript`, `python3`, `tmux` (on the HPC), `claude`, `codex`. Settings shows which ones it found.
 
@@ -104,7 +110,7 @@ Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `quarto`, `Rscript`,
 | `⇧⌘V` | Preview or render current file |
 | `⌘T` / `⇧⌘T` | New local / HPC terminal |
 | `⌘J` | Show or hide terminal panel |
-| `⌘1`–`⌘6` | Files, Slurm, Git, Publish, Python packages, Agents |
+| `⌘1`–`⌘6` | Files, Slurm, Git, Publish, Python packages, Agent chat |
 
 ## Project layout
 
@@ -115,6 +121,7 @@ main/          Electron main process
   slurm.js       squeue / sacct / scancel / sbatch
   zenodo.js      Zenodo REST client
   config.js      settings + Keychain-encrypted tokens
+  chat.js        the Agent chat's headless Claude Code sessions (stream-json), saved chats
   kit.js         installs/updates the agent kit in a project
   jobs.js        reads agent job records from .codeome/jobs/
   usage.js       Claude/Codex accounts and usage limits; writes ~/.codeome/usage.json
@@ -122,9 +129,10 @@ main/          Electron main process
   preload.js     the bridge the interface is allowed to use
 renderer/      Interface (plain JS, no build step)
   index.html, styles.css
-  js/            one file per area: projects, usage, editor, terminals, files, slurm, git, publish, pip, agents, settings
-kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-agent, manifest.json
+  js/            one file per area: projects, usage, editor, terminals, files, slurm, git, publish, pip, chat, agents, settings
+kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-agent, manifest.json;
+               chat.md, the orchestrator instructions for the Agent chat
 test/          parser tests (npm test) and a screenshot helper
 ```
 
-Working on Codeome itself: open this folder in Codeome, start a Claude Code session, and ask for the change. `npm start` relaunches it.
+Working on Codeome itself: open this folder in Codeome and ask for the change in the Agent chat. `npm start` relaunches it.

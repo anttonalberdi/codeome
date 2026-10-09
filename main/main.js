@@ -10,6 +10,7 @@ const zenodo = require('./zenodo');
 const kit = require('./kit');
 const jobs = require('./jobs');
 const usage = require('./usage');
+const chat = require('./chat');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -18,6 +19,7 @@ try { pty = require('node-pty'); } catch (e) { ptyError = String(e.message || e)
 
 let win = null;
 const ptys = new Map();
+const chats = new Map(); // chat id → chat.Session
 const transfers = new Map();
 let cfg = null;
 
@@ -64,7 +66,7 @@ function buildMenu() {
       { label: 'Git & GitHub', accelerator: 'CmdOrCtrl+3', click: cmd('view-git') },
       { label: 'Publish (Zenodo, PyPI)', accelerator: 'CmdOrCtrl+4', click: cmd('view-publish') },
       { label: 'Python Packages', accelerator: 'CmdOrCtrl+5', click: cmd('view-pip') },
-      { label: 'Agents', accelerator: 'CmdOrCtrl+6', click: cmd('view-agents') },
+      { label: 'Agent Chat', accelerator: 'CmdOrCtrl+6', click: cmd('view-agents') },
       { type: 'separator' },
       { label: 'Next Project', accelerator: 'Ctrl+Tab', click: cmd('next-project') },
       { label: 'Previous Project', accelerator: 'Ctrl+Shift+Tab', click: cmd('prev-project') },
@@ -350,6 +352,40 @@ ipcMain.handle('jobs:read', (_e, { project, id, part }) => jobs.read(project, id
 ipcMain.handle('jobs:cancel', (_e, { project, id }) => jobs.cancel(project, id));
 ipcMain.handle('jobs:clear', (_e, project) => jobs.clear(project));
 
+// ---------- agent chat ----------
+// One headless Claude Code orchestrator per conversation; see chat.js.
+const claudeCmd = () => (cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
+
+ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode }) => {
+  if (chats.has(id)) return { ok: true };
+  if (!project || !fs.existsSync(project)) return { error: 'Project folder not found.' };
+  try {
+    let kitInstalled = false;
+    try { kitInstalled = kit.status(project).installed; } catch {}
+    const acct = launchOn('claude', account, claudeCmd());
+    const dir = (cfg.accounts.claude.list.find((a) => a.name === acct.info.name) || {}).dir || '';
+    const [bin, ...extra] = claudeCmd().trim().split(/\s+/);
+    const env = augmentedEnv({ ...acct.env, TERM_PROGRAM: 'Codeome' });
+    for (const k of acct.unset) delete env[k];
+    const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
+    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra }), env, autoAllow });
+    s.on('message', (msg) => send('chat:event', { id, msg }));
+    s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
+    s.on('exit', (r) => { chats.delete(id); send('chat:exit', { id, ...r }); });
+    s.start();
+    chats.set(id, s);
+    return { ok: true, account: acct.info };
+  } catch (e) { return { error: String(e.message || e) }; }
+});
+ipcMain.handle('chat:send', (_e, { id, text }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.user(text); return { ok: true }; });
+ipcMain.handle('chat:respond', (_e, { id, requestId, response }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.respond(requestId, response); return { ok: true }; });
+ipcMain.handle('chat:control', (_e, { id, request }) => { const s = chats.get(id); return s ? s.control(request) : { error: 'The session is not running.' }; });
+ipcMain.handle('chat:stop', (_e, id) => { const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
+ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { return chat.saveChat(project, c); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));
+ipcMain.handle('chat:load', (_e, { project, id }) => chat.loadChat(project, id));
+ipcMain.handle('chat:delete', (_e, { project, id }) => chat.deleteChat(project, id));
+
 // ---------- usage limits & accounts ----------
 // Live readings per account, keyed engine → account name.
 const readings = { claude: {}, codex: {} };
@@ -468,4 +504,4 @@ app.whenReady().then(() => {
   startUsage();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('window-all-closed', () => { for (const p of ptys.values()) { try { p.kill(); } catch {} } if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => { for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });

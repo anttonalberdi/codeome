@@ -1,4 +1,5 @@
-// Bottom panel: local shells, HPC shells, and Claude Code / Codex sessions.
+// Bottom panel: local shells, HPC shells, tasks, and Claude Code / Codex sessions on
+// the HPC (agents on this Mac run in the Agent chat).
 // Each session belongs to a project; switching projects hides the others' sessions
 // but leaves them running.
 (function () {
@@ -106,7 +107,7 @@
 
   function showEmpty() {
     if (host().querySelector('.term-empty')) return;
-    host().append(h('div.term-empty', h('div', 'No sessions. ', h('button.btn.small', { onclick: (e) => T.newMenu(e.currentTarget) }, 'New session'))));
+    host().append(h('div.term-empty', h('div', 'No terminals. ', h('button.btn.small', { onclick: (e) => T.newMenu(e.currentTarget) }, 'New terminal'))));
   }
 
   function renderTabs() {
@@ -133,9 +134,6 @@
   // ---------- launchers ----------
   T.localShell = (cwd) => T.open({ kind: 'shell', title: App.basename(cwd || App.project || '~') || 'zsh', cwd: cwd || App.project || '~', badge: 'Mac' });
   T.hpcShell = (cwd) => { if (!App.requireHpc()) return; return T.open({ kind: 'hpc-shell', title: App.basename(cwd || App.remoteDir || '~'), cwd: cwd || App.remoteDir || '~', badge: 'HPC' }); };
-  T.engineOf = (cmd) => (/^claude(\s|$)/.test(cmd) ? 'claude' : /^codex(\s|$)/.test(cmd) ? 'codex' : null);
-  // account: an account name, or 'auto' for the active one while it has headroom.
-  T.agentLocal = (agent, cwd, account = 'auto') => T.open({ kind: 'agent-local', title: agent.name, command: agent.cmd, cwd: cwd || App.project || '~', badge: 'Mac', engine: T.engineOf(agent.cmd), account });
   T.agentHpc = (agent, cwd) => {
     if (!App.requireHpc()) return;
     const dir = cwd || App.remoteDir || '~';
@@ -146,11 +144,11 @@
   T.hpcTask = (title, command, cwd) => { if (!App.requireHpc()) return; return T.open({ kind: 'hpc-task', title, command, cwd: cwd || App.remoteDir || '~', badge: 'HPC' }); };
 
   T.newMenu = (anchor) => {
+    // Agents on this Mac live in the Agent chat (⌘6); the CLIs on the HPC stay here.
     const items = [
       { header: 'On this Mac' + (App.project ? ' · ' + App.basename(App.project) : '') },
       { label: 'Terminal', key: '⌘T', run: () => T.localShell() },
-      ...App.cfg.agents.map((a) => ({ label: a.name, run: () => T.agentLocal(a) })),
-      ...accountItems(),
+      { label: 'Agent chat', key: '⌘6', run: () => App.views.chat.ask('') },
       '-',
       { header: 'On the HPC' + (App.remoteDir ? ' · ' + App.basename(App.remoteDir) : '') },
       { label: 'Terminal', key: '⇧⌘T', run: () => T.hpcShell() },
@@ -158,18 +156,6 @@
     ];
     if (anchor) App.menuAt(anchor, items); else App.menu(innerWidth / 2 - 110, innerHeight / 2 - 120, items);
   };
-
-  // With several accounts: start Claude Code / Codex on a specific one.
-  function accountItems() {
-    const out = [];
-    for (const a of App.cfg.agents) {
-      const engine = T.engineOf(a.cmd);
-      const accts = engine && App.cfg.accounts[engine].list;
-      if (!accts || accts.length < 2) continue;
-      for (const acct of accts) out.push({ label: `${a.name} · ${acct.name}`, run: () => T.agentLocal(a, null, acct.name) });
-    }
-    return out.length ? ['-', { header: 'On a specific account' }, ...out] : [];
-  }
 
   // ---------- panel show/hide/resize ----------
   T.showPanel = () => { document.getElementById('panel').classList.remove('collapsed'); };

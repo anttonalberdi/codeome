@@ -55,6 +55,16 @@ contextBridge.exposeInMainWorld('codeome', {
     read: (project, id, part) => ipcRenderer.invoke('jobs:read', { project, id, part }),
     cancel: (project, id) => ipcRenderer.invoke('jobs:cancel', { project, id })
   },
+  chat: {
+    start: invoke('chat:start'), stop: invoke('chat:stop'),
+    send: (id, text) => ipcRenderer.invoke('chat:send', { id, text }),
+    respond: (id, requestId, response) => ipcRenderer.invoke('chat:respond', { id, requestId, response }),
+    control: (id, request) => ipcRenderer.invoke('chat:control', { id, request }),
+    save: (project, chat) => ipcRenderer.invoke('chat:save', { project, chat }),
+    list: invoke('chat:list'), load: (project, id) => ipcRenderer.invoke('chat:load', { project, id }),
+    delete: (project, id) => ipcRenderer.invoke('chat:delete', { project, id }),
+    onEvent: on('chat:event'), onExit: on('chat:exit')
+  },
   usage: {
     get: invoke('usage:get'), refresh: invoke('usage:refresh'),
     setActive: (engine, name) => ipcRenderer.invoke('usage:setActive', { engine, name }),

@@ -4,7 +4,7 @@
 Installed by Codeome at <project>/.codeome/bin/codeome-agent. Standard library
 only, so it runs on a Mac and on the HPC alike. Every job gets a folder in
 <project>/.codeome/jobs/<id>/ holding job.json, brief.md, log.txt and
-result.md; Codeome's Agents view reads those folders.
+result.md; Codeome's Agent chat and Jobs list read those folders.
 
   codeome-agent codex --role ROLE --title TITLE [--worktree] [--model M] [--resume SESSION] [--account NAME] < brief
   codeome-agent usage [--json]  (Claude and Codex limits per account, as Codeome last saw them)
@@ -470,7 +470,7 @@ def claude_gate():
     if lv is None or lv < stop_at:
         return None
     others = [x.get('name') for x in accounts if x is not acct and (level(x, now) is None or level(x, now) < stop_at)]
-    where = ('They can continue the plan on Claude account %s from Codeome\'s Agents view (Resume a plan).'
+    where = ('They can continue the plan on Claude account %s with Resume plan in Codeome\'s Agent chat.'
              % ' or '.join('"%s"' % o for o in others)) if others else 'No other Claude account has headroom; the limit resets as shown.'
     return ('Codeome: Claude account "%s" is at %s, past the %d%% limit, so new Claude subagents are paused. '
             'Do not retry this call. Send jobs whose role allows it to Codex (.codeome/bin/codeome-agent codex ...), '
@@ -492,6 +492,7 @@ def cmd_hook(_a):
             inp = ev.get('tool_input') or {}
             write_json(os.path.join(PENDING, safe(ev.get('tool_use_id') or secrets.token_hex(4)) + '.json'), {
                 'type': inp.get('subagent_type') or 'general-purpose', 'description': inp.get('description') or '',
+                'toolUseId': ev.get('tool_use_id'),
                 'prompt': inp.get('prompt') or '', 'model': inp.get('model'), 'at': time.time()})
         elif name == 'SubagentStart' and ev.get('agent_type'):
             start_claude_job(ev)
@@ -536,7 +537,7 @@ def start_claude_job(ev):
         'id': job_id, 'engine': 'claude', 'role': ev['agent_type'], 'title': pend.get('description') or ev['agent_type'],
         'status': 'running', 'startedAt': now_iso(), 'endedAt': None, 'exitCode': None,
         'cwd': ev.get('cwd') or ROOT, 'agentId': ev.get('agent_id'), 'session': ev.get('session_id'),
-        'model': pend.get('model')
+        'model': pend.get('model'), 'toolUseId': pend.get('toolUseId')
     }
     save_job(job)
     if pend.get('prompt'):

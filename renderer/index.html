@@ -32,7 +32,7 @@
     <button data-view="git" title="Git & GitHub (⌘3)"><svg viewBox="0 0 20 20"><circle cx="6" cy="5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="15" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="14" cy="8" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 6.8v6.4M14 9.8c0 2.5-3 2.6-8 3.6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
     <button data-view="publish" title="Publish: Zenodo & PyPI (⌘4)"><svg viewBox="0 0 20 20"><path d="M10 13V3.5M6.5 7 10 3.5 13.5 7M4 12.5v4h12v-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
     <button data-view="pip" title="Python packages (⌘5)"><svg viewBox="0 0 20 20"><path d="M10 2.8 16.5 6.5v7L10 17.2 3.5 13.5v-7Z M3.5 6.5 10 10.2l6.5-3.7M10 10.2v7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
-    <button data-view="agents" title="Agents (⌘6)"><svg viewBox="0 0 20 20"><circle cx="10" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="4.8" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="15.2" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8.9 6.9 5.9 12.5M11.1 6.9l3 5.6M7 14.5h6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
+    <button data-view="agents" title="Agent (⌘6)"><svg viewBox="0 0 20 20"><circle cx="10" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="4.8" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="15.2" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8.9 6.9 5.9 12.5M11.1 6.9l3 5.6M7 14.5h6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
   </nav>
 
   <aside id="sidebar">
@@ -57,7 +57,7 @@
       <div class="panel-bar">
         <div id="term-tabs" class="tabstrip small"></div>
         <div class="panel-actions">
-          <button id="term-new" class="btn ghost small" title="New terminal or agent session">New session</button>
+          <button id="term-new" class="btn ghost small" title="New terminal">New terminal</button>
           <button id="term-hide" class="icon-btn small" title="Hide panel (⌘J)"><svg viewBox="0 0 20 20"><path d="m5 8 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
         </div>
       </div>
@@ -79,6 +79,8 @@
 <script src="js/git.js"></script>
 <script src="js/publish.js"></script>
 <script src="js/pip.js"></script>
+<script src="js/md.js"></script>
+<script src="js/chat.js"></script>
 <script src="js/agents.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/usage.js"></script>

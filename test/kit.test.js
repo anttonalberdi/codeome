@@ -195,6 +195,7 @@ test('hooks record a Claude subagent job from Agent call to stop', async () => {
   assert.strictEqual(j.engine, 'claude');
   assert.strictEqual(j.status, 'running');
   assert.strictEqual(j.title, 'Plan threads flag');
+  assert.strictEqual(j.toolUseId, 'toolu_1'); // links the job to its card in the chat
   assert.strictEqual((await jobs.read(p, j.id, 'brief')).content, 'Plan it.');
   hook({ hook_event_name: 'SubagentStop', agent_id: 'agent-1', agent_type: 'planner', last_assistant_message: '## Status\ndone', agent_transcript_path: '/tmp/t.jsonl' });
   [j] = await jobs.list(p);

@@ -42,7 +42,7 @@
     E.editor.addAction({ id: 'codeome.sendFile', label: 'Run whole file in terminal', keybindings: [m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter], contextMenuGroupId: 'navigation', contextMenuOrder: 1, run: () => E.runFile() });
     E.editor.addAction({ id: 'codeome.preview', label: 'Preview / render', contextMenuGroupId: 'navigation', contextMenuOrder: 2, run: () => E.previewCurrent() });
     E.editor.addAction({ id: 'codeome.sbatch', label: 'Submit to Slurm (sbatch)', contextMenuGroupId: 'navigation', contextMenuOrder: 3, run: () => { const t = E.cur(); if (t && t.remote) App.views.slurm.submit(t.path); else App.toast('Open the script from the HPC side to submit it.'); } });
-    E.editor.addAction({ id: 'codeome.askAgent', label: 'Ask agent about selection…', contextMenuGroupId: 'navigation', contextMenuOrder: 4, run: (ed) => E.askAgent(ed) });
+    E.editor.addAction({ id: 'codeome.askAgent', label: 'Ask the agent about this…', contextMenuGroupId: 'navigation', contextMenuOrder: 4, run: (ed) => E.askAgent(ed) });
   };
 
   E.applyTheme = () => {
@@ -188,15 +188,13 @@
     if (t.remote) App.views.terminals.hpcTask(t.title, cmd, App.dirname(t.path)); else App.views.terminals.task(t.title, cmd, App.dirname(t.path));
   };
 
-  E.askAgent = async function (ed) {
-    const sel = ed.getModel().getValueInRange(ed.getSelection());
+  // Puts a reference to the file (and selected lines) in the Agent chat's composer.
+  E.askAgent = function (ed) {
     const t = E.cur();
-    const q = await App.prompt('Ask an agent', 'What should it do with this code?', 'Explain this and suggest improvements', { ok: 'Send to agent' });
-    if (!q) return;
-    const ref = t ? `In ${t.path}${sel ? ' (selected lines ' + ed.getSelection().startLineNumber + '-' + ed.getSelection().endLineNumber + ')' : ''}: ` : '';
-    const term = App.views.terminals.current();
-    if (term && /claude|codex/i.test(term.title)) App.views.terminals.send(ref + q);
-    else App.toast('Switch to a Claude Code or Codex session in the panel, then try again.');
+    if (!t || t.kind !== 'file') return App.views.chat.ask('');
+    const s = ed.getSelection();
+    const where = t.remote ? `${t.path} on the HPC` : App.views.files.relRef(t.path);
+    App.views.chat.ask(s.isEmpty() ? `In ${where}: ` : `In ${where}, lines ${s.startLineNumber}-${s.endLineNumber}: `);
   };
 
   E.previewCurrent = () => { const t = E.cur(); if (t && t.kind === 'file') E.preview(t.path, { remote: t.remote }); };

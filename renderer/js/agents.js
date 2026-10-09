@@ -1,34 +1,39 @@
-// Agents view: install the agent kit into the project, start an orchestrator
-// session, and follow the specialist jobs (Claude subagents and Codex runs).
+// Agent view: the chat with the orchestrator (chat.js) and, behind a toggle, the list
+// of specialist jobs (Claude subagents and Codex runs) with their briefs, logs and
+// results. Also installs the agent kit into the project.
 (function () {
   const h = App.h;
-  const A = { kit: null, jobs: [], sel: null };
+  const A = { kit: null, jobs: [], sel: null, pane: 'chat' };
   App.views.agents = A;
-  let root, kitEl, usageEl, taskEl, listEl, timer, tick = 0;
+  let root, titleEl, tabsEl, kitEl, kitCardEl, usageEl, chatEl, jobsEl, listEl, timer, tick = 0;
 
-  const MODES = [
-    { value: 'orchestrate', label: 'Plan and build (two approval gates)', placeholder: 'e.g. Add a --threads option to the binning rule and pass it to MetaBAT2' },
-    { value: 'delegate', label: 'Delegate one job', placeholder: 'e.g. codex debugger: tests/test_parsers.py::test_sacct fails since the last change' },
-    { value: 'cross-review', label: 'Cross-review current changes', placeholder: 'optional: claude | codex, base ref' },
-    { value: 'resume', label: 'Resume a plan (e.g. on another account)', placeholder: 'optional: plan file — defaults to the newest in .codeome/plans/' }
-  ];
   const ENGINE = { claude: 'Claude', codex: 'Codex' };
   const isLive = (j) => j.status === 'running';
 
   A.init = () => {
     root = document.querySelector('.view[data-view="agents"]');
+    root.classList.add('agent-view');
+    titleEl = h('div.agent-title');
+    tabsEl = h('div.seg', { role: 'tablist', 'aria-label': 'Chat or jobs' });
     kitEl = h('div');
     usageEl = h('div');
-    taskEl = h('div');
+    chatEl = h('div.chat');
     listEl = h('div.jobs');
-    root.append(
-      h('div.side-head', h('h2', 'Agents'), App.iconBtn('refresh', 'Refresh', () => A.refresh(true))),
-      kitEl, usageEl, taskEl,
-      h('div.side-head', h('h2', 'Jobs'), App.iconBtn('trash', 'Clear finished jobs', () => A.clear())),
+    kitCardEl = h('div');
+    jobsEl = h('div.agent-jobs', { hidden: true }, kitCardEl,
+      h('div.side-head', h('h2', 'Specialist jobs'), App.iconBtn('refresh', 'Refresh', () => A.refresh(true)), App.iconBtn('trash', 'Clear finished jobs', () => A.clear())),
       listEl);
+    root.append(
+      h('div.side-head.agent-head', titleEl, tabsEl,
+        App.iconBtn('plus', 'New chat', () => App.views.chat.newChat()),
+        App.iconBtn('dots', 'More', (e) => moreMenu(e.currentTarget))),
+      kitEl, usageEl, chatEl, jobsEl);
+    App.views.chat.mount(chatEl);
     App.listen('project', () => { A.kit = null; A.jobs = []; A.refresh(true); });
-    App.listen('view', (v) => { if (v === 'agents') A.refresh(true); });
+    App.listen('view', (v) => { if (v === 'agents') { A.refresh(true); if (A.pane === 'chat') setTimeout(() => chatEl.querySelector('textarea')?.focus(), 0); } });
     App.listen('usage', () => { if (App.project) { usageEl.innerHTML = ''; renderUsage(); } });
+    App.listen('chat', () => paintHead());
+    App.listen('chat-state', () => paintRail());
     // Poll quickly while something runs or the view is open, slowly otherwise.
     timer = setInterval(() => {
       if (document.hidden || !App.project) return;
@@ -37,6 +42,46 @@
     }, 3000);
     render();
   };
+
+  A.show = (pane) => {
+    A.pane = pane;
+    chatEl.hidden = pane !== 'chat';
+    jobsEl.hidden = pane !== 'jobs';
+    paintHead();
+    if (pane === 'jobs') A.refresh();
+  };
+
+  // A job card just appeared in the chat: look for its record shortly.
+  let soon = null;
+  A.refreshSoon = () => { clearTimeout(soon); soon = setTimeout(() => A.refresh(), 1500); };
+
+  function paintHead() {
+    const t = App.views.chat.title();
+    titleEl.innerHTML = '';
+    titleEl.append(h('h2', 'Agent'), t ? h('span.agent-chat-title', { title: t }, t) : null);
+    const n = A.jobs.filter(isLive).length;
+    tabsEl.innerHTML = '';
+    for (const [k, label] of [['chat', 'Chat'], ['jobs', 'Jobs' + (n ? ` · ${n}` : '')]]) {
+      tabsEl.append(h('button' + (A.pane === k ? '.on' : ''), { role: 'tab', 'aria-selected': String(A.pane === k), onclick: () => A.show(k) }, label));
+    }
+  }
+
+  async function moreMenu(anchor) {
+    const C = App.views.chat;
+    const past = await C.history();
+    const k = A.kit;
+    App.menuAt(anchor, [
+      { label: 'New chat', run: () => C.newChat() },
+      past.length ? { header: 'Recent chats' } : null,
+      ...past.map((c) => ({ label: (c.title || 'Untitled chat').slice(0, 48), key: App.fmtAgo(c.updatedAt), run: () => C.open(c.id) })),
+      '-',
+      { label: 'Continue this chat in a terminal', disabled: !C.current() || !C.current().started, run: () => C.toTerminal() },
+      { label: 'Specialist jobs', run: () => A.show('jobs') },
+      '-',
+      k && k.installed ? { label: k.outdated ? 'Update the agent kit…' : 'Agent kit roles…', run: () => A.install() } : { label: 'Install the agent kit…', run: () => A.install() },
+      k && k.installed ? { label: 'Edit routing', run: () => App.views.editor.openFile(App.join(App.project, '.claude/skills/orchestrate/routing.md')) } : null
+    ]);
+  }
 
   let busy = false;
   A.refresh = async (withKit) => {
@@ -50,6 +95,7 @@
       const ended = A.jobs.some((j) => j.engine === 'codex' && isLive(j) && !jobs.some((x) => x.id === j.id && isLive(x)));
       if (ended) codeome.usage.refresh();
       A.jobs = jobs; A.kit = kit;
+      App.views.chat.syncJobs(project, jobs);
       render();
     } finally { busy = false; }
   };
@@ -57,42 +103,51 @@
   function render() {
     if (!root) return;
     paintRail();
-    kitEl.innerHTML = ''; usageEl.innerHTML = ''; taskEl.innerHTML = ''; listEl.innerHTML = '';
-    if (!App.project) { kitEl.append(h('div.empty', 'Open a project folder to install the agent kit and run agent jobs.')); return; }
+    paintHead();
+    kitEl.innerHTML = ''; usageEl.innerHTML = ''; listEl.innerHTML = '';
+    if (!App.project) return;
     renderKit();
     renderUsage();
-    renderTask();
     renderJobs();
   }
 
   function paintRail() {
     const b = document.querySelector('#rail button[data-view="agents"]');
-    if (b) { const n = A.jobs.filter(isLive).length; b.classList.toggle('busy', n > 0); b.title = 'Agents (⌘6)' + (n ? ` — ${n} running` : ''); }
+    if (!b) return;
+    const n = A.jobs.filter(isLive).length, working = App.views.chat.isBusy(App.project);
+    b.classList.toggle('busy', n > 0 || working);
+    b.title = 'Agent (⌘6)' + (working ? ' — working' : '') + (n ? ` — ${n} job${n > 1 ? 's' : ''} running` : '');
   }
 
   // ---------- kit ----------
+  // Above the chat: a banner only when the kit needs something. In the jobs pane: the details.
   function renderKit() {
     const k = A.kit;
-    if (!k) return kitEl.append(h('div.pad.hint', 'Checking the agent kit…'));
+    kitCardEl.innerHTML = '';
+    if (!k) return;
     if (k.error) return kitEl.append(h('div.pad.hint', k.error));
     const codexMissing = App.env.tools && App.env.tools.codex === false;
     if (!k.installed) {
-      kitEl.append(h('div.card',
-        h('h3', 'Agent kit not installed'),
-        h('div.sub', `${k.roles.length} specialist roles for Claude Code and Codex, plus /orchestrate, /delegate and /cross-review. Written to .claude/ and .codeome/ in this project.`),
-        h('div.row', { style: { marginTop: '8px' } }, h('button.btn.small.primary', { onclick: () => A.install() }, 'Install…'))));
+      kitEl.append(h('div.banner',
+        h('div.grow', h('b', 'Working solo. '), 'Install the agent kit so the agent can hand work to Codex and specialist Claude roles.'),
+        h('button.btn.small.primary', { onclick: () => A.install() }, 'Install…')));
+      kitCardEl.append(h('div.empty', `No agent kit in this project. It adds ${k.roles.length} specialist roles, the Codex job runner and job records to .claude/ and .codeome/.`));
       return;
+    }
+    if (k.outdated || k.missing.length) {
+      kitEl.append(h('div.banner',
+        h('div.grow', k.outdated ? `Agent kit ${k.latest} is available (this project has ${k.version}).` : `${k.missing.length} agent kit file${k.missing.length > 1 ? 's are' : ' is'} missing.`),
+        h('button.btn.small.primary', { onclick: () => A.install() }, k.outdated ? 'Update…' : 'Repair…')));
     }
     const groups = (k.installedGroups || []).map((g) => (k.groups[g] || {}).label || g).join(', ');
     const nRoles = k.roles.filter((r) => (k.installedGroups || []).includes(r.group)).length;
-    kitEl.append(h('div.card',
+    kitCardEl.append(h('div.card',
       h('div.row', h('h3.grow', 'Agent kit ' + k.version), k.outdated ? h('span.pill.warn', 'update ' + k.latest) : h('span.pill.ok', 'up to date')),
       h('div.sub', `${nRoles} roles · ${groups}`),
       k.modified.length ? h('div.sub', `${k.modified.length} file${k.modified.length > 1 ? 's' : ''} edited here — kept on update`) : null,
-      k.missing.length ? h('div.sub', `${k.missing.length} file${k.missing.length > 1 ? 's' : ''} missing — reinstall to restore`) : null,
       codexMissing ? h('div.sub', { style: { color: 'var(--pend)' } }, 'Codex not found on this Mac — Codex roles will fall back to Claude.') : null,
       h('div.row', { style: { marginTop: '8px' } },
-        h('button.btn.small' + (k.outdated || k.missing.length ? '.primary' : ''), { onclick: () => A.install() }, k.outdated ? 'Update…' : 'Roles…'),
+        h('button.btn.small', { onclick: () => A.install() }, k.outdated ? 'Update…' : 'Roles…'),
         h('button.btn.small.ghost', { onclick: () => App.views.editor.openFile(App.join(App.project, '.claude/skills/orchestrate/routing.md')) }, 'Routing'))));
   }
 
@@ -122,6 +177,8 @@
     }
     App.emit('local-changed');
     A.refresh(true);
+    const c = App.views.chat.current();
+    if (!k.installed && c && c.started) App.toast('Start a new chat so the agent can use the team.', { action: { label: 'New chat', run: () => App.views.chat.newChat() } });
   };
 
   // ---------- usage ----------
@@ -135,52 +192,21 @@
       const past = lv >= U.stopAt();
       const spare = U.accounts(engine).filter((x) => x !== a && (U.level(x) == null || U.level(x) < U.stopAt()));
       const what = engine === 'claude'
-        ? (past ? 'New Claude subagents are paused, and new orchestrators start on another account.' : `Claude subagents pause at ${U.stopAt()}%.`)
+        ? (past ? 'New Claude subagents are paused, and new chats start on another account.' : `Claude subagents pause at ${U.stopAt()}%.`)
         : (past ? (spare.length ? `Codex jobs now run on ${spare[0].name}.` : 'New Codex jobs are held back.') : `Codex jobs move to another account at ${U.stopAt()}%.`);
       usageEl.append(h('div.card.usage-note' + (past ? '.bad' : '.warn'),
         h('div', h('b', `${label} · ${a.name}`), ` at ${U.worst(a)}. ${what}`),
         engine === 'claude' && past && spare.length ? h('div.row', { style: { marginTop: '6px' } },
-          spare.slice(0, 2).map((x) => h('button.btn.small.primary', { onclick: () => A.start('', 'resume', x.name) }, `Resume plan on ${x.name}`))) : null,
+          spare.slice(0, 2).map((x) => h('button.btn.small.primary', { title: 'A new chat on this account picks up the newest plan where it stopped', onclick: () => App.views.chat.newChat({ account: x.name, send: '/orchestrate resume' }) }, `Resume plan on ${x.name}`))) : null,
         !spare.length ? h('div.sub', U.accounts(engine).length > 1 ? 'No other account has headroom.' : h('a', { href: '#', onclick: (e) => { e.preventDefault(); U.addAccount(engine); } }, `Add another ${label} account…`)) : null));
     }
   }
-
-  // ---------- task ----------
-  let mode = 'orchestrate', draft = '', account = 'auto';
-  function renderTask() {
-    if (!A.kit || !A.kit.installed) return;
-    const m = MODES.find((x) => x.value === mode);
-    const sel = h('select', { 'aria-label': 'What to run', onchange: (e) => { mode = e.target.value; render(); } }, MODES.map((x) => h('option', { value: x.value, selected: x.value === mode }, x.label)));
-    const ta = h('textarea', { rows: 3, placeholder: m.placeholder, 'aria-label': 'Task', oninput: (e) => { draft = e.target.value; } }, draft);
-    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) { e.preventDefault(); A.start(); } });
-    const accts = App.cfg.accounts.claude.list;
-    const U = App.views.usage;
-    const acctSel = accts.length > 1 ? h('select', { 'aria-label': 'Claude account for the orchestrator', style: { width: 'auto' }, onchange: (e) => { account = e.target.value; } },
-      h('option', { value: 'auto', selected: account === 'auto' }, 'Account: auto'),
-      accts.map((a) => { const lv = U && U.level(U.accounts('claude').find((x) => x.name === a.name)); return h('option', { value: a.name, selected: account === a.name }, a.name + (lv != null ? ` (${Math.round(lv)}%)` : '')); })) : null;
-    taskEl.append(h('div.pad.agent-task', sel, ta,
-      h('div.row', acctSel, h('span.hint.grow', 'Opens a Claude Code session in the panel'), h('button.btn.small.primary', { onclick: () => A.start() }, 'Start'))));
-  }
-
-  // acct: a Claude account name, or 'auto' (the active one while it has headroom).
-  A.start = (text, how, acct) => {
-    if (!App.project) return App.toast('Open a project folder first.');
-    how = how || mode;
-    const task = (text != null ? text : draft).trim();
-    if (!['cross-review', 'resume'].includes(how) && !task) return App.toast('Describe the task first.');
-    const claude = (App.cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
-    // Resuming runs /orchestrate on the plan, typically from a fresh account.
-    const prompt = how === 'resume' ? '/orchestrate resume' + (task ? ' ' + task : '') : '/' + how + (task ? ' ' + task : '');
-    const title = { orchestrate: 'Orchestrator', delegate: 'Delegate', 'cross-review': 'Cross-review', resume: 'Orchestrator (resumed)' }[how];
-    App.views.terminals.open({ kind: 'agent-local', title, command: claude + ' ' + App.shq(prompt), cwd: App.project, badge: 'Mac', engine: 'claude', account: acct || account });
-    if (text == null) { draft = ''; render(); }
-  };
 
   // ---------- jobs ----------
   function renderJobs() {
     const live = A.jobs.filter(isLive), done = A.jobs.filter((j) => !isLive(j));
     if (!A.jobs.length) {
-      listEl.append(h('div.empty', A.kit && A.kit.installed ? 'No agent jobs yet. Specialist jobs started by the orchestrator appear here.' : 'Install the kit to record agent jobs.'));
+      listEl.append(h('div.empty', A.kit && A.kit.installed ? 'No jobs yet. Work the agent hands to Codex or Claude specialists appears here and as cards in the chat.' : 'Install the agent kit to record jobs.'));
       return;
     }
     group('Running', live);
