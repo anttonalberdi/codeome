@@ -10,6 +10,12 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **Terminals & agents** — tabs in the bottom panel (`⌘J`): local shells, HPC shells, and Claude Code / Codex sessions either on the Mac or on the cluster. HPC agent sessions run inside `tmux`, so they keep working if the VPN drops and reattach when you reopen them.
 
+**Agents** (`⌘6`) — a team of specialists coordinated by Claude Code. Install the *agent kit* into a project and Claude Code becomes an orchestrator that hands jobs to Claude subagents and to Codex:
+- 15 roles in four groups, chosen at install: core (planner, explorer, implementer, debugger, tester, reviewer), research computing (analyst, pipeline-engineer, hpc-operator, report-writer), web stack (backend, frontend, security-reviewer), release & docs (docs-writer, release-manager).
+- Jobs are routed by type. Well-specified implementation and debugging go to Codex; planning, exploration, docs and anything that needs the network or the HPC go to Claude. Reviews run on whichever engine did *not* write the change.
+- `/orchestrate <task>` runs the pipeline: size → plan → **you approve** → specialists implement, the orchestrator verifies each result → cross-review → **you approve** → commit. `/delegate` sends a single job; `/cross-review` reviews the current changes.
+- Type a task in the Agents view and press *Start* to open the orchestrator in the panel. Every specialist job — Codex runs and Claude subagents alike — appears in the list with its brief, live log and result.
+
 **HPC connection** — uses your system `ssh`, so `~/.ssh/config`, keys, ProxyJump and the VPN behave exactly as in iTerm2. You log in once (password or one-time code prompts appear in a terminal tab); every other operation reuses that connection for 12 hours. The title bar shows VPN reachability, connection state and your running / waiting / failed jobs.
 
 **Files & transfer** (replaces FileZilla) — the Mac project folder and the HPC side by side. Drag between them, or drag from Finder onto the HPC pane, to copy with `rsync` (resumable, incremental, with progress). Rename, delete, folder size, storage quota, "terminal here", "Claude here".
@@ -61,6 +67,19 @@ Open **Settings** (`⌘,`):
 3. **Agents** — one per line, `Name = command`. Defaults: `Claude Code = claude`, `Codex = codex`. Add variants like `Claude (Opus) = claude --model opus`.
 4. **Zenodo / PyPI tokens** if you publish from here.
 
+### Agent kit
+Agents view → **Install…** writes into the project:
+
+| Path | What |
+|---|---|
+| `.claude/agents/<role>.md` | the roles; Claude uses them as subagents, Codex reads the same files |
+| `.claude/skills/{orchestrate,delegate,cross-review}/` | the slash commands |
+| `.claude/skills/orchestrate/routing.md` | role → default engine; edit it to change routing for this project |
+| `.claude/settings.json` | hooks that record Claude subagent jobs, and permission to run the job runner (merged into your existing settings) |
+| `.codeome/bin/codeome-agent` | the job runner (Python 3, standard library only, so it also works on the HPC) |
+
+Commit `.claude/` and `.codeome/bin/` + `.codeome/kit.json` so collaborators get the same team; job records, plans and worktrees are git-ignored. Updating the kit never overwrites a role or skill you have edited. Codex jobs run in Codex's sandbox (read-only for reviewers and planners, workspace-write otherwise, no network). From a terminal: `.codeome/bin/codeome-agent list`, `show <id>`, `cancel <id>`.
+
 Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `quarto`, `Rscript`, `python3`, `tmux` (on the HPC), `claude`, `codex`. Settings shows which ones it found.
 
 ## Keyboard
@@ -73,7 +92,7 @@ Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `quarto`, `Rscript`,
 | `⇧⌘V` | Preview or render current file |
 | `⌘T` / `⇧⌘T` | New local / HPC terminal |
 | `⌘J` | Show or hide terminal panel |
-| `⌘1`–`⌘5` | Files, Slurm, Git, Publish, Python packages |
+| `⌘1`–`⌘6` | Files, Slurm, Git, Publish, Python packages, Agents |
 
 ## Project layout
 
@@ -84,10 +103,13 @@ main/          Electron main process
   slurm.js       squeue / sacct / scancel / sbatch
   zenodo.js      Zenodo REST client
   config.js      settings + Keychain-encrypted tokens
+  kit.js         installs/updates the agent kit in a project
+  jobs.js        reads agent job records from .codeome/jobs/
   preload.js     the bridge the interface is allowed to use
 renderer/      Interface (plain JS, no build step)
   index.html, styles.css
-  js/            one file per area: editor, terminals, files, slurm, git, publish, pip, settings
+  js/            one file per area: editor, terminals, files, slurm, git, publish, pip, agents, settings
+kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-agent, manifest.json
 test/          parser tests (npm test) and a screenshot helper
 ```
 

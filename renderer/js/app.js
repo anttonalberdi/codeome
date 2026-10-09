@@ -102,7 +102,7 @@
         h('kbd', '⇧⌘↩'), h('span', 'Run the whole file'),
         h('kbd', '⇧⌘V'), h('span', 'Preview or render the current file'),
         h('kbd', '⌘J'), h('span', 'Show or hide the terminal panel'),
-        h('kbd', '⌘1–5'), h('span', 'Files, Slurm, Git, Publish, Python packages'))));
+        h('kbd', '⌘1–6'), h('span', 'Files, Slurm, Git, Publish, Python packages, Agents'))));
   }
   App.listen('hpc', renderWelcome);
 
@@ -123,7 +123,7 @@
     'close-tab': () => { const t = App.views.editor.cur(); if (t) App.views.editor.close(t.id); },
     settings: () => App.views.settings.open(),
     'view-files': () => App.setView('files'), 'view-slurm': () => App.setView('slurm'), 'view-git': () => App.setView('git'),
-    'view-publish': () => App.setView('publish'), 'view-pip': () => App.setView('pip'),
+    'view-publish': () => App.setView('publish'), 'view-pip': () => App.setView('pip'), 'view-agents': () => App.setView('agents'),
     'toggle-panel': () => App.views.terminals.togglePanel(), 'new-terminal': () => App.views.terminals.localShell(),
     'new-hpc-terminal': () => App.views.terminals.hpcShell(), preview: () => App.views.editor.previewCurrent()
   };
@@ -131,7 +131,7 @@
   App.start = async () => {
     App.cfg = await codeome.config.get();
     App.views.terminals.init();
-    App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.pip.init();
+    App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.pip.init(); App.views.agents.init();
     App.views.editor.initMonaco();
     App.applyTheme();
     initResize();

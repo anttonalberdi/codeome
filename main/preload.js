@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld('codeome', {
     onProgress: on('zenodo:progress')
   },
   pip: { list: invoke('pip:list'), hasToken: invoke('pypi:hasToken') },
+  kit: { status: invoke('kit:status'), install: (project, groups) => ipcRenderer.invoke('kit:install', { project, groups }) },
+  jobs: {
+    list: invoke('jobs:list'), clear: invoke('jobs:clear'),
+    read: (project, id, part) => ipcRenderer.invoke('jobs:read', { project, id, part }),
+    cancel: (project, id) => ipcRenderer.invoke('jobs:cancel', { project, id })
+  },
   env: { detect: invoke('env:detect') },
   onMenu: on('menu')
 });

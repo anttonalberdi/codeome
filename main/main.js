@@ -7,6 +7,8 @@ const config = require('./config');
 const ssh = require('./ssh');
 const slurm = require('./slurm');
 const zenodo = require('./zenodo');
+const kit = require('./kit');
+const jobs = require('./jobs');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -60,6 +62,7 @@ function buildMenu() {
       { label: 'Git & GitHub', accelerator: 'CmdOrCtrl+3', click: cmd('view-git') },
       { label: 'Publish (Zenodo, PyPI)', accelerator: 'CmdOrCtrl+4', click: cmd('view-publish') },
       { label: 'Python Packages', accelerator: 'CmdOrCtrl+5', click: cmd('view-pip') },
+      { label: 'Agents', accelerator: 'CmdOrCtrl+6', click: cmd('view-agents') },
       { type: 'separator' },
       { label: 'Toggle Terminal Panel', accelerator: 'CmdOrCtrl+J', click: cmd('toggle-panel') },
       { label: 'New Local Terminal', accelerator: 'CmdOrCtrl+T', click: cmd('new-terminal') },
@@ -323,6 +326,14 @@ ipcMain.handle('pip:list', async (_e, { where, python, cwd }) => {
   try { return { packages: JSON.parse(r.stdout.trim().split('\n').pop()) }; } catch { return { error: (r.stderr || r.stdout || 'pip failed').trim() }; }
 });
 ipcMain.handle('pypi:hasToken', (_e, which) => config.hasSecret('pypi:' + which));
+
+// ---------- agent kit & jobs ----------
+ipcMain.handle('kit:status', (_e, project) => { try { return kit.status(project); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('kit:install', (_e, { project, groups }) => { try { return kit.install(project, { groups }); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('jobs:list', (_e, project) => jobs.list(project));
+ipcMain.handle('jobs:read', (_e, { project, id, part }) => jobs.read(project, id, part));
+ipcMain.handle('jobs:cancel', (_e, { project, id }) => jobs.cancel(project, id));
+ipcMain.handle('jobs:clear', (_e, project) => jobs.clear(project));
 
 // ---------- environment detection ----------
 ipcMain.handle('env:detect', async () => {

@@ -164,4 +164,6 @@ App.requireHpc = () => {
   if (!App.hpcConnected) { App.toast('Not connected to the HPC.', { action: { label: 'Connect', run: () => App.connectHpc() } }); return false; }
   return true;
 };
+// Quote a string for a POSIX shell.
+App.shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 App.safeName = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);

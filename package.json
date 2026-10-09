@@ -36,9 +36,10 @@
     "files": [
       "main/**",
       "renderer/**",
+      "kit/**",
       "node_modules/**",
       "package.json"
     ],
-    "asarUnpack": ["node_modules/node-pty/**"]
+    "asarUnpack": ["node_modules/node-pty/**", "kit/**"]
   }
 }

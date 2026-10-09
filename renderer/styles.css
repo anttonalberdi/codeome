@@ -212,6 +212,12 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .state.RUNNING { color: var(--run); } .state.PENDING { color: var(--pend); }
 .state.FAILED, .state.TIMEOUT, .state.OUT_OF_MEMORY, .state.NODE_FAIL, .state.CANCELLED { color: var(--fail); }
 .state.COMPLETED { color: var(--done); }
+.state.running { color: var(--run); } .state.done { color: var(--done); }
+.state.failed, .state.lost, .state.cancelled { color: var(--fail); } .state.stale { color: var(--pend); }
+.pill.codex { background: var(--sel); color: var(--text); }
+.agent-task { display: flex; flex-direction: column; gap: 6px; }
+.agent-task textarea { min-height: 56px; }
+#rail button.busy::after { content: ""; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--run); animation: pulse 1.2s ease-in-out infinite; }
 .group-label { padding: 10px 12px 4px; font-size: 12px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
 
 /* ---------- Git ---------- */

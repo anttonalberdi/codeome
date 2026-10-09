@@ -1,0 +1,416 @@
+#!/usr/bin/env python3
+"""codeome-agent — run Codex specialist jobs and record Claude subagent jobs.
+
+Installed by Codeome at <project>/.codeome/bin/codeome-agent. Standard library
+only, so it runs on a Mac and on the HPC alike. Every job gets a folder in
+<project>/.codeome/jobs/<id>/ holding job.json, brief.md, log.txt and
+result.md; Codeome's Agents view reads those folders.
+
+  codeome-agent codex --role ROLE --title TITLE [--worktree] [--model M] [--resume SESSION] < brief
+  codeome-agent list [--json] [--limit N]
+  codeome-agent show ID [--brief | --log]
+  codeome-agent cancel ID
+  codeome-agent hook            (Claude Code hook: PreToolUse/SubagentStart/SubagentStop JSON on stdin)
+"""
+import argparse
+import json
+import os
+import re
+import secrets
+import signal
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+JOBS = os.path.join(ROOT, '.codeome', 'jobs')
+PENDING = os.path.join(JOBS, '.pending')
+WRITE_TOOLS = {'Edit', 'Write', 'NotebookEdit'}
+
+
+# ---------- job records ----------
+def now_iso():
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def parse_iso(s):
+    try:
+        return datetime.strptime(s, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def safe(s):
+    return re.sub(r'[^a-z0-9]+', '-', str(s or 'job').lower()).strip('-')[:32] or 'job'
+
+
+def new_job_id(role):
+    return '%s-%s-%s' % (time.strftime('%Y%m%d-%H%M%S'), safe(role), secrets.token_hex(2))
+
+
+def job_dir(job_id):
+    return os.path.join(JOBS, job_id)
+
+
+def write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
+def write_text(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(text)
+
+
+def read_text(path, default=''):
+    try:
+        with open(path, encoding='utf-8', errors='replace') as f:
+            return f.read()
+    except OSError:
+        return default
+
+
+def load_job(job_id):
+    try:
+        with open(os.path.join(job_dir(job_id), 'job.json'), encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def save_job(job):
+    write_json(os.path.join(job_dir(job['id']), 'job.json'), job)
+
+
+def pid_alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def all_jobs():
+    try:
+        names = [n for n in os.listdir(JOBS) if not n.startswith('.')]
+    except OSError:
+        return []
+    jobs = [j for j in (load_job(n) for n in names) if j]
+    for j in jobs:
+        # A Codex job whose wrapper died without recording an outcome.
+        if j.get('status') == 'running' and j.get('engine') == 'codex' and not pid_alive(j.get('pid')):
+            j['status'] = 'lost'
+    jobs.sort(key=lambda j: j.get('startedAt') or '', reverse=True)
+    return jobs
+
+
+def find_job(prefix):
+    matches = [j for j in all_jobs() if j['id'].startswith(prefix) or j['id'].endswith(prefix)]
+    if len(matches) != 1:
+        sys.exit('codeome-agent: %s job matches "%s"' % ('no' if not matches else 'more than one', prefix))
+    return matches[0]
+
+
+def duration(job):
+    a, b = parse_iso(job.get('startedAt')), parse_iso(job.get('endedAt')) or time.time()
+    if a is None:
+        return ''
+    s = int(b - a)
+    return '%dh%02dm' % (s // 3600, s % 3600 // 60) if s >= 3600 else '%dm%02ds' % (s // 60, s % 60)
+
+
+# ---------- roles ----------
+def read_role(role):
+    path = os.path.join(ROOT, '.claude', 'agents', role + '.md')
+    text = read_text(path, None)
+    if text is None:
+        have = sorted(n[:-3] for n in os.listdir(os.path.dirname(path))) if os.path.isdir(os.path.dirname(path)) else []
+        sys.exit('codeome-agent: no role "%s" in .claude/agents/ (installed: %s)' % (role, ', '.join(have) or 'none'))
+    meta, body = {}, text
+    m = re.match(r'^---\n(.*?)\n---\n?(.*)$', text, re.S)
+    if m:
+        body = m.group(2)
+        for line in m.group(1).splitlines():
+            if ':' in line:
+                k, v = line.split(':', 1)
+                meta[k.strip()] = v.strip()
+    tools = {t.strip() for t in meta.get('tools', '').split(',') if t.strip()}
+    read_only = bool(tools) and not (tools & WRITE_TOOLS)
+    return body.strip(), read_only
+
+
+PREAMBLE = """You are the "{role}" specialist in a development team. An orchestrator (Claude Code) planned the work and sent you one job; it will verify your result and decide what happens next. You have no other context than what is below.
+
+# Your role
+{body}
+
+# Your job
+{brief}
+"""
+
+FOLLOW_UP = """Follow-up from the orchestrator on the same job:
+
+{brief}
+
+End with the same report shape as before (Status, Changes, Checks, Notes for the orchestrator)."""
+
+
+# ---------- codex ----------
+def git(*args):
+    return subprocess.run(['git', '-C', ROOT] + list(args), capture_output=True, text=True)
+
+
+def cmd_codex(a):
+    brief = read_text(a.brief_file) if a.brief_file else sys.stdin.read()
+    if not brief.strip():
+        sys.exit('codeome-agent: empty brief (pass it on stdin or with --brief-file)')
+    prev = None
+    if a.resume:
+        prev = next((j for j in all_jobs() if j.get('session') == a.resume), None)
+    role = a.role or (prev and prev.get('role'))
+    if not role:
+        sys.exit('codeome-agent: --role is required')
+    body, read_only = read_role(role)
+    sandbox = a.sandbox or (prev and prev.get('sandbox')) or ('read-only' if read_only else 'workspace-write')
+
+    job_id = new_job_id(role)
+    d = job_dir(job_id)
+    os.makedirs(d, exist_ok=True)
+    workdir, worktree, branch = ROOT, None, None
+    if prev and prev.get('worktree'):
+        workdir, worktree, branch = prev['worktree'], prev['worktree'], prev.get('branch')
+    elif a.worktree:
+        branch = 'codeome/' + job_id
+        worktree = os.path.join(ROOT, '.codeome', 'worktrees', job_id)
+        r = git('worktree', 'add', '-b', branch, worktree, 'HEAD')
+        if r.returncode != 0:
+            sys.exit('codeome-agent: could not create worktree: ' + r.stderr.strip())
+        workdir = worktree
+    in_git = git('rev-parse', '--is-inside-work-tree').returncode == 0
+
+    result = os.path.join(d, 'result.md')
+    log = os.path.join(d, 'log.txt')
+    prompt = FOLLOW_UP.format(brief=brief.strip()) if a.resume else PREAMBLE.format(role=role, body=body, brief=brief.strip())
+    write_text(os.path.join(d, 'brief.md'), brief)
+
+    codex = os.environ.get('CODEOME_CODEX', 'codex')
+    if a.resume:
+        argv = [codex, 'exec', 'resume', a.resume, '-c', 'sandbox_mode="%s"' % sandbox, '-o', result]
+    else:
+        argv = [codex, 'exec', '-C', workdir, '-s', sandbox, '-o', result]
+    if a.model:
+        argv += ['-m', a.model]
+    if not in_git:
+        argv.append('--skip-git-repo-check')
+    argv.append('-')
+
+    job = {
+        'id': job_id, 'engine': 'codex', 'role': role, 'title': a.title or role, 'status': 'running',
+        'startedAt': now_iso(), 'endedAt': None, 'exitCode': None, 'pid': os.getpid(),
+        'cwd': workdir, 'worktree': worktree, 'branch': branch, 'sandbox': sandbox,
+        'model': a.model, 'session': a.resume, 'resumedFrom': prev['id'] if prev else None
+    }
+    save_job(job)
+
+    try:
+        logf = open(log, 'w', encoding='utf-8')
+        child = subprocess.Popen(argv, cwd=workdir, stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
+                                 text=True, start_new_session=True)
+    except OSError as e:
+        job.update(status='failed', endedAt=now_iso(), exitCode=-1, error=str(e))
+        save_job(job)
+        sys.exit('codeome-agent: could not start %s: %s' % (codex, e))
+
+    cancelled = {'v': False}
+
+    def stop(signum, _frame):
+        cancelled['v'] = True
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except OSError:
+            pass
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    job['childPid'] = child.pid
+    save_job(job)
+    try:
+        child.stdin.write(prompt)
+        child.stdin.close()
+    except BrokenPipeError:
+        pass
+    code = child.wait()
+    logf.close()
+
+    m = re.search(r'session id:\s*(\S+)', read_text(log))
+    if m:
+        job['session'] = m.group(1)
+    ok = code == 0 and os.path.exists(result)
+    job.update(status='cancelled' if cancelled['v'] else ('done' if ok else 'failed'), endedAt=now_iso(), exitCode=code)
+    save_job(job)
+
+    print('codeome-agent: job %s %s (codex/%s, %s)' % (job_id, job['status'], role, duration(job)))
+    if job.get('session'):
+        print('session: %s  (follow up with: --resume %s)' % (job['session'], job['session']))
+    if worktree:
+        print('worktree: %s  (branch %s)' % (os.path.relpath(worktree, ROOT), branch))
+    print('result: %s' % os.path.relpath(result, ROOT))
+    print('---')
+    if os.path.exists(result):
+        print(read_text(result).strip())
+    else:
+        print('\n'.join(read_text(log).strip().splitlines()[-30:]))
+    sys.exit(0 if job['status'] == 'done' else (130 if cancelled['v'] else 1))
+
+
+# ---------- list / show / cancel ----------
+def cmd_list(a):
+    jobs = all_jobs()[:a.limit]
+    if a.json:
+        print(json.dumps(jobs, indent=2))
+        return
+    if not jobs:
+        print('No jobs yet.')
+        return
+    for j in jobs:
+        print('%-36s %-6s %-18s %-9s %8s  %s' % (j['id'], j.get('engine', ''), j.get('role', ''), j.get('status', ''), duration(j), j.get('title', '')))
+
+
+def cmd_show(a):
+    j = find_job(a.id)
+    name = 'brief.md' if a.brief else 'log.txt' if a.log else 'result.md'
+    text = read_text(os.path.join(job_dir(j['id']), name), None)
+    print(text if text is not None else '(no %s for job %s, status %s)' % (name, j['id'], j.get('status')))
+
+
+def cmd_cancel(a):
+    j = find_job(a.id)
+    if j.get('status') != 'running':
+        sys.exit('codeome-agent: job %s is %s' % (j['id'], j.get('status')))
+    if j.get('engine') != 'codex':
+        sys.exit('codeome-agent: Claude subagents are stopped from their Claude Code session')
+    os.kill(j['pid'], signal.SIGTERM)
+    print('Cancelling %s' % j['id'])
+
+
+# ---------- Claude Code hook ----------
+def cmd_hook(_a):
+    # A hook must never disturb the session: swallow every error, print nothing.
+    try:
+        ev = json.load(sys.stdin)
+        name = ev.get('hook_event_name')
+        if name == 'PreToolUse' and ev.get('tool_name') == 'Agent':
+            inp = ev.get('tool_input') or {}
+            write_json(os.path.join(PENDING, safe(ev.get('tool_use_id') or secrets.token_hex(4)) + '.json'), {
+                'type': inp.get('subagent_type') or 'general-purpose', 'description': inp.get('description') or '',
+                'prompt': inp.get('prompt') or '', 'model': inp.get('model'), 'at': time.time()})
+        elif name == 'SubagentStart' and ev.get('agent_type'):
+            start_claude_job(ev)
+        elif name == 'SubagentStop' and ev.get('agent_type'):
+            stop_claude_job(ev)
+    except Exception:
+        pass
+
+
+def take_pending(agent_type):
+    """The oldest unclaimed Agent call of this type: the brief behind a SubagentStart."""
+    try:
+        files = [os.path.join(PENDING, n) for n in os.listdir(PENDING) if n.endswith('.json')]
+    except OSError:
+        return {}
+    items = []
+    for p in files:
+        try:
+            with open(p, encoding='utf-8') as f:
+                it = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if time.time() - it.get('at', 0) > 3600:
+            os.remove(p)
+            continue
+        items.append((it.get('at', 0), p, it))
+    for _, p, it in sorted(items, key=lambda x: x[0]):
+        if it.get('type') == agent_type:
+            os.remove(p)
+            return it
+    return {}
+
+
+def agent_index(agent_id):
+    return os.path.join(JOBS, '.agents', safe(agent_id))
+
+
+def start_claude_job(ev):
+    pend = take_pending(ev['agent_type'])
+    job_id = new_job_id(ev['agent_type'])
+    job = {
+        'id': job_id, 'engine': 'claude', 'role': ev['agent_type'], 'title': pend.get('description') or ev['agent_type'],
+        'status': 'running', 'startedAt': now_iso(), 'endedAt': None, 'exitCode': None,
+        'cwd': ev.get('cwd') or ROOT, 'agentId': ev.get('agent_id'), 'session': ev.get('session_id'),
+        'model': pend.get('model')
+    }
+    save_job(job)
+    if pend.get('prompt'):
+        write_text(os.path.join(job_dir(job_id), 'brief.md'), pend['prompt'])
+    write_text(agent_index(ev.get('agent_id') or job_id), job_id)
+
+
+def stop_claude_job(ev):
+    job_id = read_text(agent_index(ev.get('agent_id') or ''), '').strip()
+    job = load_job(job_id) if job_id else None
+    if not job:
+        # Hooks were installed mid-session, or the start was missed: record the outcome anyway.
+        job_id = new_job_id(ev['agent_type'])
+        job = {'id': job_id, 'engine': 'claude', 'role': ev['agent_type'], 'title': ev['agent_type'],
+               'startedAt': now_iso(), 'cwd': ev.get('cwd') or ROOT, 'agentId': ev.get('agent_id'), 'session': ev.get('session_id')}
+    job.update(status='done', endedAt=now_iso(), exitCode=0, transcript=ev.get('agent_transcript_path'))
+    save_job(job)
+    if ev.get('last_assistant_message'):
+        write_text(os.path.join(job_dir(job_id), 'result.md'), ev['last_assistant_message'])
+    try:
+        os.remove(agent_index(ev.get('agent_id') or ''))
+    except OSError:
+        pass
+
+
+def main():
+    p = argparse.ArgumentParser(prog='codeome-agent', description='Codeome agent jobs')
+    sub = p.add_subparsers(dest='cmd', required=True)
+    c = sub.add_parser('codex', help='run a Codex specialist job (brief on stdin)')
+    c.add_argument('--role')
+    c.add_argument('--title')
+    c.add_argument('--brief-file')
+    c.add_argument('--worktree', action='store_true', help='run in a new git worktree on branch codeome/<job-id>')
+    c.add_argument('--model')
+    c.add_argument('--sandbox', choices=['read-only', 'workspace-write'])
+    c.add_argument('--resume', metavar='SESSION', help='follow up in an earlier Codex session')
+    c.set_defaults(fn=cmd_codex)
+    ls = sub.add_parser('list', help='recent jobs')
+    ls.add_argument('--json', action='store_true')
+    ls.add_argument('--limit', type=int, default=20)
+    ls.set_defaults(fn=cmd_list)
+    sh = sub.add_parser('show', help="print a job's result (or brief/log)")
+    sh.add_argument('id')
+    g = sh.add_mutually_exclusive_group()
+    g.add_argument('--brief', action='store_true')
+    g.add_argument('--log', action='store_true')
+    sh.set_defaults(fn=cmd_show)
+    ca = sub.add_parser('cancel', help='stop a running Codex job')
+    ca.add_argument('id')
+    ca.set_defaults(fn=cmd_cancel)
+    sub.add_parser('hook', help='Claude Code hook entry point').set_defaults(fn=cmd_hook)
+    a = p.parse_args()
+    a.fn(a)
+
+
+if __name__ == '__main__':
+    main()
