@@ -1,0 +1,159 @@
+// Wiring: views, cluster strip, project folder, menus, startup.
+(function () {
+  const h = App.h;
+  App.currentView = 'files';
+
+  App.setView = (v) => {
+    App.currentView = v;
+    document.querySelectorAll('#rail button').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+    document.querySelectorAll('#sidebar .view').forEach((s) => { s.hidden = s.dataset.view !== v; });
+    App.emit('view', v);
+  };
+
+  App.applyTheme = () => {
+    const t = App.cfg.editor.theme;
+    if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+    App.views.editor.applyTheme(); App.views.terminals.retheme();
+  };
+
+  // ---------- project ----------
+  App.openProject = async (dir) => {
+    dir = dir || await codeome.dialog.folder({ defaultPath: App.project || App.cfg.localRoot });
+    if (!dir) return;
+    App.project = dir;
+    App.cfg.localRoot = dir;
+    App.cfg.recentFolders = [dir, ...App.cfg.recentFolders.filter((d) => d !== dir)].slice(0, 8);
+    await App.saveConfig();
+    document.getElementById('project-name').textContent = App.basename(dir);
+    document.title = App.basename(dir) + ' — Codeome';
+    App.emit('project', dir);
+    renderWelcome();
+  };
+
+  // ---------- HPC connection & cluster strip ----------
+  let connecting = false;
+  App.connectHpc = async () => {
+    if (!App.cfg.hpc.host) return App.views.settings.open();
+    if (App.hpcConnected) return;
+    connecting = true; paint();
+    // The login runs in a visible terminal so password / one-time-code prompts work.
+    App.views.terminals.open({
+      kind: 'hpc-login', title: 'Connect ' + App.cfg.hpc.host, badge: 'HPC',
+      onExit: async () => { connecting = false; await App.pollHpc(); if (App.hpcConnected) { App.toast('Connected to ' + App.cfg.hpc.host + '.'); const t = App.views.terminals.list.find((x) => x.spec.kind === 'hpc-login' && !x.alive); if (t) setTimeout(() => App.views.terminals.close(t.id), 600); } else paint(); }
+    });
+  };
+  App.disconnectHpc = async () => { await codeome.hpc.disconnect(); await App.pollHpc(); App.toast('Disconnected.'); };
+
+  let vpn = { known: false }, jobs = null;
+  App.pollHpc = async () => {
+    const [st, v] = await Promise.all([codeome.hpc.status(), codeome.hpc.vpn()]);
+    vpn = v;
+    const was = App.hpcConnected;
+    App.hpcConnected = st.connected;
+    if (was !== st.connected) App.emit('hpc', st.connected);
+    if (!st.connected) jobs = null;
+    paint();
+  };
+  App.listen('jobs', (j) => { jobs = j; paint(); });
+
+  function paint() {
+    const v = document.getElementById('c-vpn'), hp = document.getElementById('c-hpc'), jb = document.getElementById('c-jobs');
+    v.hidden = !vpn.known;
+    v.className = 'c-seg ' + (vpn.up ? 'ok' : 'bad');
+    v.title = vpn.up ? 'VPN reachable' : 'VPN not reachable — the cluster may be unreachable';
+    hp.className = 'c-seg ' + (connecting ? 'busy' : App.hpcConnected ? 'ok' : (App.cfg.hpc.host ? 'bad' : ''));
+    document.getElementById('c-hpc-label').textContent = !App.cfg.hpc.host ? 'Set up HPC' : (connecting ? 'Connecting…' : (App.hpcConnected ? App.cfg.hpc.host : 'Connect ' + App.cfg.hpc.host));
+    jb.innerHTML = '';
+    if (App.hpcConnected && jobs) {
+      jb.append(h('span', h('b.r', String(jobs.running)), ' running'), ' ', h('span', h('b.p', String(jobs.pending)), ' waiting'));
+      if (jobs.failed) jb.append(' ', h('span', h('b.f', String(jobs.failed)), ' failed'));
+    }
+  }
+
+  function clusterMenu(el) {
+    if (!App.cfg.hpc.host) return App.views.settings.open();
+    if (!App.hpcConnected) return App.connectHpc();
+    App.menuAt(el, [
+      { label: 'Slurm jobs', key: '⌘2', run: () => App.setView('slurm') },
+      { label: 'HPC terminal', key: '⇧⌘T', run: () => App.views.terminals.hpcShell() },
+      ...App.cfg.agents.map((a) => ({ label: a.name + ' on the HPC', run: () => App.views.terminals.agentHpc(a) })),
+      '-',
+      { label: 'Disconnect', run: () => App.disconnectHpc() }
+    ]);
+  }
+
+  // ---------- welcome ----------
+  function renderWelcome() {
+    const w = document.getElementById('welcome'); w.innerHTML = '';
+    const agents = App.cfg.agents;
+    w.append(h('div.welcome-inner',
+      h('h1', App.project ? App.basename(App.project) : 'Codeome'),
+      h('p', App.project ? App.project : 'Open a project folder to start. Your files, the cluster, and your agents live side by side here.'),
+      h('div.quick',
+        h('button', { onclick: () => App.openProject() }, h('b', App.project ? 'Open another folder' : 'Open folder'), h('span', 'A local project with your R and Python code')),
+        h('button', { onclick: () => App.views.editor.newFile() }, h('b', 'New file'), h('span', 'Script, notebook or report')),
+        agents[0] ? h('button', { onclick: () => App.views.terminals.agentLocal(agents[0]) }, h('b', agents[0].name), h('span', 'Start a session in this folder')) : null,
+        agents[1] ? h('button', { onclick: () => App.views.terminals.agentLocal(agents[1]) }, h('b', agents[1].name), h('span', 'Start a session in this folder')) : null,
+        h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login and VPN check')),
+        h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts'))),
+      App.cfg.recentFolders.length > 1 ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => d !== App.project).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, d)))) : null,
+      h('div.keys',
+        h('kbd', '⌘↩'), h('span', 'Run the current line or selection in the active terminal (R, Python, shell)'),
+        h('kbd', '⇧⌘↩'), h('span', 'Run the whole file'),
+        h('kbd', '⇧⌘V'), h('span', 'Preview or render the current file'),
+        h('kbd', '⌘J'), h('span', 'Show or hide the terminal panel'),
+        h('kbd', '⌘1–5'), h('span', 'Files, Slurm, Git, Publish, Python packages'))));
+  }
+  App.listen('hpc', renderWelcome);
+
+  // ---------- sidebar resize ----------
+  function initResize() {
+    const rz = document.getElementById('sidebar-resizer');
+    rz.addEventListener('mousedown', (e) => {
+      const start = e.clientX, w = document.getElementById('sidebar').getBoundingClientRect().width;
+      const move = (ev) => document.documentElement.style.setProperty('--side-w', Math.max(220, Math.min(560, w + ev.clientX - start)) + 'px');
+      const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); App.views.editor.layout(); };
+      addEventListener('mousemove', move); addEventListener('mouseup', up);
+    });
+  }
+
+  // ---------- menu commands ----------
+  const commands = {
+    'open-folder': () => App.openProject(), 'new-file': () => App.views.editor.newFile(), save: () => App.views.editor.save(),
+    'close-tab': () => { const t = App.views.editor.cur(); if (t) App.views.editor.close(t.id); },
+    settings: () => App.views.settings.open(),
+    'view-files': () => App.setView('files'), 'view-slurm': () => App.setView('slurm'), 'view-git': () => App.setView('git'),
+    'view-publish': () => App.setView('publish'), 'view-pip': () => App.setView('pip'),
+    'toggle-panel': () => App.views.terminals.togglePanel(), 'new-terminal': () => App.views.terminals.localShell(),
+    'new-hpc-terminal': () => App.views.terminals.hpcShell(), preview: () => App.views.editor.previewCurrent()
+  };
+
+  App.start = async () => {
+    App.cfg = await codeome.config.get();
+    App.views.terminals.init();
+    App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.pip.init();
+    App.views.editor.initMonaco();
+    App.applyTheme();
+    initResize();
+    document.querySelectorAll('#rail button').forEach((b) => { b.onclick = () => App.setView(b.dataset.view); });
+    document.getElementById('settings-btn').onclick = () => App.views.settings.open();
+    document.getElementById('project-btn').onclick = () => App.openProject();
+    const cl = document.getElementById('cluster');
+    cl.onclick = () => clusterMenu(cl);
+    cl.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clusterMenu(cl); } };
+    codeome.onMenu((c) => commands[c] && commands[c]());
+    App.views.editor.activate(null);
+    paint();
+    renderWelcome();
+    codeome.env.detect().then((env) => {
+      App.env = env;
+      if (!env.ptyOk) App.err('Terminals need a one-time rebuild. In the Codeome folder run: npm run rebuild\n\n' + env.ptyError.split('\n')[0]);
+      const missing = App.cfg.agents.filter((a) => env.tools[a.cmd.split(' ')[0]] === false).map((a) => a.name);
+      if (missing.length) App.toast(`${missing.join(' and ')} not found on this Mac's PATH. Install it or adjust the command in Settings.`);
+    });
+    if (App.cfg.recentFolders[0]) App.openProject(App.cfg.recentFolders[0]); else App.views.files.go('local', App.cfg.localRoot || '~');
+    await App.pollHpc();
+    setInterval(() => { if (!document.hidden && !connecting) App.pollHpc(); }, 15000);
+    if (!App.cfg.hpc.host) setTimeout(() => App.toast('Add your cluster login to connect to the HPC.', { action: { label: 'Open Settings', run: () => App.views.settings.open() } }), 800);
+  };
+})();
