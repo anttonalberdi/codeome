@@ -1,7 +1,9 @@
 // Centre stage: Monaco file tabs plus custom tabs (previews, diffs, job logs).
+// Every tab belongs to the project that was open when it was created; only the
+// current project's tabs are shown.
 (function () {
   const h = App.h;
-  const E = { tabs: [], active: null, editor: null, seq: 0 };
+  const E = { tabs: [], active: null, editor: null, seq: 0, lastActive: {} };
   App.views.editor = E;
 
   const LANG = {
@@ -50,18 +52,22 @@
   };
 
   E.cur = () => E.tabs.find((t) => t.id === E.active);
+  const mine = (t, project = App.project) => t.project === project;
+  E.visible = () => E.tabs.filter((t) => mine(t));
 
   E.openFile = async function (path, opts = {}) {
     const remote = !!opts.remote;
     const key = (remote ? 'hpc:' : '') + path;
-    const existing = E.tabs.find((t) => t.key === key);
+    const existing = E.tabs.find((t) => t.key === key && mine(t));
     if (existing) { E.activate(existing.id); return existing; }
     if (E.isBinary(path)) { if (E.isPreviewable(path)) return E.preview(path, { remote }); App.toast(App.basename(path) + ' is a binary file.'); return; }
     const r = remote ? await codeome.remote.read(path) : await codeome.local.read(path);
     if (r.error) { App.err(r.error); return; }
     const uri = monaco.Uri.from({ scheme: remote ? 'hpc' : 'file', path: path.startsWith('/') ? path : '/' + path });
     const model = monaco.editor.getModel(uri) || monaco.editor.createModel(r.content, E.lang(path), uri);
-    const tab = { id: 'e' + (++E.seq), key, kind: 'file', path, remote, title: App.basename(path), model, saved: model.getAlternativeVersionId(), viewState: null };
+    // Two projects can open the same file: they share its model (and its unsaved edits).
+    const twin = E.tabs.find((t) => t.model === model);
+    const tab = { id: 'e' + (++E.seq), key, kind: 'file', path, remote, title: App.basename(path), model, project: App.project, saved: twin ? twin.saved : model.getAlternativeVersionId(), viewState: null };
     model.onDidChangeContent(() => { tab.dirty = model.getAlternativeVersionId() !== tab.saved; renderTabs(); });
     E.tabs.push(tab);
     E.activate(tab.id);
@@ -81,10 +87,10 @@
 
   // Custom tabs: render(el) builds content once; onActivate refreshes.
   E.openCustom = function ({ key, title, badge, render, onActivate, onClose }) {
-    const existing = E.tabs.find((t) => t.key === key);
+    const existing = E.tabs.find((t) => t.key === key && mine(t));
     if (existing) { E.activate(existing.id); if (existing.onActivate) existing.onActivate(existing); return existing; }
     const el = h('div', { style: { display: 'contents' } });
-    const tab = { id: 'e' + (++E.seq), key, kind: 'custom', title, badge, el, onActivate, onClose };
+    const tab = { id: 'e' + (++E.seq), key, kind: 'custom', title, badge, el, onActivate, onClose, project: App.project };
     E.tabs.push(tab);
     render(el, tab);
     E.activate(tab.id);
@@ -96,6 +102,7 @@
     if (prev && prev.kind === 'file' && E.editor) prev.viewState = E.editor.saveViewState();
     E.active = id;
     const t = E.cur();
+    if (t) E.lastActive[t.project] = id;
     const monacoHost = document.getElementById('monaco-host');
     const alt = document.getElementById('alt-host');
     document.getElementById('welcome').hidden = !!t;
@@ -115,26 +122,47 @@
     App.emit('tab', t);
   };
 
+  // Resolves false when the user keeps the tab open.
   E.close = async function (id) {
-    const t = E.tabs.find((x) => x.id === id); if (!t) return;
-    if (t.dirty) {
+    const t = E.tabs.find((x) => x.id === id); if (!t) return true;
+    const shared = t.kind === 'file' && E.tabs.some((x) => x !== t && x.model === t.model);
+    if (t.dirty && !shared) {
       const r = await App.modal({ title: `Save changes to ${t.title}?`, text: 'Your changes will be lost if you close without saving.', ok: 'Save', cancel: 'Cancel', fields: [] });
-      if (r === null) { const disc = await App.confirm('Discard changes?', `Close ${t.title} without saving.`, 'Discard', true); if (!disc) return; }
-      else if (!(await E.save(t))) return;
+      if (r === null) { const disc = await App.confirm('Discard changes?', `Close ${t.title} without saving.`, 'Discard', true); if (!disc) return false; }
+      else if (!(await E.save(t))) return false;
     }
-    if (t.kind === 'file') t.model.dispose();
+    if (t.kind === 'file' && !shared) t.model.dispose();
     if (t.onClose) t.onClose(t);
-    const i = E.tabs.indexOf(t);
-    E.tabs.splice(i, 1);
-    if (E.active === id) { const n = E.tabs[i] || E.tabs[i - 1]; E.active = null; E.activate(n ? n.id : null); } else renderTabs();
+    const siblings = E.tabs.filter((x) => x.project === t.project);
+    const i = siblings.indexOf(t);
+    E.tabs.splice(E.tabs.indexOf(t), 1);
+    if (E.lastActive[t.project] === id) delete E.lastActive[t.project];
+    if (E.active === id) { const n = siblings[i + 1] || siblings[i - 1]; E.active = null; E.activate(n ? n.id : null); } else renderTabs();
+    return true;
   };
+
+  // Close every tab of a project, asking about unsaved files. False if the user cancels.
+  E.closeProject = async function (project) {
+    for (const t of E.tabs.filter((x) => x.project === project)) if (!(await E.close(t.id))) return false;
+    return true;
+  };
+
+  // Show the project's own tabs, back on the one last used there.
+  App.listen('project', (project) => {
+    const last = E.tabs.find((t) => t.id === E.lastActive[project] && mine(t, project));
+    const vis = E.tabs.filter((t) => mine(t, project));
+    E.active = null;
+    E.activate(last ? last.id : (vis.length ? vis[vis.length - 1].id : null));
+  });
 
   E.save = async function (t = E.cur()) {
     if (!t || t.kind !== 'file') return false;
     const content = t.model.getValue();
     const r = t.remote ? await codeome.remote.write(t.path, content) : await codeome.local.write(t.path, content);
     if (r.error) { App.err('Could not save: ' + r.error); return false; }
-    t.saved = t.model.getAlternativeVersionId(); t.dirty = false; renderTabs();
+    // Tabs sharing the model (same file in two projects) are saved too.
+    for (const x of E.tabs) if (x.model === t.model) { x.saved = t.model.getAlternativeVersionId(); x.dirty = false; }
+    renderTabs();
     App.emit('saved', t);
     return true;
   };
@@ -246,7 +274,8 @@
 
   function renderTabs() {
     const el = document.getElementById('tabs'); el.innerHTML = '';
-    for (const t of E.tabs) {
+    App.emit('sessions');
+    for (const t of E.visible()) {
       el.append(h('div.tab' + (t.id === E.active ? '.active' : '') + (t.dirty ? '.dirty' : ''), {
         onclick: () => E.activate(t.id), title: t.path ? (t.remote ? 'HPC: ' : '') + t.path : t.title,
         onauxclick: (e) => { if (e.button === 1) E.close(t.id); }

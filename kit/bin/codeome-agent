@@ -6,7 +6,8 @@ only, so it runs on a Mac and on the HPC alike. Every job gets a folder in
 <project>/.codeome/jobs/<id>/ holding job.json, brief.md, log.txt and
 result.md; Codeome's Agents view reads those folders.
 
-  codeome-agent codex --role ROLE --title TITLE [--worktree] [--model M] [--resume SESSION] < brief
+  codeome-agent codex --role ROLE --title TITLE [--worktree] [--model M] [--resume SESSION] [--account NAME] < brief
+  codeome-agent usage [--json]  (Claude and Codex limits per account, as Codeome last saw them)
   codeome-agent list [--json] [--limit N]
   codeome-agent show ID [--brief | --log]
   codeome-agent cancel ID
@@ -27,6 +28,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 JOBS = os.path.join(ROOT, '.codeome', 'jobs')
 PENDING = os.path.join(JOBS, '.pending')
 WRITE_TOOLS = {'Edit', 'Write', 'NotebookEdit'}
+CODEOME_HOME = os.environ.get('CODEOME_HOME') or os.path.expanduser('~/.codeome')
+STALE_S = 30 * 60
+EX_LIMIT = 75  # held back: every account is past the usage limit
 
 
 # ---------- job records ----------
@@ -164,9 +168,144 @@ FOLLOW_UP = """Follow-up from the orchestrator on the same job:
 End with the same report shape as before (Status, Changes, Checks, Notes for the orchestrator)."""
 
 
+# ---------- usage limits ----------
+# Codeome writes ~/.codeome/usage.json: per engine, the accounts (config folders),
+# the active one, and the latest 5-hour and weekly readings. Without it (Codeome not
+# running, or on the HPC) jobs run on the default account with no limit checks.
+def load_usage():
+    try:
+        with open(os.path.join(CODEOME_HOME, 'usage.json'), encoding='utf-8') as f:
+            u = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return u if isinstance(u, dict) and u.get('version') == 1 else None
+
+
+def window_pct(w, now):
+    if not w or w.get('pct') is None:
+        return None
+    return 0.0 if w.get('resetsAt') and w['resetsAt'] <= now else float(w['pct'])
+
+
+def level(acct, now):
+    """Highest use across the windows; None when nothing recent is known."""
+    if not acct or not acct.get('asOf') or now - acct['asOf'] > STALE_S:
+        return None
+    if acct.get('reached'):
+        return 100.0
+    ws = acct.get('windows') or {}
+    ps = [p for p in (window_pct(ws.get('fiveHour'), now), window_pct(ws.get('weekly'), now)) if p is not None]
+    return max(ps) if ps else None
+
+
+def pick_account(accounts, preferred, stop_at, now):
+    """(account, blocked): the preferred account while it has headroom, else the one with the most."""
+    if not accounts:
+        return None, False
+    pref = next((a for a in accounts if a.get('name') == preferred), accounts[0])
+    lv = lambda a: level(a, now)
+    if lv(pref) is None or lv(pref) < stop_at:
+        return pref, False
+    open_ = sorted((a for a in accounts if a is not pref and lv(a) is not None and lv(a) < stop_at), key=lv)
+    if open_:
+        return open_[0], False
+    unknown = next((a for a in accounts if a is not pref and lv(a) is None), None)
+    return (unknown, False) if unknown else (None, True)
+
+
+def fmt_reset(ts):
+    if not ts:
+        return '?'
+    return time.strftime('%H:%M' if ts - time.time() < 20 * 3600 else '%a %H:%M', time.localtime(ts))
+
+
+def describe(acct, now):
+    ws = acct.get('windows') or {}
+    parts = []
+    for key, label in (('fiveHour', '5-hour'), ('weekly', 'weekly')):
+        p = window_pct(ws.get(key), now)
+        if p is not None:
+            parts.append('%s %d%% (resets %s)' % (label, p, fmt_reset(ws[key].get('resetsAt'))))
+    return ', '.join(parts) or 'no recent reading'
+
+
+def account_key(d):
+    # Same rule as Codeome's accountKey() and codeome-statusline.
+    if not d:
+        return 'default'
+    return re.sub(r'[^A-Za-z0-9]+', '_', os.path.realpath(os.path.expanduser(d))).strip('_')
+
+
+def cmd_usage(a):
+    u = load_usage()
+    if a.json:
+        print(json.dumps(u, indent=2))
+        return
+    if not u:
+        print('No usage data: Codeome writes %s while it runs.' % os.path.join(CODEOME_HOME, 'usage.json'))
+        return
+    now, stop_at = time.time(), u.get('stopAt', 90)
+    print('Jobs are held back at %d%% of the 5-hour or weekly limit.' % stop_at)
+    for engine in ('claude', 'codex'):
+        e = u.get(engine) or {}
+        for acct in e.get('accounts') or []:
+            lv = level(acct, now)
+            state = 'unknown' if lv is None else ('LIMIT' if lv >= stop_at else ('near' if lv >= stop_at - 15 else 'ok'))
+            print('%-6s %-14s %-8s %s%s' % (engine, acct.get('name'), state, describe(acct, now),
+                                            '  (active)' if acct.get('name') == e.get('active') else ''))
+
+
 # ---------- codex ----------
 def git(*args):
     return subprocess.run(['git', '-C', ROOT] + list(args), capture_output=True, text=True)
+
+
+LIMIT_HIT = re.compile(r"usage limit|rate limit reached|hit your (usage )?limit", re.I)
+
+
+def choose_codex_account(a, prev):
+    """The Codex account for this job; exits with EX_LIMIT when the job must be held back."""
+    u = load_usage()
+    if not u:
+        return None
+    now, stop_at = time.time(), u.get('stopAt', 90)
+    codex = u.get('codex') or {}
+    accounts = codex.get('accounts') or []
+    if prev:
+        # A Codex session lives in one account's CODEX_HOME: follow-ups must stay there.
+        d = prev.get('accountDir') or ''
+        acct = next((x for x in accounts if account_key(x.get('dir')) == account_key(d)), None) or {'name': prev.get('account'), 'dir': d}
+        lv = level(acct, now)
+        if lv is not None and lv >= stop_at and not a.ignore_limits:
+            hold('Codex account "%s", where session %s lives, is at %s. A follow-up cannot move to another account: '
+                 'start a fresh job with the full brief instead, or wait.' % (acct.get('name'), a.resume, describe(acct, now)))
+        return acct
+    if a.account:
+        acct = next((x for x in accounts if x.get('name') == a.account), None)
+        if not acct:
+            sys.exit('codeome-agent: no Codex account "%s" (have: %s)' % (a.account, ', '.join(x.get('name', '?') for x in accounts) or 'none'))
+        lv = level(acct, now)
+        if lv is not None and lv >= stop_at and not a.ignore_limits:
+            hold('Codex account "%s" is at %s.' % (acct['name'], describe(acct, now)))
+        return acct
+    acct, blocked = pick_account(accounts, codex.get('active'), stop_at, now)
+    if blocked:
+        if not a.ignore_limits:
+            hold('Every Codex account is past %d%%: %s.' % (stop_at, '; '.join('%s — %s' % (x.get('name'), describe(x, now)) for x in accounts)))
+        acct = next((x for x in accounts if x.get('name') == codex.get('active')), accounts[0])
+    if acct and acct.get('name') != codex.get('active'):
+        print('codeome-agent: using Codex account "%s"; the active account is past its limit or unknown' % acct.get('name'), file=sys.stderr)
+    lv = level(acct, now) if acct else None
+    if lv is not None and stop_at - 15 <= lv < stop_at:
+        print('codeome-agent: note: Codex account "%s" is at %s; jobs are held back at %d%%.' % (acct.get('name'), describe(acct, now), stop_at), file=sys.stderr)
+    return acct
+
+
+def hold(why):
+    print('codeome-agent: job NOT started (usage limit). %s\n'
+          'Do not retry in a loop. Route the job to Claude if its role allows, or pause and tell the user: '
+          'they can add or switch accounts in Codeome, or wait for the reset.' % why)
+    sys.exit(EX_LIMIT)
 
 
 def cmd_codex(a):
@@ -181,6 +320,7 @@ def cmd_codex(a):
         sys.exit('codeome-agent: --role is required')
     body, read_only = read_role(role)
     sandbox = a.sandbox or (prev and prev.get('sandbox')) or ('read-only' if read_only else 'workspace-write')
+    account = choose_codex_account(a, prev)
 
     job_id = new_job_id(role)
     d = job_dir(job_id)
@@ -213,18 +353,25 @@ def cmd_codex(a):
         argv.append('--skip-git-repo-check')
     argv.append('-')
 
+    env = dict(os.environ)
+    if account:
+        env.pop('CODEX_HOME', None)
+        if account.get('dir'):
+            env['CODEX_HOME'] = os.path.expanduser(account['dir'])
+
     job = {
         'id': job_id, 'engine': 'codex', 'role': role, 'title': a.title or role, 'status': 'running',
         'startedAt': now_iso(), 'endedAt': None, 'exitCode': None, 'pid': os.getpid(),
         'cwd': workdir, 'worktree': worktree, 'branch': branch, 'sandbox': sandbox,
-        'model': a.model, 'session': a.resume, 'resumedFrom': prev['id'] if prev else None
+        'model': a.model, 'session': a.resume, 'resumedFrom': prev['id'] if prev else None,
+        'account': account.get('name') if account else None, 'accountDir': env.get('CODEX_HOME') or ''
     }
     save_job(job)
 
     try:
         logf = open(log, 'w', encoding='utf-8')
         child = subprocess.Popen(argv, cwd=workdir, stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
-                                 text=True, start_new_session=True)
+                                 text=True, start_new_session=True, env=env)
     except OSError as e:
         job.update(status='failed', endedAt=now_iso(), exitCode=-1, error=str(e))
         save_job(job)
@@ -251,14 +398,21 @@ def cmd_codex(a):
     code = child.wait()
     logf.close()
 
-    m = re.search(r'session id:\s*(\S+)', read_text(log))
+    log_text = read_text(log)
+    m = re.search(r'session id:\s*(\S+)', log_text)
     if m:
         job['session'] = m.group(1)
     ok = code == 0 and os.path.exists(result)
+    if not ok and LIMIT_HIT.search(log_text[-4000:]):
+        job['limitHit'] = True
     job.update(status='cancelled' if cancelled['v'] else ('done' if ok else 'failed'), endedAt=now_iso(), exitCode=code)
     save_job(job)
 
-    print('codeome-agent: job %s %s (codex/%s, %s)' % (job_id, job['status'], role, duration(job)))
+    print('codeome-agent: job %s %s (codex/%s%s, %s)' % (job_id, job['status'], role,
+                                                        ', account ' + job['account'] if job.get('account') else '', duration(job)))
+    if job.get('limitHit'):
+        print('Codex hit a usage limit on this account. Do not retry it now: run `.codeome/bin/codeome-agent usage`, '
+              'then send the job again (another account is picked if one has headroom) or stop and tell the user.')
     if job.get('session'):
         print('session: %s  (follow up with: --resume %s)' % (job['session'], job['session']))
     if worktree:
@@ -303,12 +457,38 @@ def cmd_cancel(a):
 
 
 # ---------- Claude Code hook ----------
+def claude_gate():
+    """Why a new Claude subagent must wait: this session's account is past the limit."""
+    u = load_usage()
+    if not u:
+        return None
+    now, stop_at = time.time(), u.get('stopAt', 90)
+    key = account_key(os.environ.get('CLAUDE_CONFIG_DIR'))
+    accounts = (u.get('claude') or {}).get('accounts') or []
+    acct = next((x for x in accounts if (x.get('key') or account_key(x.get('dir'))) == key), None)
+    lv = level(acct, now)
+    if lv is None or lv < stop_at:
+        return None
+    others = [x.get('name') for x in accounts if x is not acct and (level(x, now) is None or level(x, now) < stop_at)]
+    where = ('They can continue the plan on Claude account %s from Codeome\'s Agents view (Resume a plan).'
+             % ' or '.join('"%s"' % o for o in others)) if others else 'No other Claude account has headroom; the limit resets as shown.'
+    return ('Codeome: Claude account "%s" is at %s, past the %d%% limit, so new Claude subagents are paused. '
+            'Do not retry this call. Send jobs whose role allows it to Codex (.codeome/bin/codeome-agent codex ...), '
+            'otherwise stop and tell the user. %s' % (acct.get('name'), describe(acct, now), stop_at, where))
+
+
 def cmd_hook(_a):
-    # A hook must never disturb the session: swallow every error, print nothing.
+    # A hook must never disturb the session: swallow every error, print nothing,
+    # except to refuse a new subagent when the account is past its usage limit.
     try:
         ev = json.load(sys.stdin)
         name = ev.get('hook_event_name')
         if name == 'PreToolUse' and ev.get('tool_name') == 'Agent':
+            why = claude_gate()
+            if why:
+                print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                                                         'permissionDecisionReason': why}}))
+                return
             inp = ev.get('tool_input') or {}
             write_json(os.path.join(PENDING, safe(ev.get('tool_use_id') or secrets.token_hex(4)) + '.json'), {
                 'type': inp.get('subagent_type') or 'general-purpose', 'description': inp.get('description') or '',
@@ -393,7 +573,12 @@ def main():
     c.add_argument('--model')
     c.add_argument('--sandbox', choices=['read-only', 'workspace-write'])
     c.add_argument('--resume', metavar='SESSION', help='follow up in an earlier Codex session')
+    c.add_argument('--account', help='run on this Codex account (default: the active one while it has headroom)')
+    c.add_argument('--ignore-limits', action='store_true', help='start even when the account is past the usage limit')
     c.set_defaults(fn=cmd_codex)
+    us = sub.add_parser('usage', help='Claude and Codex usage per account')
+    us.add_argument('--json', action='store_true')
+    us.set_defaults(fn=cmd_usage)
     ls = sub.add_parser('list', help='recent jobs')
     ls.add_argument('--json', action='store_true')
     ls.add_argument('--limit', type=int, default=20)

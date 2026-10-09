@@ -1,0 +1,203 @@
+// Left column: one card per open project. Each project keeps its own editor tabs,
+// terminal and agent sessions (which keep running while another project is shown)
+// and its place in the HPC file browser.
+(function () {
+  const h = App.h;
+  const P = { list: [], state: {} }; // state[dir] = { remoteDir, jobs }
+  App.views.projects = P;
+  let el, dragging = null, pending = 0;
+
+  P.init = () => {
+    el = document.getElementById('projects');
+    P.list = (App.cfg.openProjects || []).filter(Boolean);
+    applyCollapsed();
+    // Unsaved files and live sessions change the cards.
+    App.listen('sessions', schedule);
+    setInterval(pollJobs, 5000);
+    render();
+  };
+
+  // Restore the cards from last time (or the most recent folder).
+  P.restore = async () => {
+    if (!P.list.length && App.cfg.recentFolders[0]) P.list = [App.cfg.recentFolders[0]];
+    const want = P.list.includes(App.cfg.activeProject) ? App.cfg.activeProject : P.list[0];
+    if (want) await P.switchTo(want); else render();
+    pollJobs();
+  };
+
+  P.open = async (dir) => {
+    dir = dir || await codeome.dialog.folder({ defaultPath: App.project || App.cfg.localRoot });
+    if (!dir) return;
+    if (!P.list.includes(dir)) P.list.push(dir);
+    await P.switchTo(dir);
+  };
+
+  P.switchTo = async (dir) => {
+    if (dir && dir === App.project) return;
+    if (App.project) state(App.project).remoteDir = App.remoteDir;
+    App.closePopover();
+    App.project = dir;
+    if (dir) {
+      App.cfg.localRoot = dir;
+      App.cfg.recentFolders = [dir, ...App.cfg.recentFolders.filter((d) => d !== dir)].slice(0, 8);
+    }
+    App.cfg.openProjects = P.list.slice();
+    App.cfg.activeProject = dir;
+    document.getElementById('project-name').textContent = dir ? App.basename(dir) : 'No folder open';
+    document.title = dir ? App.basename(dir) + ' — Codeome' : 'Codeome';
+    render();
+    App.emit('project', dir);
+    const rd = dir && state(dir).remoteDir;
+    if (rd && App.hpcConnected && rd !== App.remoteDir) App.views.files.go('remote', rd);
+    await App.saveConfig();
+  };
+
+  P.close = async (dir) => {
+    const T = App.views.terminals, E = App.views.editor;
+    const live = T.list.filter((t) => t.project === dir && t.alive);
+    if (live.length && !(await App.confirm(`Close ${App.basename(dir)}?`,
+      `${live.length} session${live.length > 1 ? 's' : ''} in this project will be stopped (${live.map((t) => t.title).join(', ')}). Sessions kept in tmux on the HPC keep running.`, 'Close project', true))) return;
+    if (!(await E.closeProject(dir))) return;
+    T.closeProject(dir);
+    const i = P.list.indexOf(dir);
+    if (i >= 0) P.list.splice(i, 1);
+    delete P.state[dir];
+    if (App.project === dir) await P.switchTo(P.list[Math.min(i, P.list.length - 1)] || null);
+    else { App.cfg.openProjects = P.list.slice(); await App.saveConfig(); render(); }
+  };
+
+  P.cycle = (step) => {
+    if (P.list.length < 2) return;
+    const i = P.list.indexOf(App.project);
+    P.switchTo(P.list[(i + step + P.list.length) % P.list.length]);
+  };
+
+  const state = (dir) => (P.state[dir] = P.state[dir] || {});
+
+  // Running agent jobs per project, read from each project's .codeome/jobs/.
+  let polling = false;
+  async function pollJobs() {
+    if (polling || document.hidden || !P.list.length) return;
+    polling = true;
+    try {
+      let changed = false;
+      await Promise.all(P.list.map(async (dir) => {
+        const n = (await codeome.jobs.list(dir)).filter((j) => j.status === 'running').length;
+        if (state(dir).jobs !== n) { state(dir).jobs = n; changed = true; }
+      }));
+      if (changed) render();
+    } finally { polling = false; }
+  }
+
+  function schedule() { if (!pending) pending = requestAnimationFrame(() => { pending = 0; render(); }); }
+
+  function initials(name) {
+    const parts = name.replace(/\.[^.]+$/, '').split(/[-_\s.]+/).filter(Boolean);
+    return ((parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)) || '?').toUpperCase();
+  }
+  const hue = (s) => { let x = 0; for (const c of s) x = (x * 31 + c.charCodeAt(0)) % 360; return x; };
+
+  function render() {
+    if (!el) return;
+    const focused = el.contains(document.activeElement);
+    el.innerHTML = '';
+    const list = h('div.proj-list', { role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Projects' });
+    P.list.forEach((dir) => list.append(card(dir)));
+    const collapsed = !!App.cfg.ui.projectsCollapsed;
+    el.append(list, h('div.proj-foot',
+      h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Open project')),
+      h('button.proj-fold', { title: collapsed ? 'Show project names' : 'Hide project names', 'aria-label': collapsed ? 'Expand project column' : 'Collapse project column', onclick: toggleCollapsed },
+        h('span', { html: `<svg viewBox="0 0 16 16"><path d="${collapsed ? 'm6 4 4 4-4 4' : 'm10 4-4 4 4 4'}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` }))));
+    if (focused) { const a = el.querySelector('.proj.active') || el.querySelector('.proj-add'); if (a) a.focus(); }
+  }
+
+  function card(dir) {
+    const name = App.basename(dir);
+    const active = dir === App.project;
+    const jobs = state(dir).jobs || 0;
+    const sessions = App.views.terminals.list.filter((t) => t.project === dir && t.alive).length;
+    const unsaved = App.views.editor.tabs.filter((t) => t.project === dir && t.dirty).length;
+    const stat = [
+      jobs ? h('span.ps-jobs', h('i'), `${jobs} job${jobs > 1 ? 's' : ''}`) : null,
+      sessions ? h('span', `${sessions} session${sessions > 1 ? 's' : ''}`) : null,
+      unsaved ? h('span.ps-dirty', `${unsaved} unsaved`) : null
+    ].filter(Boolean);
+    const label = [name, jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ');
+    const c = h('div.proj' + (active ? '.active' : ''), {
+      role: 'tab', 'aria-selected': String(active), 'aria-label': label, tabindex: active ? '0' : '-1', draggable: 'true',
+      title: App.tildify(dir), style: '--ph: ' + hue(name),
+      onclick: () => P.switchTo(dir),
+      onauxclick: (e) => { if (e.button === 1) P.close(dir); },
+      oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, menu(dir)); },
+      onkeydown: (e) => {
+        const i = P.list.indexOf(dir);
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const next = el.querySelectorAll('.proj')[(i + (e.key === 'ArrowDown' ? 1 : -1) + P.list.length) % P.list.length];
+          if (next) next.focus();
+        } else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); P.switchTo(dir); }
+      },
+      ondragstart: (e) => { dragging = dir; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dir); },
+      ondragend: () => { dragging = null; el.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); },
+      ondragover: (e) => {
+        if (!dragging || dragging === dir) return;
+        e.preventDefault();
+        const r = c.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+        c.classList.toggle('drop-after', after); c.classList.toggle('drop-before', !after);
+      },
+      ondragleave: () => c.classList.remove('drop-before', 'drop-after'),
+      ondrop: (e) => {
+        e.preventDefault();
+        if (!dragging || dragging === dir) return;
+        const after = c.classList.contains('drop-after');
+        P.list.splice(P.list.indexOf(dragging), 1);
+        P.list.splice(P.list.indexOf(dir) + (after ? 1 : 0), 0, dragging);
+        dragging = null;
+        App.cfg.openProjects = P.list.slice(); App.saveConfig();
+        render();
+      }
+    },
+    h('span.pmono', initials(name), jobs ? h('i.m-jobs') : (unsaved ? h('i.m-dirty') : null)),
+    h('span.pinfo',
+      h('span.pname', name),
+      h('span.ppath', App.tildify(App.dirname(dir))),
+      stat.length ? h('span.pstat', stat) : null));
+    return c;
+  }
+
+  function menu(dir) {
+    const i = P.list.indexOf(dir);
+    return [
+      dir !== App.project ? { label: 'Switch to project', run: () => P.switchTo(dir) } : null,
+      { label: 'Reveal in Finder', run: () => codeome.shell.reveal(dir) },
+      { label: 'Copy path', run: () => navigator.clipboard.writeText(dir) },
+      '-',
+      { label: 'Move up', disabled: i <= 0, run: () => move(dir, -1) },
+      { label: 'Move down', disabled: i >= P.list.length - 1, run: () => move(dir, 1) },
+      '-',
+      { label: 'Close project', key: '⇧⌘W', danger: true, run: () => P.close(dir) }
+    ];
+  }
+
+  function move(dir, step) {
+    const i = P.list.indexOf(dir), j = i + step;
+    if (j < 0 || j >= P.list.length) return;
+    [P.list[i], P.list[j]] = [P.list[j], P.list[i]];
+    App.cfg.openProjects = P.list.slice(); App.saveConfig();
+    render();
+  }
+
+  function applyCollapsed() {
+    const c = !!App.cfg.ui.projectsCollapsed;
+    document.getElementById('app').classList.toggle('proj-collapsed', c);
+  }
+  function toggleCollapsed() {
+    App.cfg.ui.projectsCollapsed = !App.cfg.ui.projectsCollapsed;
+    App.saveConfig();
+    applyCollapsed();
+    render();
+    App.views.editor.layout();
+  }
+
+  P.render = render;
+})();

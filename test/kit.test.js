@@ -97,7 +97,7 @@ import json, sys, os
 argv = sys.argv[1:]
 prompt = sys.stdin.read()
 out = argv[argv.index('-o') + 1]
-json.dump({'argv': argv, 'cwd': os.getcwd(), 'prompt': prompt}, open(os.path.join(${JSON.stringify(dir)}, 'call.json'), 'w'))
+json.dump({'argv': argv, 'cwd': os.getcwd(), 'prompt': prompt, 'codexHome': os.environ.get('CODEX_HOME')}, open(os.path.join(${JSON.stringify(dir)}, 'call.json'), 'w'))
 print('session id: 0199-test-session', file=sys.stderr)
 if ${exitCode} == 0:
     open(out, 'w').write('## Status\\ndone — fake')
@@ -107,8 +107,19 @@ sys.exit(${exitCode})
   return f;
 }
 
+// CODEOME_HOME points at an empty folder unless a test writes usage.json there.
 function runAgent(project, args, input, env = {}) {
-  return spawnSync('python3', [agentBin(project), ...args], { input, encoding: 'utf8', cwd: project, env: { ...process.env, ...env } });
+  return spawnSync('python3', [agentBin(project), ...args], { input, encoding: 'utf8', cwd: project, env: { ...process.env, CODEOME_HOME: path.join(project, '.codeome-home'), ...env } });
+}
+
+// What Codeome writes to ~/.codeome/usage.json.
+function writeUsage(project, { claude = [], codex = [], stopAt = 90, active = {} }) {
+  const now = Date.now() / 1000;
+  const acct = ([name, dir, fiveHour, weekly]) => ({ name, dir, asOf: now, windows: { fiveHour: { pct: fiveHour, resetsAt: now + 3600 }, weekly: { pct: weekly, resetsAt: now + 86400 } } });
+  const eng = (list, a) => ({ active: a || (list[0] || [])[0], accounts: list.map(acct) });
+  const dir = path.join(project, '.codeome-home');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'usage.json'), JSON.stringify({ version: 1, updatedAt: now, stopAt, claude: eng(claude, active.claude), codex: eng(codex, active.codex) }));
 }
 
 test('codeome-agent runs a Codex job with the role prompt and records it', async () => {
@@ -202,4 +213,50 @@ test('a running Codex job whose runner died shows as lost', () => {
   const j = jobs.settle({ engine: 'codex', status: 'running', pid: 999999, startedAt: new Date().toISOString() });
   assert.strictEqual(j.status, 'lost');
   assert.strictEqual(jobs.settle({ engine: 'claude', status: 'running', startedAt: '2020-01-01T00:00:00Z' }).status, 'stale');
+});
+
+test('codeome-agent runs Codex jobs on an account with headroom and holds them at the limit', async () => {
+  const p = tmp();
+  kit.install(p);
+  const codex = fakeCodex(p);
+  const env = { CODEOME_CODEX: codex, CODEX_HOME: '' };
+  writeUsage(p, { codex: [['Main', '', 95, 40], ['Work', '~/.codex-work', 20, 30]] });
+  const r = runAgent(p, ['codex', '--role', 'implementer'], 'x', env);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stderr, /using Codex account "Work"/);
+  assert.strictEqual(readJson(path.join(p, 'call.json')).codexHome, path.join(os.homedir(), '.codex-work'));
+  const j = (await jobs.list(p))[0];
+  assert.strictEqual(j.account, 'Work');
+
+  // A follow-up stays in the account that holds the session, even past the limit.
+  writeUsage(p, { codex: [['Main', '', 10, 10], ['Work', '~/.codex-work', 96, 30]] });
+  const r2 = runAgent(p, ['codex', '--resume', '0199-test-session'], 'more', env);
+  assert.strictEqual(r2.status, 75);
+  assert.match(r2.stdout, /NOT started \(usage limit\).*cannot move to another account/s);
+
+  // The default account runs without CODEX_HOME; every account past the limit holds the job.
+  runAgent(p, ['codex', '--role', 'implementer'], 'x', env);
+  assert.strictEqual(readJson(path.join(p, 'call.json')).codexHome, null);
+  writeUsage(p, { codex: [['Main', '', 91, 10], ['Work', '~/.codex-work', 20, 99]] });
+  const held = runAgent(p, ['codex', '--role', 'implementer'], 'x', env);
+  assert.strictEqual(held.status, 75);
+  assert.match(held.stdout, /Every Codex account is past 90%/);
+  assert.strictEqual(runAgent(p, ['codex', '--role', 'implementer', '--ignore-limits'], 'x', env).status, 0);
+  assert.match(runAgent(p, ['usage'], '', env).stdout, /codex  Work +LIMIT/);
+});
+
+test('the hook refuses new Claude subagents when the session account is past the limit', async () => {
+  const p = tmp();
+  kit.install(p);
+  const call = { hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_use_id: 'toolu_9', tool_input: { subagent_type: 'planner', prompt: 'Plan.' } };
+  writeUsage(p, { claude: [['Personal', '', 93, 50], ['Work', '~/.claude-work', 10, 10]] });
+  const r = runAgent(p, ['hook'], JSON.stringify(call), { CLAUDE_CONFIG_DIR: '' });
+  const out = JSON.parse(r.stdout).hookSpecificOutput;
+  assert.strictEqual(out.permissionDecision, 'deny');
+  assert.match(out.permissionDecisionReason, /Claude account "Personal" is at 5-hour 93%.*"Work"/s);
+  assert.ok(!fs.existsSync(path.join(p, '.codeome/jobs/.pending')));
+  // The other account's session goes ahead (and nothing is printed).
+  const ok = runAgent(p, ['hook'], JSON.stringify(call), { CLAUDE_CONFIG_DIR: path.join(os.homedir(), '.claude-work') });
+  assert.strictEqual(ok.stdout, '');
+  assert.strictEqual(fs.readdirSync(path.join(p, '.codeome/jobs/.pending')).length, 1);
 });

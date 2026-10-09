@@ -4,12 +4,13 @@
   const h = App.h;
   const A = { kit: null, jobs: [], sel: null };
   App.views.agents = A;
-  let root, kitEl, taskEl, listEl, timer, tick = 0;
+  let root, kitEl, usageEl, taskEl, listEl, timer, tick = 0;
 
   const MODES = [
     { value: 'orchestrate', label: 'Plan and build (two approval gates)', placeholder: 'e.g. Add a --threads option to the binning rule and pass it to MetaBAT2' },
     { value: 'delegate', label: 'Delegate one job', placeholder: 'e.g. codex debugger: tests/test_parsers.py::test_sacct fails since the last change' },
-    { value: 'cross-review', label: 'Cross-review current changes', placeholder: 'optional: claude | codex, base ref' }
+    { value: 'cross-review', label: 'Cross-review current changes', placeholder: 'optional: claude | codex, base ref' },
+    { value: 'resume', label: 'Resume a plan (e.g. on another account)', placeholder: 'optional: plan file — defaults to the newest in .codeome/plans/' }
   ];
   const ENGINE = { claude: 'Claude', codex: 'Codex' };
   const isLive = (j) => j.status === 'running';
@@ -17,15 +18,17 @@
   A.init = () => {
     root = document.querySelector('.view[data-view="agents"]');
     kitEl = h('div');
+    usageEl = h('div');
     taskEl = h('div');
     listEl = h('div.jobs');
     root.append(
       h('div.side-head', h('h2', 'Agents'), App.iconBtn('refresh', 'Refresh', () => A.refresh(true))),
-      kitEl, taskEl,
+      kitEl, usageEl, taskEl,
       h('div.side-head', h('h2', 'Jobs'), App.iconBtn('trash', 'Clear finished jobs', () => A.clear())),
       listEl);
     App.listen('project', () => { A.kit = null; A.jobs = []; A.refresh(true); });
     App.listen('view', (v) => { if (v === 'agents') A.refresh(true); });
+    App.listen('usage', () => { if (App.project) { usageEl.innerHTML = ''; renderUsage(); } });
     // Poll quickly while something runs or the view is open, slowly otherwise.
     timer = setInterval(() => {
       if (document.hidden || !App.project) return;
@@ -43,6 +46,9 @@
       const project = App.project;
       const [jobs, kit] = await Promise.all([codeome.jobs.list(project), withKit || !A.kit ? codeome.kit.status(project) : A.kit]);
       if (project !== App.project) return;
+      // A Codex job just ended: its account's usage moved.
+      const ended = A.jobs.some((j) => j.engine === 'codex' && isLive(j) && !jobs.some((x) => x.id === j.id && isLive(x)));
+      if (ended) codeome.usage.refresh();
       A.jobs = jobs; A.kit = kit;
       render();
     } finally { busy = false; }
@@ -51,9 +57,10 @@
   function render() {
     if (!root) return;
     paintRail();
-    kitEl.innerHTML = ''; taskEl.innerHTML = ''; listEl.innerHTML = '';
+    kitEl.innerHTML = ''; usageEl.innerHTML = ''; taskEl.innerHTML = ''; listEl.innerHTML = '';
     if (!App.project) { kitEl.append(h('div.empty', 'Open a project folder to install the agent kit and run agent jobs.')); return; }
     renderKit();
+    renderUsage();
     renderTask();
     renderJobs();
   }
@@ -117,27 +124,55 @@
     A.refresh(true);
   };
 
+  // ---------- usage ----------
+  // A notice when an active account is close to (or past) the point where jobs wait.
+  function renderUsage() {
+    const U = App.views.usage;
+    if (!U || !U.snap || !A.kit || !A.kit.installed) return;
+    for (const [engine, label] of [['claude', 'Claude'], ['codex', 'Codex']]) {
+      const a = U.active(engine), lv = U.level(a);
+      if (lv == null || lv < U.stopAt() - 15) continue;
+      const past = lv >= U.stopAt();
+      const spare = U.accounts(engine).filter((x) => x !== a && (U.level(x) == null || U.level(x) < U.stopAt()));
+      const what = engine === 'claude'
+        ? (past ? 'New Claude subagents are paused, and new orchestrators start on another account.' : `Claude subagents pause at ${U.stopAt()}%.`)
+        : (past ? (spare.length ? `Codex jobs now run on ${spare[0].name}.` : 'New Codex jobs are held back.') : `Codex jobs move to another account at ${U.stopAt()}%.`);
+      usageEl.append(h('div.card.usage-note' + (past ? '.bad' : '.warn'),
+        h('div', h('b', `${label} · ${a.name}`), ` at ${U.worst(a)}. ${what}`),
+        engine === 'claude' && past && spare.length ? h('div.row', { style: { marginTop: '6px' } },
+          spare.slice(0, 2).map((x) => h('button.btn.small.primary', { onclick: () => A.start('', 'resume', x.name) }, `Resume plan on ${x.name}`))) : null,
+        !spare.length ? h('div.sub', U.accounts(engine).length > 1 ? 'No other account has headroom.' : h('a', { href: '#', onclick: (e) => { e.preventDefault(); U.addAccount(engine); } }, `Add another ${label} account…`)) : null));
+    }
+  }
+
   // ---------- task ----------
-  let mode = 'orchestrate', draft = '';
+  let mode = 'orchestrate', draft = '', account = 'auto';
   function renderTask() {
     if (!A.kit || !A.kit.installed) return;
     const m = MODES.find((x) => x.value === mode);
     const sel = h('select', { 'aria-label': 'What to run', onchange: (e) => { mode = e.target.value; render(); } }, MODES.map((x) => h('option', { value: x.value, selected: x.value === mode }, x.label)));
     const ta = h('textarea', { rows: 3, placeholder: m.placeholder, 'aria-label': 'Task', oninput: (e) => { draft = e.target.value; } }, draft);
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) { e.preventDefault(); A.start(); } });
+    const accts = App.cfg.accounts.claude.list;
+    const U = App.views.usage;
+    const acctSel = accts.length > 1 ? h('select', { 'aria-label': 'Claude account for the orchestrator', style: { width: 'auto' }, onchange: (e) => { account = e.target.value; } },
+      h('option', { value: 'auto', selected: account === 'auto' }, 'Account: auto'),
+      accts.map((a) => { const lv = U && U.level(U.accounts('claude').find((x) => x.name === a.name)); return h('option', { value: a.name, selected: account === a.name }, a.name + (lv != null ? ` (${Math.round(lv)}%)` : '')); })) : null;
     taskEl.append(h('div.pad.agent-task', sel, ta,
-      h('div.row', h('span.hint.grow', 'Opens a Claude Code session in the panel'), h('button.btn.small.primary', { onclick: () => A.start() }, 'Start'))));
+      h('div.row', acctSel, h('span.hint.grow', 'Opens a Claude Code session in the panel'), h('button.btn.small.primary', { onclick: () => A.start() }, 'Start'))));
   }
 
-  A.start = (text, how) => {
+  // acct: a Claude account name, or 'auto' (the active one while it has headroom).
+  A.start = (text, how, acct) => {
     if (!App.project) return App.toast('Open a project folder first.');
     how = how || mode;
     const task = (text != null ? text : draft).trim();
-    if (how !== 'cross-review' && !task) return App.toast('Describe the task first.');
+    if (!['cross-review', 'resume'].includes(how) && !task) return App.toast('Describe the task first.');
     const claude = (App.cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
-    const prompt = '/' + how + (task ? ' ' + task : '');
-    const title = how === 'orchestrate' ? 'Orchestrator' : how === 'delegate' ? 'Delegate' : 'Cross-review';
-    App.views.terminals.open({ kind: 'agent-local', title, command: claude + ' ' + App.shq(prompt), cwd: App.project, badge: 'Mac' });
+    // Resuming runs /orchestrate on the plan, typically from a fresh account.
+    const prompt = how === 'resume' ? '/orchestrate resume' + (task ? ' ' + task : '') : '/' + how + (task ? ' ' + task : '');
+    const title = { orchestrate: 'Orchestrator', delegate: 'Delegate', 'cross-review': 'Cross-review', resume: 'Orchestrator (resumed)' }[how];
+    App.views.terminals.open({ kind: 'agent-local', title, command: claude + ' ' + App.shq(prompt), cwd: App.project, badge: 'Mac', engine: 'claude', account: acct || account });
     if (text == null) { draft = ''; render(); }
   };
 
@@ -162,6 +197,7 @@
       },
       h('span.nm', j.title || j.role), h('span.state.' + j.status, j.status),
       h('div.meta', h('span.pill' + (j.engine === 'codex' ? '.codex' : '.ok'), ENGINE[j.engine] || j.engine), h('span', j.role), h('span', elapsed(j)),
+        j.account && App.cfg.accounts.codex.list.length > 1 ? h('span', j.account) : null, j.limitHit ? h('span.state.failed', 'usage limit') : null,
         j.worktree ? h('span', 'worktree') : null, !isLive(j) && j.endedAt ? h('span', App.fmtAgo(Date.parse(j.endedAt))) : null)));
     }
   }

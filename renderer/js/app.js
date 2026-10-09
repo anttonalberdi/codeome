@@ -17,18 +17,9 @@
   };
 
   // ---------- project ----------
-  App.openProject = async (dir) => {
-    dir = dir || await codeome.dialog.folder({ defaultPath: App.project || App.cfg.localRoot });
-    if (!dir) return;
-    App.project = dir;
-    App.cfg.localRoot = dir;
-    App.cfg.recentFolders = [dir, ...App.cfg.recentFolders.filter((d) => d !== dir)].slice(0, 8);
-    await App.saveConfig();
-    document.getElementById('project-name').textContent = App.basename(dir);
-    document.title = App.basename(dir) + ' — Codeome';
-    App.emit('project', dir);
-    renderWelcome();
-  };
+  // Opens the folder as a project card in the left column (or switches to it).
+  App.openProject = (dir) => App.views.projects.open(dir);
+  App.listen('project', () => renderWelcome());
 
   // ---------- HPC connection & cluster strip ----------
   let connecting = false;
@@ -90,19 +81,20 @@
       h('h1', App.project ? App.basename(App.project) : 'Codeome'),
       h('p', App.project ? App.project : 'Open a project folder to start. Your files, the cluster, and your agents live side by side here.'),
       h('div.quick',
-        h('button', { onclick: () => App.openProject() }, h('b', App.project ? 'Open another folder' : 'Open folder'), h('span', 'A local project with your R and Python code')),
+        h('button', { onclick: () => App.openProject() }, h('b', App.project ? 'Open another project' : 'Open folder'), h('span', App.project ? 'It gets its own card on the left; this one keeps running' : 'A local project with your R and Python code')),
         h('button', { onclick: () => App.views.editor.newFile() }, h('b', 'New file'), h('span', 'Script, notebook or report')),
         agents[0] ? h('button', { onclick: () => App.views.terminals.agentLocal(agents[0]) }, h('b', agents[0].name), h('span', 'Start a session in this folder')) : null,
         agents[1] ? h('button', { onclick: () => App.views.terminals.agentLocal(agents[1]) }, h('b', agents[1].name), h('span', 'Start a session in this folder')) : null,
         h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login and VPN check')),
         h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts'))),
-      App.cfg.recentFolders.length > 1 ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => d !== App.project).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, d)))) : null,
+      App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null,
       h('div.keys',
         h('kbd', '⌘↩'), h('span', 'Run the current line or selection in the active terminal (R, Python, shell)'),
         h('kbd', '⇧⌘↩'), h('span', 'Run the whole file'),
         h('kbd', '⇧⌘V'), h('span', 'Preview or render the current file'),
         h('kbd', '⌘J'), h('span', 'Show or hide the terminal panel'),
-        h('kbd', '⌘1–6'), h('span', 'Files, Slurm, Git, Publish, Python packages, Agents'))));
+        h('kbd', '⌘1–6'), h('span', 'Files, Slurm, Git, Publish, Python packages, Agents'),
+        h('kbd', '⌃⇥'), h('span', 'Next project (⌃⇧⇥ previous)'))));
   }
   App.listen('hpc', renderWelcome);
 
@@ -119,7 +111,8 @@
 
   // ---------- menu commands ----------
   const commands = {
-    'open-folder': () => App.openProject(), 'new-file': () => App.views.editor.newFile(), save: () => App.views.editor.save(),
+    'open-folder': () => App.openProject(), 'close-project': () => App.project && App.views.projects.close(App.project),
+    'next-project': () => App.views.projects.cycle(1), 'prev-project': () => App.views.projects.cycle(-1), 'new-file': () => App.views.editor.newFile(), save: () => App.views.editor.save(),
     'close-tab': () => { const t = App.views.editor.cur(); if (t) App.views.editor.close(t.id); },
     settings: () => App.views.settings.open(),
     'view-files': () => App.setView('files'), 'view-slurm': () => App.setView('slurm'), 'view-git': () => App.setView('git'),
@@ -132,6 +125,8 @@
     App.cfg = await codeome.config.get();
     App.views.terminals.init();
     App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.pip.init(); App.views.agents.init();
+    App.views.projects.init();
+    App.views.usage.init();
     App.views.editor.initMonaco();
     App.applyTheme();
     initResize();
@@ -147,11 +142,13 @@
     renderWelcome();
     codeome.env.detect().then((env) => {
       App.env = env;
+      App.views.projects.render(); renderWelcome();
       if (!env.ptyOk) App.err('Terminals need a one-time rebuild. In the Codeome folder run: npm run rebuild\n\n' + env.ptyError.split('\n')[0]);
       const missing = App.cfg.agents.filter((a) => env.tools[a.cmd.split(' ')[0]] === false).map((a) => a.name);
       if (missing.length) App.toast(`${missing.join(' and ')} not found on this Mac's PATH. Install it or adjust the command in Settings.`);
     });
-    if (App.cfg.recentFolders[0]) App.openProject(App.cfg.recentFolders[0]); else App.views.files.go('local', App.cfg.localRoot || '~');
+    await App.views.projects.restore();
+    if (!App.project) App.views.files.go('local', App.cfg.localRoot || '~');
     await App.pollHpc();
     setInterval(() => { if (!document.hidden && !connecting) App.pollHpc(); }, 15000);
     if (!App.cfg.hpc.host) setTimeout(() => App.toast('Add your cluster login to connect to the HPC.', { action: { label: 'Open Settings', run: () => App.views.settings.open() } }), 800);

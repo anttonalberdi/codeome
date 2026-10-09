@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld('codeome', {
     read: (project, id, part) => ipcRenderer.invoke('jobs:read', { project, id, part }),
     cancel: (project, id) => ipcRenderer.invoke('jobs:cancel', { project, id })
   },
+  usage: {
+    get: invoke('usage:get'), refresh: invoke('usage:refresh'),
+    setActive: (engine, name) => ipcRenderer.invoke('usage:setActive', { engine, name }),
+    onUpdate: on('usage:update')
+  },
   env: { detect: invoke('env:detect') },
   onMenu: on('menu')
 });

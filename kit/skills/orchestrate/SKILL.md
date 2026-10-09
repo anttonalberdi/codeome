@@ -8,7 +8,7 @@ argument-hint: <what to build, fix or change>
 
 Task from the user: $ARGUMENTS
 
-If that is empty, ask what to build, fix or change, then continue.
+If that is empty, ask what to build, fix or change, then continue. If it starts with `resume`, follow **Resuming a plan** below instead of starting over.
 
 You are the **orchestrator**. You plan, route, brief, verify and integrate. Specialists do the work: Claude subagents (Agent tool, `subagent_type` = role name) and Codex jobs (`.codeome/bin/codeome-agent codex …`). You write code yourself only for trivial glue between tasks or a one-line fix after review.
 
@@ -64,6 +64,11 @@ Work through tasks in dependency order. For each task:
 
 **Codex sandbox.** Codex jobs cannot reach the network or the HPC. Tasks that need either (installing packages, hitting an API, anything over SSH) go to a Claude role.
 
+**Usage limits.** Codeome tracks the 5-hour and weekly limits of every Claude and Codex account and holds new jobs back near them. Run `.codeome/bin/codeome-agent usage` before Gate 1 and include a one-line budget note with the plan when an account is above 75%.
+- A Codex job that is held back exits with code 75 and a line starting `codeome-agent: job NOT started (usage limit)`. Codex jobs pick an account with headroom on their own, so this means every Codex account is past the limit.
+- A Claude subagent that is held back comes back as a denied Agent call whose reason starts `Codeome: Claude account`. You cannot switch your own account.
+- Either way: do not retry. Move the remaining jobs whose role allows it to the other engine and say so. If nothing can move, stop dispatching, update the plan file with what is done and what is left, and tell the user which account is out, when it resets, and that they can continue on another account from Codeome's Agents view (*Resume a plan*).
+
 ## 4. Cross-review
 
 After the tasks are done, review the combined diff on the engine that did **not** write most of it:
@@ -83,6 +88,10 @@ Show the user:
 - the proposed commit message(s), one per logical change, in the project's commit style.
 
 Ask with AskUserQuestion: commit / change something / leave uncommitted. Commit only after approval, following the user's commit rules (CLAUDE.md). Never push, tag, publish or submit cluster jobs unless the user asks.
+
+## Resuming a plan
+
+When the task is `resume [plan file]`, a previous orchestrator stopped part-way, often because its account ran out. Pick the plan: the file named, or else the newest in `.codeome/plans/`. Read it, then `.codeome/bin/codeome-agent list` and `git status`/`git diff` to see what was done. Show the user a short table of tasks marked done / in progress / left. Ask with AskUserQuestion: continue / change / cancel. Then go on from step 3 with the tasks that are left, verifying any that were in progress. Gate 1 was already approved for this plan; Gate 2 still applies.
 
 ## Rules
 

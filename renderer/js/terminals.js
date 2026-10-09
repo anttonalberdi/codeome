@@ -1,7 +1,9 @@
 // Bottom panel: local shells, HPC shells, and Claude Code / Codex sessions.
+// Each session belongs to a project; switching projects hides the others' sessions
+// but leaves them running.
 (function () {
   const h = App.h;
-  const T = { list: [], active: null, seq: 0 };
+  const T = { list: [], active: null, seq: 0, lastActive: {} };
   App.views.terminals = T;
   const host = () => document.getElementById('term-host');
   const tabsEl = () => document.getElementById('term-tabs');
@@ -22,7 +24,7 @@
     };
   }
 
-  // spec: {kind, title, command, cwd, session, badge, secretEnv}
+  // spec: {kind, title, command, cwd, session, badge, secretEnv, engine, account, project}
   T.open = async function (spec) {
     App.views.terminals.showPanel();
     const id = 't' + (++T.seq);
@@ -41,15 +43,24 @@
       if (e.type === 'keydown' && e.metaKey && e.key === 'c' && term.hasSelection()) { navigator.clipboard.writeText(term.getSelection()); return false; }
       return true;
     });
-    const t = { id, spec, term, fit, el, title: spec.title, alive: true };
+    const t = { id, spec, term, fit, el, title: spec.title, alive: true, project: spec.project !== undefined ? spec.project : App.project };
     T.list.push(t);
     term.onData((d) => codeome.pty.write(id, d));
     term.onResize(({ cols, rows }) => codeome.pty.resize(id, cols, rows));
     new ResizeObserver(() => { if (!el.hidden) { try { fit.fit(); } catch {} } }).observe(el);
     T.activate(id);
     try { fit.fit(); } catch {}
-    const r = await codeome.pty.spawn({ id, ...spec, cols: term.cols, rows: term.rows });
+    // Callbacks stay here; only data crosses to the main process.
+    const wire = Object.fromEntries(Object.entries(spec).filter(([, v]) => typeof v !== 'function'));
+    const r = await codeome.pty.spawn({ id, ...wire, cols: term.cols, rows: term.rows });
     if (r.error) { term.write('\r\n\x1b[31m' + r.error.replace(/\n/g, '\r\n') + '\x1b[0m\r\n'); t.alive = false; renderTabs(); }
+    else if (r.account && r.account.name) {
+      t.account = r.account.name;
+      const label = spec.engine === 'claude' ? 'Claude' : 'Codex';
+      if (r.account.blocked) App.toast(`Every ${label} account is near its usage limit. Started on ${r.account.name} anyway.`, { error: true });
+      else if (r.account.switched) App.toast(`${label} account ${r.account.from} is near its limit — started on ${r.account.name}.`);
+      renderTabs();
+    }
     return t;
   };
 
@@ -58,6 +69,7 @@
     for (const t of T.list) t.el.hidden = t.id !== id;
     renderTabs();
     const t = T.get(id);
+    if (t) T.lastActive[t.project] = id;
     if (t) setTimeout(() => { try { t.fit.fit(); } catch {} t.term.focus(); }, 0);
     document.querySelector('.term-empty')?.remove();
   };
@@ -68,9 +80,20 @@
     const t = T.get(id); if (!t) return;
     codeome.pty.kill(id); t.term.dispose(); t.el.remove();
     T.list = T.list.filter((x) => x !== t);
-    if (T.active === id) { const last = T.list[T.list.length - 1]; if (last) T.activate(last.id); else { T.active = null; renderTabs(); showEmpty(); } }
+    if (T.lastActive[t.project] === id) delete T.lastActive[t.project];
+    if (T.active === id) { const last = T.visible().pop(); if (last) T.activate(last.id); else { T.active = null; renderTabs(); showEmpty(); } }
     else renderTabs();
   };
+  T.visible = () => T.list.filter((t) => t.project === App.project);
+  T.closeProject = (project) => { for (const t of T.list.filter((x) => x.project === project)) T.close(t.id); };
+
+  // Show the project's own sessions, back on the one last used there.
+  App.listen('project', (project) => {
+    const vis = T.list.filter((t) => t.project === project);
+    const last = vis.find((t) => t.id === T.lastActive[project]) || vis[vis.length - 1];
+    if (last) T.activate(last.id);
+    else { T.active = null; for (const t of T.list) t.el.hidden = true; renderTabs(); showEmpty(); }
+  });
 
   T.send = function (text) {
     const t = T.current();
@@ -88,11 +111,13 @@
 
   function renderTabs() {
     const el = tabsEl(); el.innerHTML = '';
-    for (const t of T.list) {
+    App.emit('sessions');
+    for (const t of T.visible()) {
       el.append(h('div.tab' + (t.id === T.active ? '.active' : ''), { onclick: () => T.activate(t.id), title: t.spec.cwd || '', onauxclick: (e) => { if (e.button === 1) T.close(t.id); } },
         h('i.live' + (t.alive ? '' : '.dead')),
         t.spec.badge ? h('span.badge' + (t.spec.badge === 'HPC' ? '.hpc' : ''), t.spec.badge) : null,
         h('span.t', t.title),
+        t.account && App.cfg.accounts[t.spec.engine] && App.cfg.accounts[t.spec.engine].list.length > 1 ? h('span.acct', t.account) : null,
         h('button.x', { title: 'Close', onclick: (e) => { e.stopPropagation(); T.close(t.id); } }, h('span', '×'))));
     }
   }
@@ -108,7 +133,9 @@
   // ---------- launchers ----------
   T.localShell = (cwd) => T.open({ kind: 'shell', title: App.basename(cwd || App.project || '~') || 'zsh', cwd: cwd || App.project || '~', badge: 'Mac' });
   T.hpcShell = (cwd) => { if (!App.requireHpc()) return; return T.open({ kind: 'hpc-shell', title: App.basename(cwd || App.remoteDir || '~'), cwd: cwd || App.remoteDir || '~', badge: 'HPC' }); };
-  T.agentLocal = (agent, cwd) => T.open({ kind: 'agent-local', title: agent.name, command: agent.cmd, cwd: cwd || App.project || '~', badge: 'Mac' });
+  T.engineOf = (cmd) => (/^claude(\s|$)/.test(cmd) ? 'claude' : /^codex(\s|$)/.test(cmd) ? 'codex' : null);
+  // account: an account name, or 'auto' for the active one while it has headroom.
+  T.agentLocal = (agent, cwd, account = 'auto') => T.open({ kind: 'agent-local', title: agent.name, command: agent.cmd, cwd: cwd || App.project || '~', badge: 'Mac', engine: T.engineOf(agent.cmd), account });
   T.agentHpc = (agent, cwd) => {
     if (!App.requireHpc()) return;
     const dir = cwd || App.remoteDir || '~';
@@ -123,6 +150,7 @@
       { header: 'On this Mac' + (App.project ? ' · ' + App.basename(App.project) : '') },
       { label: 'Terminal', key: '⌘T', run: () => T.localShell() },
       ...App.cfg.agents.map((a) => ({ label: a.name, run: () => T.agentLocal(a) })),
+      ...accountItems(),
       '-',
       { header: 'On the HPC' + (App.remoteDir ? ' · ' + App.basename(App.remoteDir) : '') },
       { label: 'Terminal', key: '⇧⌘T', run: () => T.hpcShell() },
@@ -130,6 +158,18 @@
     ];
     if (anchor) App.menuAt(anchor, items); else App.menu(innerWidth / 2 - 110, innerHeight / 2 - 120, items);
   };
+
+  // With several accounts: start Claude Code / Codex on a specific one.
+  function accountItems() {
+    const out = [];
+    for (const a of App.cfg.agents) {
+      const engine = T.engineOf(a.cmd);
+      const accts = engine && App.cfg.accounts[engine].list;
+      if (!accts || accts.length < 2) continue;
+      for (const acct of accts) out.push({ label: `${a.name} · ${acct.name}`, run: () => T.agentLocal(a, null, acct.name) });
+    }
+    return out.length ? ['-', { header: 'On a specific account' }, ...out] : [];
+  }
 
   // ---------- panel show/hide/resize ----------
   T.showPanel = () => { document.getElementById('panel').classList.remove('collapsed'); };

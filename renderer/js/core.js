@@ -157,6 +157,42 @@ App.menu = (x, y, items) => {
 };
 App.menuAt = (el, items) => { const r = el.getBoundingClientRect(); App.menu(r.left, r.bottom + 4, items); };
 
+// ---------- popovers ----------
+// A panel under an anchor; Escape or a click outside closes it. Only one at a time.
+App.popover = (anchor, content, label) => {
+  App.closePopover();
+  const pop = h('div.popover', { role: 'dialog', 'aria-label': label || '' }, content);
+  document.body.append(pop);
+  const place = () => {
+    const r = anchor.getBoundingClientRect(), w = pop.getBoundingClientRect().width;
+    pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
+    pop.style.top = (r.bottom + 6) + 'px';
+  };
+  place();
+  const outside = (e) => { if (!pop.contains(e.target) && !anchor.contains(e.target)) close(); };
+  const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); anchor.focus(); } };
+  function close() { pop.remove(); document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', key, true); if (App.pop === p) App.pop = null; }
+  const p = { pop, anchor, close, set: (c) => { pop.innerHTML = ''; pop.append(c); place(); } };
+  setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', key, true); });
+  App.pop = p;
+  setTimeout(() => { const f = pop.querySelector('button,select,input'); if (f) f.focus(); });
+  return p;
+};
+App.closePopover = () => { if (App.pop) App.pop.close(); };
+
+// "in 42 min", "in 3 h 10 min", "Tue 09:00"
+App.fmtReset = (epochS) => {
+  if (!epochS) return '';
+  const s = epochS - Date.now() / 1000;
+  if (s <= 0) return 'now';
+  if (s < 3600) return 'in ' + Math.max(1, Math.round(s / 60)) + ' min';
+  if (s < 20 * 3600) return 'in ' + Math.floor(s / 3600) + ' h ' + Math.round(s % 3600 / 60) + ' min';
+  return new Date(epochS * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+};
+App.tildify = (p) => (App.env.home && p && p.startsWith(App.env.home) ? '~' + p.slice(App.env.home.length) : p);
+// A path for a shell command: ~ becomes $HOME so it expands inside quotes.
+App.shPath = (p) => (/^~(\/|$)/.test(p) ? '"$HOME' + p.slice(1).replace(/(["\\$`])/g, '\\$1') + '"' : App.shq(p));
+
 // ---------- misc ----------
 App.saveConfig = async () => { App.cfg = await codeome.config.set(App.cfg); App.emit('config', App.cfg); };
 App.requireHpc = () => {

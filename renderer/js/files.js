@@ -146,7 +146,7 @@
     return [
       { label: 'New file…', disabled: !dir, run: () => newItem(side, false) },
       { label: 'New folder…', disabled: !dir, run: () => newItem(side, true) },
-      remote ? { label: 'Upload files from Mac…', disabled: !dir, run: async () => { const fs = await codeome.dialog.files({ defaultPath: F.local.dir }); fs.forEach((f) => F.transfer('up', f, dir)); } } : { label: 'Open another folder…', run: () => App.openProject() },
+      remote ? { label: 'Upload files from Mac…', disabled: !dir, run: async () => { const fs = await codeome.dialog.files({ defaultPath: F.local.dir }); fs.forEach((f) => F.transfer('up', f, dir)); } } : { label: 'Open another project…', run: () => App.openProject() },
       '-',
       { label: 'Terminal here', disabled: !dir, run: () => remote ? App.views.terminals.hpcShell(dir) : App.views.terminals.localShell(dir) },
       ...App.cfg.agents.map((a) => ({ label: `${a.name} here`, disabled: !dir, run: () => remote ? App.views.terminals.agentHpc(a, dir) : App.views.terminals.agentLocal(a, dir) })),

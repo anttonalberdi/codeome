@@ -9,6 +9,7 @@ const slurm = require('./slurm');
 const zenodo = require('./zenodo');
 const kit = require('./kit');
 const jobs = require('./jobs');
+const usage = require('./usage');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -48,7 +49,8 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{ role: 'appMenu' }] : []),
     { label: 'File', submenu: [
-      { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: cmd('open-folder') },
+      { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: cmd('open-folder') },
+      { label: 'Close Project', accelerator: 'CmdOrCtrl+Shift+W', click: cmd('close-project') },
       { label: 'New File', accelerator: 'CmdOrCtrl+N', click: cmd('new-file') },
       { label: 'Save', accelerator: 'CmdOrCtrl+S', click: cmd('save') },
       { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: cmd('close-tab') },
@@ -63,6 +65,9 @@ function buildMenu() {
       { label: 'Publish (Zenodo, PyPI)', accelerator: 'CmdOrCtrl+4', click: cmd('view-publish') },
       { label: 'Python Packages', accelerator: 'CmdOrCtrl+5', click: cmd('view-pip') },
       { label: 'Agents', accelerator: 'CmdOrCtrl+6', click: cmd('view-agents') },
+      { type: 'separator' },
+      { label: 'Next Project', accelerator: 'Ctrl+Tab', click: cmd('next-project') },
+      { label: 'Previous Project', accelerator: 'Ctrl+Shift+Tab', click: cmd('prev-project') },
       { type: 'separator' },
       { label: 'Toggle Terminal Panel', accelerator: 'CmdOrCtrl+J', click: cmd('toggle-panel') },
       { label: 'New Local Terminal', accelerator: 'CmdOrCtrl+T', click: cmd('new-terminal') },
@@ -116,13 +121,17 @@ function secretEnv(name) {
 ipcMain.handle('pty:spawn', (_e, spec) => {
   if (!pty) return { error: 'Terminal backend failed to load: ' + ptyError + '\nRun "npm run rebuild" in the project folder.' };
   try {
+    // Claude Code / Codex sessions on this Mac run on a chosen account.
+    let acct = null;
+    if (spec.kind === 'agent-local' && usage.ENV_VAR[spec.engine]) { acct = launchOn(spec.engine, spec.account, spec.command); spec = { ...spec, command: acct.command }; }
     const s = ptySpec(spec);
-    const env = augmentedEnv({ TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Codeome', ...(spec.env || {}), ...secretEnv(spec.secretEnv) });
+    const env = augmentedEnv({ TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Codeome', ...(spec.env || {}), ...secretEnv(spec.secretEnv), ...(acct ? acct.env : {}) });
+    if (acct) for (const k of acct.unset) delete env[k];
     const p = pty.spawn(s.file, s.args, { name: 'xterm-256color', cols: spec.cols || 100, rows: spec.rows || 30, cwd: fs.existsSync(s.cwd) ? s.cwd : os.homedir(), env });
     ptys.set(spec.id, p);
     p.onData((d) => send('pty:data', { id: spec.id, data: d }));
     p.onExit(({ exitCode }) => { ptys.delete(spec.id); send('pty:exit', { id: spec.id, code: exitCode }); });
-    return { ok: true, pid: p.pid };
+    return { ok: true, pid: p.pid, account: acct && acct.info };
   } catch (e) { return { error: String(e.message || e) }; }
 });
 ipcMain.on('pty:write', (_e, { id, data }) => { const p = ptys.get(id); if (p) p.write(data); });
@@ -131,7 +140,13 @@ ipcMain.on('pty:kill', (_e, { id }) => { const p = ptys.get(id); if (p) { try { 
 
 // ---------- config & secrets ----------
 ipcMain.handle('config:get', () => cfg);
-ipcMain.handle('config:set', (_e, c) => { cfg = config.save(c); return cfg; });
+ipcMain.handle('config:set', (_e, c) => {
+  for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = usage.normDir(e, a.dir);
+  const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
+  cfg = config.save(c);
+  if (accountsChanged) refreshUsage(true); else publishUsage();
+  return cfg;
+});
 ipcMain.handle('secret:set', (_e, { key, value }) => { config.setSecret(key, value); return true; });
 ipcMain.handle('secret:has', (_e, key) => config.hasSecret(key));
 
@@ -335,6 +350,108 @@ ipcMain.handle('jobs:read', (_e, { project, id, part }) => jobs.read(project, id
 ipcMain.handle('jobs:cancel', (_e, { project, id }) => jobs.cancel(project, id));
 ipcMain.handle('jobs:clear', (_e, project) => jobs.clear(project));
 
+// ---------- usage limits & accounts ----------
+// Live readings per account, keyed engine → account name.
+const readings = { claude: {}, codex: {} };
+const identities = { claude: {} };
+let statusline = null;
+const cliCmd = (engine) => ((cfg.agents.find((a) => new RegExp('^' + engine + '(\\s|$)').test(a.cmd)) || {}).cmd || engine).split(' ')[0];
+
+function accountsOf(engine) {
+  const now = Date.now() / 1000;
+  return cfg.accounts[engine].list.map((a) => {
+    const r = readings[engine][a.name] || {};
+    const id = engine === 'claude' ? identities.claude[a.name] || {} : r.account || {};
+    return { name: a.name, dir: a.dir, key: usage.accountKey(a.dir), email: id.email || null, plan: id.plan || (r.limits && r.limits.plan) || null,
+      signedOut: !!id.signedOut, windows: r.windows || {}, reached: !!r.reached, asOf: r.asOf || null, error: r.error || null,
+      level: usage.level({ windows: r.windows || {}, reached: r.reached, asOf: r.asOf }, now) };
+  });
+}
+
+function snapshot() {
+  const eng = (e) => ({ active: cfg.accounts[e].active, accounts: accountsOf(e) });
+  return { version: 1, updatedAt: Date.now() / 1000, stopAt: cfg.usage.stopAt, claude: eng('claude'), codex: eng('codex') };
+}
+
+let lastSnap = '';
+function publishUsage() {
+  const snap = snapshot();
+  const sig = JSON.stringify({ ...snap, updatedAt: 0 });
+  try { usage.writeSnapshot(snap); } catch (e) { console.error('usage snapshot', e); }
+  if (sig !== lastSnap) { lastSnap = sig; send('usage:update', snap); }
+  return snap;
+}
+
+function readClaudeUsage() {
+  for (const a of cfg.accounts.claude.list) {
+    const r = usage.readClaude(a.dir);
+    readings.claude[a.name] = r.asOf ? { windows: r.windows, asOf: r.asOf } : {};
+  }
+}
+
+let codexBusy = null;
+function refreshCodex() {
+  if (codexBusy) return codexBusy;
+  codexBusy = Promise.all(cfg.accounts.codex.list.map(async (a) => {
+    const r = await usage.queryCodex(a.dir, cliCmd('codex'));
+    const prev = readings.codex[a.name] || {};
+    readings.codex[a.name] = r.limits
+      ? { windows: r.limits.windows, reached: r.limits.reached, limits: r.limits, account: r.account, asOf: Date.now() / 1000 }
+      : { ...prev, account: r.account || prev.account, error: r.error };
+  })).finally(() => { codexBusy = null; });
+  return codexBusy;
+}
+
+async function refreshIdentities() {
+  await Promise.all(cfg.accounts.claude.list.map(async (a) => {
+    const id = await usage.claudeIdentity(a.dir, cliCmd('claude'));
+    if (id) identities.claude[a.name] = id;
+  }));
+}
+
+async function refreshUsage(full) {
+  readClaudeUsage();
+  if (full) await Promise.all([refreshCodex(), refreshIdentities()]);
+  return publishUsage();
+}
+
+// Which account a new session uses: the requested one, or (auto) the active one
+// while it has headroom and otherwise the account with the most.
+function launchOn(engine, requested, command) {
+  readClaudeUsage();
+  const list = accountsOf(engine);
+  let chosen = requested && requested !== 'auto' ? list.find((a) => a.name === requested) : null;
+  let info = null;
+  if (!chosen) {
+    const p = usage.pick(list, cfg.accounts[engine].active, cfg.usage.stopAt);
+    chosen = p.account || p.from || list[0];
+    info = { switched: !!p.switched, from: p.from && p.from.name, blocked: !!p.blocked };
+  }
+  const l = usage.launch(engine, chosen ? chosen.dir : '', command, engine === 'claude' && statusline ? statusline.settings : null);
+  return { ...l, info: { name: chosen ? chosen.name : null, level: chosen ? chosen.level : null, ...(info || {}) } };
+}
+
+ipcMain.handle('usage:get', () => snapshot());
+ipcMain.handle('usage:refresh', () => refreshUsage(true));
+ipcMain.handle('usage:setActive', (_e, { engine, name }) => {
+  if (!cfg.accounts[engine] || !cfg.accounts[engine].list.some((a) => a.name === name)) return { error: 'Unknown account ' + name };
+  cfg.accounts[engine].active = name;
+  cfg = config.save(cfg);
+  return publishUsage();
+});
+
+function startUsage() {
+  try { statusline = usage.installStatusline(path.join(__dirname, 'codeome-statusline')); } catch (e) { console.error('statusline', e); }
+  refreshUsage(true);
+  // Claude readings are files a status line rewrites; Codex is asked every few minutes.
+  const dir = path.join(usage.home(), 'usage');
+  try { fs.mkdirSync(dir, { recursive: true }); let t = null; fs.watch(dir, () => { clearTimeout(t); t = setTimeout(() => refreshUsage(false), 500); }); } catch {}
+  setInterval(() => refreshUsage(false), 30000);
+  let lastCodex = Date.now();
+  setInterval(() => { if (Date.now() - lastCodex >= (cfg.usage.codexRefreshSeconds || 180) * 1000) { lastCodex = Date.now(); refreshCodex().then(publishUsage); } }, 15000);
+  setInterval(() => refreshIdentities().then(publishUsage), 15 * 60000);
+}
+
 // ---------- environment detection ----------
 ipcMain.handle('env:detect', async () => {
   const tools = ['git', 'gh', 'quarto', 'Rscript', 'python3', 'rsync', 'ssh', 'tmux'].concat(cfg.agents.map((a) => a.cmd.split(' ')[0]));
@@ -348,6 +465,7 @@ app.whenReady().then(() => {
   app.setName('Codeome');
   buildMenu();
   createWindow();
+  startUsage();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { for (const p of ptys.values()) { try { p.kill(); } catch {} } if (process.platform !== 'darwin') app.quit(); });

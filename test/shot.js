@@ -19,7 +19,27 @@ const steps = {
   diff: [`App.views.editor.diff({key:'d',title:'x.R',original:'a <- 1\\nb <- 2\\n',modified:'a <- 1\\nb <- 3\\nc <- 4\\n',lang:'r'}); 0`],
   // SHOT_PROJECT: a folder with the agent kit installed and some jobs recorded.
   agents: [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { App.setView('agents'); setTimeout(() => { const j = App.views.agents.jobs.find((x) => x.engine === 'codex'); if (j) App.views.agents.openJob(j); }, 1200); }); 0`],
-  settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(); 0`]
+  settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(); 0`],
+  // Two project cards, a file in each, and usage bars from made-up readings.
+  projects: [`(async () => {
+    const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });
+    App.views.usage.snap = { version: 1, stopAt: 90,
+      claude: { active: 'Personal', accounts: [{ name: 'Personal', dir: '', email: 'me@example.org', plan: 'max', windows: w(93, 61), asOf: now - 90 }, { name: 'Lab', dir: '~/.claude-lab', email: 'lab@example.org', plan: 'pro', windows: w(12, 34), asOf: now - 600 }] },
+      codex: { active: 'Default', accounts: [{ name: 'Default', dir: '', email: 'me@example.org', plan: 'plus', windows: w(41, 77), asOf: now - 120 }] } };
+    App.cfg.accounts.claude.list = [{ name: 'Personal', dir: '' }, { name: 'Lab', dir: '~/.claude-lab' }];
+    App.views.usage.paint();
+    const fake = App.views.usage.snap;
+    setTimeout(() => { App.views.usage.snap = fake; App.views.usage.paint(); App.emit('usage', fake); }, 1800);
+    await App.openProject(${JSON.stringify(process.env.SHOT_PROJECT2 || path.resolve(__dirname, '../kit'))});
+    await App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../kit/manifest.json'))});
+    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    await App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../main/usage.js'))});
+    App.views.projects.state[${JSON.stringify(process.env.SHOT_PROJECT2 || path.resolve(__dirname, '../kit'))}] = { jobs: 2 };
+    App.views.projects.render();
+    App.setView('agents');
+    if (${JSON.stringify(process.env.SHOT_LIGHT || '')}) { document.documentElement.dataset.theme = 'light'; App.views.editor.applyTheme(); document.querySelector('.proj-fold').click(); }
+    if (${JSON.stringify(process.env.SHOT_POPOVER || '')}) setTimeout(() => document.querySelector('.u-eng').click(), 2000);
+  })(); 0`]
 };
 
 app.whenReady().then(() => {

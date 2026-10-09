@@ -20,4 +20,6 @@ Request: $ARGUMENTS
      ```
 4. When it returns, say in one line what came of it. Run the acceptance check yourself before reporting success, and show the user the Status line and the key findings.
 
+If the job is held back for usage (a Codex job exiting with code 75, or a denied Agent call that starts `Codeome: Claude account`), do not retry: offer the other engine, or tell the user which account is out and when it resets.
+
 Do not commit the result. If the job changed files, tell the user, and offer `/cross-review` before committing.

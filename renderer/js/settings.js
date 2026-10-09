@@ -4,6 +4,17 @@
   const S = {};
   App.views.settings = S;
 
+  const DEFAULT_DIR = { claude: '~/.claude', codex: '~/.codex' };
+  const accountsText = (c, engine) => c.accounts[engine].list.map((a) => `${a.name} = ${a.dir || DEFAULT_DIR[engine]}`).join('\n');
+  // "Name = folder" per line; the CLI's default folder is stored as ''.
+  function parseAccounts(engine, text) {
+    const seen = new Set();
+    return text.split('\n').map((l) => l.split('=')).filter((p) => p[0].trim()).map(([n, ...d]) => {
+      const dir = d.join('=').trim().replace(/\/+$/, '');
+      return { name: n.trim(), dir: !dir || dir === DEFAULT_DIR[engine] || dir === (App.env.home || '~') + DEFAULT_DIR[engine].slice(1) ? '' : dir };
+    }).filter((a) => !seen.has(a.name) && seen.add(a.name));
+  }
+
   S.open = async () => {
     const c = App.cfg;
     const [zp, zs, pp, pt] = await Promise.all(['zenodo:prod', 'zenodo:sandbox', 'pypi:pypi', 'pypi:testpypi'].map((k) => codeome.secret.has(k)));
@@ -21,6 +32,10 @@
         { key: 'refresh', label: 'Refresh Slurm every (seconds)', type: 'number', value: c.slurm.refreshSeconds },
         { legend: 'Agents' },
         { key: 'agents', label: 'Coding agents', type: 'textarea', rows: 3, value: c.agents.map((a) => `${a.name} = ${a.cmd}`).join('\n'), hint: 'One per line: Name = command. Example: Claude (Opus) = claude --model opus' },
+        { legend: 'Accounts & usage limits' },
+        { key: 'claudeAccounts', label: 'Claude accounts', type: 'textarea', rows: 2, value: accountsText(c, 'claude'), hint: 'One per line: Name = config folder (CLAUDE_CONFIG_DIR). ~/.claude is the default sign-in. Add one from the usage bars to sign in as you go.' },
+        { key: 'codexAccounts', label: 'Codex accounts', type: 'textarea', rows: 2, value: accountsText(c, 'codex'), hint: 'One per line: Name = folder (CODEX_HOME). ~/.codex is the default.' },
+        { key: 'stopAt', label: 'Hold back new agent jobs at (% of the 5-hour or weekly limit)', type: 'number', value: c.usage.stopAt, hint: 'Codex jobs move to an account with headroom; Claude subagents pause. New orchestrators start on the Claude account with the most headroom.' },
         { legend: 'Python' },
         { key: 'pyLocal', label: 'Python on this Mac', value: c.python.local },
         { key: 'pyRemote', label: 'Python on the HPC', value: c.python.remote },
@@ -41,6 +56,11 @@
     c.slurm.refreshSeconds = Math.max(5, Number(v.refresh) || 20);
     const agents = v.agents.split('\n').map((l) => l.split('=')).filter((p) => p.length >= 2).map(([n, ...cmd]) => ({ name: n.trim(), cmd: cmd.join('=').trim() })).filter((a) => a.name && a.cmd);
     if (agents.length) c.agents = agents;
+    for (const [engine, key] of [['claude', 'claudeAccounts'], ['codex', 'codexAccounts']]) {
+      const list = parseAccounts(engine, v[key]);
+      if (list.length) c.accounts[engine] = { active: list.some((a) => a.name === c.accounts[engine].active) ? c.accounts[engine].active : list[0].name, list };
+    }
+    c.usage.stopAt = Math.min(100, Math.max(50, Number(v.stopAt) || 90));
     c.python.local = v.pyLocal.trim() || 'python3'; c.python.remote = v.pyRemote.trim() || 'python3';
     c.editor.theme = v.theme; c.editor.fontSize = Math.min(24, Math.max(10, Number(v.fontSize) || 13));
     if (v.zProd) await codeome.secret.set('zenodo:prod', v.zProd.trim());

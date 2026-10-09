@@ -21,6 +21,16 @@ const DEFAULTS = {
   zenodo: { sandbox: false },
   editor: { fontSize: 13, theme: 'auto' },
   slurm: { refreshSeconds: 20, historyDays: 3 },
+  // Accounts are config folders (CLAUDE_CONFIG_DIR / CODEX_HOME); '' is the CLI's default.
+  accounts: {
+    claude: { active: 'Default', list: [{ name: 'Default', dir: '' }] },
+    codex: { active: 'Default', list: [{ name: 'Default', dir: '' }] }
+  },
+  // Agent jobs are held back once the 5-hour or weekly limit passes this percentage.
+  usage: { stopAt: 90, codexRefreshSeconds: 180 },
+  openProjects: [],       // project cards in the left column, in order
+  activeProject: null,
+  ui: { projectsCollapsed: false },
   recentFolders: []
 };
 
