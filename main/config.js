@@ -45,7 +45,9 @@ const DEFAULTS = {
   },
   // Agent jobs are held back once the 5-hour or weekly limit passes this percentage.
   usage: { stopAt: 90, codexRefreshSeconds: 180 },
-  chat: { model: '' },    // the orchestrator's Claude model; '' uses the command's own
+  // model: the orchestrator's Claude model; '' uses the command's own.
+  // quick: messages sent often, listed under the button beside the message box.
+  chat: { model: '', quick: ['Commit, push and deploy'] },
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   projectColors: {},      // project → hue (0–359) of its card and title-bar tag; picked when first opened

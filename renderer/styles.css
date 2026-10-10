@@ -443,6 +443,19 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 
 .chat-compose { border-top: 1px solid var(--line); padding: 8px 10px 9px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
 .chat-input { resize: none; min-height: 34px; max-height: 220px; line-height: 1.45; padding: 7px 9px; border-radius: 8px; }
+.chat-row { display: flex; gap: 4px; align-items: flex-end; }
+.chat-row .chat-input { flex: 1; }
+.chat-row .icon-btn { flex: none; height: 34px; }
+.chat-row .icon-btn svg { width: 15px; height: 15px; }
+.chat-attach { display: flex; flex-wrap: wrap; gap: 4px; }
+.chat-attach:empty { display: none; }
+.fchip { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; font-size: 11.5px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 5px; padding: 1px 7px; }
+.fchip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fchip button { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0 0 0 2px; line-height: 1; font-size: 13px; }
+.fchip button:hover { color: var(--text); }
+.msg-files { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.msg-files:first-child { margin-top: 0; }
+.msg-files .fchip { background: var(--surface); }
 .chat-bar { min-width: 0; }
 .chat-bar select { width: auto; font-size: 11.5px; padding: 1px 4px; max-width: 150px; }
 .chat-state { font-size: 11.5px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -599,6 +612,7 @@ button.cs:hover { text-decoration-color: currentColor; }
 #menu-pop button:hover, #menu-pop button:focus { background: var(--sel); outline: none; }
 #menu-pop button .k { color: var(--muted); font-size: 11px; }
 #menu-pop button.danger { color: var(--fail); }
+#menu-pop button:disabled { opacity: .45; cursor: default; background: transparent; }
 #menu-pop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
 #menu-pop .mh { padding: 4px 10px 2px; font-size: 11px; color: var(--muted); }
 

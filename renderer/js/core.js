@@ -48,7 +48,8 @@ App.icons = {
   dots: '<svg viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.5" cy="8" r="1.3" fill="currentColor"/></svg>',
   trash: '<svg viewBox="0 0 16 16"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.7 9h5.6l.7-9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
   home: '<svg viewBox="0 0 16 16"><path d="M2.5 7.5 8 3l5.5 4.5V13h-11z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>',
-  terminal: '<svg viewBox="0 0 16 16"><path d="m3 4.5 3.5 3.5L3 11.5M8 12h5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>'
+  terminal: '<svg viewBox="0 0 16 16"><path d="m3 4.5 3.5 3.5L3 11.5M8 12h5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
+  bolt: '<svg viewBox="0 0 16 16"><path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>'
 };
 App.iconBtn = (name, title, onclick, extra = '') => h('button.icon-btn.small' + extra, { title, 'aria-label': title, onclick, html: App.icons[name] });
 
@@ -167,7 +168,15 @@ App.menu = (x, y, items) => {
   };
   setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', key, true); });
 };
-App.menuAt = (el, items) => { const r = el.getBoundingClientRect(); App.menu(r.left, r.bottom + 4, items); };
+// above: open over the element, with the right edges aligned (for buttons at the bottom of a panel).
+App.menuAt = (el, items, above) => {
+  const r = el.getBoundingClientRect();
+  App.menu(r.left, r.bottom + 4, items);
+  if (!above) return;
+  const pop = document.getElementById('menu-pop'), p = pop.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(r.right - p.width, innerWidth - p.width - 8)) + 'px';
+  pop.style.top = Math.max(8, r.top - p.height - 4) + 'px';
+};
 
 // ---------- popovers ----------
 // A panel under an anchor; Escape or a click outside closes it. Only one at a time.

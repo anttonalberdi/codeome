@@ -8,7 +8,7 @@
   const C = { byProject: {}, byId: {} }; // byProject[dir] = { tabs: [chat], active: chat }
   App.views.chat = C;
   const dom = new WeakMap(); // item → element
-  let logEl, ta, modeSel, acctEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl;
+  let logEl, ta, attEl, modeSel, acctEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl;
 
   const MODES = [
     { value: 'default', label: 'Ask before changes' },
@@ -35,7 +35,7 @@
   }
   // Runtime-only state, rebuilt for a saved conversation.
   function live(chat) {
-    Object.assign(chat, { running: false, busy: false, stream: {}, tools: {}, requests: {} });
+    Object.assign(chat, { running: false, busy: false, stream: {}, tools: {}, requests: {}, attach: [] });
     for (const it of chat.items) {
       if (it.id) chat.tools[it.id] = it;
       if ((it.t === 'perm' || it.t === 'ask') && !it.decided && !it.answers) it.expired = true;
@@ -195,16 +195,20 @@
   };
 
   // ---------- sending ----------
-  C.send = async (text) => {
+  // files: paths attached to the message. The agent gets them as a list under the text
+  // and reads the ones it needs.
+  const withFiles = (text, files) => (files.length ? (text ? text + '\n\n' : '') + 'Attached files:\n' + files.map((f) => '- ' + f).join('\n') : text);
+
+  C.send = async (text, files = []) => {
     const chat = cur();
     text = String(text || '').trim();
-    if (!chat || !text) return;
-    if (!chat.title) chat.title = text.replace(/\s+/g, ' ').slice(0, 80);
-    push(chat, { t: 'user', text });
+    if (!chat || (!text && !files.length)) return;
+    if (!chat.title) chat.title = (text || files.map(App.basename).join(', ')).replace(/\s+/g, ' ').slice(0, 80);
+    push(chat, files.length ? { t: 'user', text, files } : { t: 'user', text });
     App.emit('chat');
     if (!chat.running && !(await start(chat))) return;
     chat.busy = true; paintState();
-    const r = await codeome.chat.send(chat.id, text);
+    const r = await codeome.chat.send(chat.id, withFiles(text, files));
     if (r.error) { note(chat, r.error, 'error'); chat.busy = false; paintState(); }
     chat.started = true;
     save(chat, true);
@@ -549,7 +553,7 @@
   function render(chat, it) {
     let el;
     switch (it.t) {
-      case 'user': el = h('div.msg.user', it.text); break;
+      case 'user': el = h('div.msg.user', it.text, it.files ? h('div.msg-files', it.files.map((f) => h('span.fchip', { title: App.tildify(f) }, h('span', App.basename(f))))) : null); break;
       case 'text': el = h('div.msg.md' + (it.live ? '.live' : ''), { html: App.md(it.text) }); break;
       case 'note': el = h('div.note.' + (it.kind || 'info'), it.text); break;
       case 'tool': {
@@ -656,6 +660,9 @@
     } });
     modeSel = h('select.chat-mode', { 'aria-label': 'What the agent may do without asking', title: 'What the agent may do without asking', onchange: (e) => setMode(e.target.value) },
       MODES.map((m) => h('option', { value: m.value }, m.label)));
+    attEl = h('div.chat-attach');
+    const attachBtn = h('button.icon-btn', { title: 'Attach files', 'aria-label': 'Attach files', onclick: attach, html: App.icons.plus });
+    const quickBtn = h('button.icon-btn', { title: 'Saved messages', 'aria-label': 'Saved messages', 'aria-haspopup': 'menu', onclick: () => App.menuAt(quickBtn, quickMenu(), true), html: App.icons.bolt });
     acctEl = h('span.chat-acct');
     stateEl = h('span.chat-state.grow');
     stopBtn = h('button.btn.small', { onclick: () => C.stop(), hidden: true }, 'Stop');
@@ -663,7 +670,7 @@
     tabsEl = h('div.chat-tabs', { role: 'tablist', 'aria-label': 'Chats' });
     sumEl = h('div.chat-sum', { 'aria-live': 'polite' });
     host.append(h('div.chat-tabbar', tabsEl, h('button.chat-tab-new', { title: 'New chat (each tab is its own agent session)', 'aria-label': 'New chat', onclick: () => C.newChat(), html: App.icons.plus })),
-      sumEl, logEl, h('div.chat-compose', ta, h('div.row.chat-bar', modeSel, acctEl, stateEl, stopBtn, sendBtn)));
+      sumEl, logEl, h('div.chat-compose', attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, stateEl, stopBtn, sendBtn)));
     const restoring = {};
     App.listen('project', async (p) => {
       if (p && !C.byProject[p]) {
@@ -687,12 +694,66 @@
   };
 
   function submit() {
-    const v = ta.value;
-    if (!v.trim()) return;
+    const v = ta.value, chat = cur();
+    const files = chat ? chat.attach : [];
+    if (!v.trim() && !files.length) return;
     if (!App.project) return App.toast('Open a project folder first.');
     ta.value = ''; autosize();
-    if (cur()) cur().draft = '';
-    C.send(v);
+    if (chat) { chat.draft = ''; chat.attach = []; paintAttach(); }
+    C.send(v, files);
+  }
+
+  // ---------- attachments ----------
+  async function attach() {
+    const chat = cur();
+    if (!chat) return App.toast('Open a project folder first.');
+    const files = await codeome.dialog.files({ defaultPath: chat.project });
+    for (const f of files) if (!chat.attach.includes(f)) chat.attach.push(f);
+    if (chat === cur()) paintAttach();
+    focus();
+  }
+
+  function paintAttach() {
+    if (!attEl) return;
+    const chat = cur();
+    attEl.innerHTML = '';
+    for (const f of chat ? chat.attach : []) {
+      attEl.append(h('span.fchip', { title: App.tildify(f) }, h('span', App.basename(f)),
+        h('button', { title: 'Remove', 'aria-label': 'Remove ' + App.basename(f), onclick: () => { chat.attach = chat.attach.filter((x) => x !== f); paintAttach(); } }, '×')));
+    }
+  }
+
+  // ---------- saved messages ----------
+  // Messages sent often (Settings: chat.quick). Picking one sends it at once, with any
+  // attached files; what is typed in the message box stays there.
+  const quick = () => (App.cfg.chat && App.cfg.chat.quick) || [];
+  function setQuick(list) { App.cfg.chat = { ...(App.cfg.chat || {}), quick: list }; return App.saveConfig(); }
+
+  function quickMenu() {
+    const typed = ta.value.trim();
+    const short = (s) => { s = s.replace(/\s+/g, ' '); return s.length > 60 ? s.slice(0, 59) + '…' : s; };
+    return [
+      { header: quick().length ? 'Send a saved message' : 'No saved messages yet' },
+      ...quick().map((m) => ({ label: short(m), run: () => sendQuick(m) })),
+      '-',
+      { label: 'Save the typed message', disabled: !typed || quick().includes(typed), run: () => setQuick([...quick(), typed]).then(() => App.toast('Saved.')) },
+      { label: 'Edit saved messages…', run: editQuick }
+    ];
+  }
+
+  function sendQuick(text) {
+    const chat = cur();
+    if (!chat) return App.toast('Open a project folder first.');
+    const files = chat.attach;
+    chat.attach = []; paintAttach();
+    C.send(text, files);
+  }
+
+  async function editQuick() {
+    const r = await App.modal({ title: 'Saved messages', text: 'One message per line. They are listed under the button to the right of the message box, and picking one sends it.', ok: 'Save',
+      fields: [{ key: 'v', label: 'Messages', type: 'textarea', rows: 8, value: quick().join('\n'), placeholder: 'Commit, push and deploy' }] });
+    if (!r) return;
+    await setQuick([...new Set(r.v.split('\n').map((x) => x.trim()).filter(Boolean))]);
   }
   function autosize() { ta.style.height = 'auto'; ta.style.height = Math.min(220, ta.scrollHeight + 2) + 'px'; }
 
@@ -715,13 +776,14 @@
     logEl.innerHTML = '';
     const chat = cur();
     if (chat && chat.unread && seen(chat)) chat.unread = false;
-    if (!App.project) { logEl.append(h('div.chat-empty', h('p', 'Open a project folder to talk to the agent.'))); paintState(); return; }
+    if (!App.project) { logEl.append(h('div.chat-empty', h('p', 'Open a project folder to talk to the agent.'))); paintAttach(); paintState(); return; }
     if (!chat || !chat.items.length) {
       logEl.append(h('div.chat-empty',
         h('h3', 'What should we work on?'),
         h('p', `Ask about ${App.basename(App.project)} or describe a task. The agent answers directly, or plans the work, checks with you, and hands it to Codex and Claude specialists.`),
         h('div.chat-examples', EXAMPLES.map((x) => h('button', { onclick: () => { ta.value = x; autosize(); focus(); } }, x)))));
     } else for (const it of chat.items) logEl.append(render(chat, it));
+    paintAttach();
     paintState();
     scrollEnd();
   }

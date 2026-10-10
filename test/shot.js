@@ -98,8 +98,11 @@ const steps = {
     mk('Plan the 0.4 release', (c) => { c.running = c.busy = true; const it = { t: 'ask', requestId: 'r1', questions: [{ question: 'Ship the kit update in 0.4?', header: 'Release', options: [{ label: 'Yes', description: 'Bump to 0.4.0' }, { label: 'Later' }] }] }; c.items.push(it); c.requests.r1 = { input: {}, item: it }; });
     mk('How is this project organised?', (c) => { c.running = true; c.unread = true; c.outcome = 'done'; c.items.push({ t: 'text', text: 'Three parts: **main/** (Electron), **renderer/** (UI) and **kit/**.' }); });
     const d = mk('Review my uncommitted changes', (c) => { c.running = true; c.items.push({ t: 'tool', id: 't1', name: 'Bash', input: { command: 'git diff --stat' }, done: true }, { t: 'text', text: 'The diff touches **4 files**. Two findings:\\n\\n1. renderer/js/chat.js:120 — the draft is lost when a tab closes.\\n2. Missing test for withModel.' }); });
+    // SHOT_QUICK: also attach two files and open the saved-messages menu.
+    if (${JSON.stringify(process.env.SHOT_QUICK || '')}) { d.items.push({ t: 'user', text: 'Does this match the README?', files: [P + '/README.md'] }); d.attach.push(P + '/package.json', P + '/main/chat.js'); }
     C.activate(d);
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    if (${JSON.stringify(process.env.SHOT_QUICK || '')}) setTimeout(() => document.querySelector('.chat-row .icon-btn:last-child').click(), 300);
   })(); 0`],
   // SHOT_PROJECT: an R project. Starts an R console there and draws a few plots.
   // SHOT_PLOTS: also pick a journal size and open the plots in a tab ('tab').
