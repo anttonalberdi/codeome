@@ -50,6 +50,60 @@ function portOpen(port, timeout = 1500) {
   });
 }
 
+// ---------- VPN test ----------
+// "host", "host:port" or "user@host:port"; a ProxyJump list gives its first hop.
+function hostPort(s, port = 22) {
+  const hop = String(s || '').split(',')[0].trim().replace(/^.*@/, '');
+  const m = /^\[?([^\]]+?)\]?(?::(\d+))?$/.exec(hop);
+  return m && m[1] ? { host: m[1], port: m[2] ? Number(m[2]) : port } : null;
+}
+
+// What tells whether the HPC network is reachable: through the tunnel, the login itself;
+// otherwise the check host from Settings, else the first host ssh connects to for the login
+// (its ProxyJump, or the login itself).
+async function vpnTarget(cfg) {
+  const tunnel = (cfg.hpc.vpn || {}).mode === 'tunnel';
+  if (!tunnel && cfg.hpc.vpnCheckHost) return hostPort(cfg.hpc.vpnCheckHost);
+  if (!cfg.hpc.host) return null;
+  const login = await resolveHost(cfg.hpc.host);
+  if (login.error) return null;
+  if (!tunnel && login.proxyJump) {
+    // The jump host may itself be an alias in ~/.ssh/config; a port in the ProxyJump wins.
+    const hop = hostPort(login.proxyJump, 0);
+    const j = hop && await resolveHost(hop.host);
+    return hop && { host: j && !j.error ? j.hostname : hop.host, port: hop.port || (j && j.port) || 22 };
+  }
+  return { host: login.hostname, port: login.port || 22 };
+}
+
+// Why a probe failed: dns (the name only resolves on the VPN), refused, unreachable or other.
+// Through the tunnel nc reports the SOCKS reply code instead (4: host unreachable, 5: refused).
+function classifyProbe(code, stderr) {
+  if (code === 0) return 'ok';
+  const e = String(stderr);
+  if (/getaddrinfo|nodename nor servname|Name or service not known|SOCKS error 4/i.test(e)) return 'dns';
+  if (/refused|SOCKS error 5/i.test(e)) return 'refused';
+  if (/timed out|No route to host|Network is unreachable|SOCKS error [36]/i.test(e) || code === null) return 'unreachable';
+  return 'other';
+}
+
+// Opens a TCP connection to host:port and closes it, through the tunnel when socksPort is given.
+async function probe(host, port, socksPort = 0) {
+  const via = socksPort ? ['-X', '5', '-x', '127.0.0.1:' + socksPort] : [];
+  const r = await run('nc', ['-v', '-z', '-G', '5', '-w', '5', ...via, host, String(port)], { timeout: 12000 });
+  return { result: classifyProbe(r.code, r.stderr), detail: r.stderr.trim().split('\n').pop() || '' };
+}
+
+// The HPC setup's VPN test: ok | dns | refused | unreachable | other | notunnel | nohost.
+async function testVpn(cfg) {
+  const v = cfg.hpc.vpn || {};
+  const tunnel = v.mode === 'tunnel';
+  const target = await vpnTarget(cfg);
+  if (!target) return { result: 'nohost', tunnel };
+  if (tunnel && !(await portOpen(portOf(v)))) return { result: 'notunnel', tunnel, ...target };
+  return { ...(await probe(target.host, target.port, tunnel ? portOf(v) : 0)), tunnel, ...target };
+}
+
 // ---------- tools ----------
 // Where a command lives: on Codeome's PATH (which adds Homebrew's), else the login shell's.
 async function locate(tool, shell) {
@@ -160,5 +214,5 @@ async function status(cfg, shell) {
     login, key, ciscoServers: ciscoServers(), home: os.homedir() };
 }
 
-module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, proxyCommand, portOpen, locate, RECIPES, BREW_INSTALL, installCommand,
+module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, proxyCommand, portOpen, hostPort, vpnTarget, classifyProbe, probe, testVpn, locate, RECIPES, BREW_INSTALL, installCommand,
   parseSshG, resolveHost, findKey, classifyLogin, ciscoServers, status };

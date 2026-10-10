@@ -1,4 +1,4 @@
-// Settings: a full page over the workspace. Changes save as you make them.
+// Settings: a full page over the workspace, showing one section at a time. Changes save as you make them.
 // Sections: HPC, long-term storage, Agents (the chat's model, the project's agents with their engine and
 // model, the command-line agents), accounts and limits, Python, publishing tokens,
 // appearance, and what was found on this Mac.
@@ -7,7 +7,8 @@
   const S = { isOpen: false };
   App.views.settings = S;
   let page, nav, main, savedEl, agentsHost, setupHost, serverList;
-  const sections = {};
+  let sections = {};
+  let current = 'hpc'; // the section shown; reopening Settings returns to it
 
   const DEFAULT_DIR = { claude: '~/.claude', codex: '~/.codex' };
   const accountsText = (c, engine) => c.accounts[engine].list.map((a) => `${a.name} = ${a.dir || DEFAULT_DIR[engine]}`).join('\n');
@@ -49,10 +50,10 @@
     S.isOpen = true;
     page.hidden = false;
     document.getElementById('app').classList.add('settings-open');
-    // Sections exist only once rendered, so wait before jumping to one.
-    await render();
     const id = ALIAS[section] || section;
-    requestAnimationFrame(() => { if (id && sections[id]) jump(id, false); else main.scrollTop = 0; page.querySelector('.sp-nav button.on, .sp-nav button')?.focus(); });
+    if (id && SECTIONS.some(([s]) => s === id)) current = id;
+    await show(current);
+    nav.querySelector('button.on')?.focus();
   };
 
   S.close = () => {
@@ -64,8 +65,9 @@
   S.toggle = (section) => (S.isOpen ? S.close() : S.open(section));
 
   function build() {
-    nav = h('nav.sp-nav', { 'aria-label': 'Settings sections' });
-    main = h('div.sp-main', { onscroll: spy });
+    nav = h('nav.sp-nav', { 'aria-label': 'Settings sections' },
+      SECTIONS.map(([id, label]) => h('button', { 'data-id': id, onclick: () => show(id) }, label)));
+    main = h('div.sp-main');
     savedEl = h('span.sp-saved', { 'aria-live': 'polite' });
     page = h('section#settings-page', { hidden: true, role: 'region', 'aria-label': 'Settings' },
     h('div.sp-side', h('div.sp-title', h('h1', 'Settings'), savedEl), nav,
@@ -82,22 +84,16 @@
     App.listen('view', () => S.close());
     App.listen('project', () => { if (S.isOpen) renderAgents(); });
     // The HPC checklist follows the connection, the tunnel and setup steps as they happen.
-    for (const ev of ['setup', 'hpc', 'vpn', 'login-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
-    App.listen('env', () => { if (S.isOpen && sections.mac) sections.mac.replaceWith(macSection()); });
+    for (const ev of ['setup', 'hpc', 'vpn', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
+    App.listen('env', () => { if (S.isOpen && current === 'mac') sections.mac.replaceWith(macSection()); });
   }
 
-  function jump(id, smooth = true) {
-    const el = sections[id];
-    if (!el) return;
-    main.scrollTo({ top: el.offsetTop - 16, behavior: smooth ? 'smooth' : 'auto' });
-    markNav(id);
-  }
-  function markNav(id) { nav.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.id === id)); }
-  function spy() {
-    let on = SECTIONS[0][0];
-    for (const [id] of SECTIONS) if (sections[id] && sections[id].offsetTop - 40 <= main.scrollTop) on = id;
-    if (main.scrollTop + main.clientHeight >= main.scrollHeight - 4) on = SECTIONS[SECTIONS.length - 1][0];
-    markNav(on);
+  function markNav(id) {
+    nav.querySelectorAll('button').forEach((b) => {
+      const on = b.dataset.id === id;
+      b.classList.toggle('on', on);
+      if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    });
   }
 
   // Save after a change, then apply what needs applying.
@@ -161,19 +157,22 @@
   }
 
   // ---------- render ----------
-  async function render() {
-    const c = App.cfg;
-    nav.innerHTML = '';
-    for (const [id, label] of SECTIONS) nav.append(h('button', { 'data-id': id, onclick: () => jump(id) }, label));
-    main.innerHTML = '';
-    agentsHost = h('div');
-    main.append(h('div.sp-content',
-      hpcSection(c), storageSection(c), agentsSection(c), accountsSection(c), rSection(c), pythonSection(c),
-      await publishingSection(), appearanceSection(c), macSection()));
-    markNav(SECTIONS[0][0]);
-    renderAgents();
-    renderSetup();
-    App.setup.refresh();
+  // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
+  const BUILD = {
+    hpc: hpcSection, storage: storageSection, agents: agentsSection, accounts: accountsSection, r: rSection,
+    python: pythonSection, publishing: publishingSection, appearance: appearanceSection, mac: macSection
+  };
+  async function show(id) {
+    current = id;
+    markNav(id);
+    agentsHost = setupHost = serverList = null;
+    sections = {};
+    const el = await BUILD[id](App.cfg);
+    if (id !== current) return; // another section was picked while this one loaded
+    main.replaceChildren(h('div.sp-content', el));
+    main.scrollTop = 0;
+    if (id === 'agents') renderAgents();
+    if (id === 'hpc') { renderSetup(); App.setup.refresh(); }
   }
 
   // ---------- HPC ----------
@@ -203,8 +202,8 @@
           row('Extra options', text(() => vpn().args, (v) => { vpn().args = v.trim(); }, { placeholder: 'None', label: 'Extra openconnect options' }),
             'Passed to openconnect, e.g. --authgroup=NAME. Leave empty unless signing in needs it.')
         ] : [
-          row('VPN check', text(() => App.cfg.hpc.vpnCheckHost, (v) => { App.cfg.hpc.vpnCheckHost = v.trim(); }, { placeholder: 'login.cluster.example.org', label: 'VPN check host' }),
-            'Optional. A host only reachable on the VPN; the title bar shows whether it answers.')
+          row('VPN check', text(() => App.cfg.hpc.vpnCheckHost, (v) => { App.cfg.hpc.vpnCheckHost = v.trim(); }, { placeholder: 'Your HPC login', apply: { host: true, setup: true }, label: 'VPN check host' }),
+            'Optional: host or host:port, only reachable on the VPN; the title bar shows whether it answers. Not the VPN server itself, which is public. Empty: your HPC login is checked.')
         ])),
       card('Login',
         row('Login', text(() => App.cfg.hpc.host, (v) => { App.cfg.hpc.host = v.trim(); }, { placeholder: 'myhpc  or  user@login.cluster.example.org', apply: { host: true, setup: true }, label: 'HPC login' }),
@@ -248,6 +247,7 @@
           missing.length ? null : btn('Start', () => U.startVpn({ returnTo: backHere }), true));
       rows.push(tunnelRow);
     }
+    rows.push(vpnRow(tunnel));
 
     const login = st.login;
     if (!c.hpc.host) rows.push(stepRow('todo', 'HPC login', 'Enter your login above.'));
@@ -289,6 +289,30 @@
       h('div.su-list', rows)));
   }
 
+  // Whether the HPC network answers: from this Mac (campus, Cisco Secure Client) or through the tunnel.
+  function vpnRow(tunnel) {
+    const U = App.setup, t = U.vpnTest, check = !tunnel && App.cfg.hpc.vpnCheckHost;
+    const title = tunnel ? 'Tunnel reaches the HPC' : 'HPC network reachable';
+    const test = btn(t ? 'Test again' : 'Test', () => U.testVpn(), !t);
+    if (tunnel && !U.vpnUp) return stepRow('off', title, 'Needs the VPN tunnel running.');
+    if (!t) return stepRow('todo', title, tunnel ? 'Not tested. The test opens a connection to the HPC through the tunnel.'
+      : 'Not tested. The test checks that the HPC answers, which it does on campus or with the VPN on.', test);
+    const at = `${t.host}:${t.port}`;
+    // A public host (such as the VPN server) says nothing about whether the VPN is on.
+    const wrongCheck = check ? ` If ${t.host} is the VPN server, clear the VPN check host above: the server is public, so it cannot tell.` : '';
+    switch (t.result) {
+      case 'busy': return stepRow('busy', title, 'Testing…');
+      case 'ok': return stepRow('ok', title, `${at} answers${tunnel ? ' through the tunnel' : ''}.`, test);
+      case 'nohost': return stepRow('off', title, 'Enter your HPC login below' + (tunnel ? '.' : ', or a VPN check host above.'));
+      case 'notunnel': return stepRow('warn', title, 'The VPN tunnel is not running.', btn('Start VPN', () => U.startVpn({ returnTo: backHere })), test);
+      case 'dns': return stepRow('warn', title, tunnel ? `The VPN does not know ${t.host}. Check the login below, or stop and start the tunnel.`
+        : `This network does not know ${t.host}, so the VPN looks off. Turn on Cisco Secure Client (or switch to Codeome's own tunnel), then test again.`, test);
+      case 'refused': return stepRow('warn', title, `${t.host} answers, but nothing listens on port ${t.port}.` + wrongCheck, test);
+      case 'unreachable': return stepRow('warn', title, `${at} did not answer. ` + (tunnel ? 'The tunnel may have dropped: stop and start it.' : 'Turn on the VPN, then test again.') + wrongCheck, test);
+      default: return stepRow('warn', title, (t.detail || `Could not reach ${at}.`) + wrongCheck, test);
+    }
+  }
+
   function storageSection(c) {
     const files = App.views.files;
     return section('storage', 'Storage', 'Long-term storage reached over SFTP, such as ERDA. It shows as the third section in Files. Servers that only allow SFTP (no shell) work.',
@@ -325,7 +349,7 @@
         row('Model', modelSelect([{ value: '', label: fromCmd ? `From the command (${fromCmd})` : 'Claude Code default' }, ...CLAUDE_MODELS], (App.cfg.chat || {}).model || '',
           (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), model: v }; commit(); }, 'Chat model'),
           'For chats started from now on. Chats already open keep their model until they restart.')),
-      agentsHost,
+      agentsHost = h('div'),
       card('Command-line agents', cliAgents(),
         h('div.sp-foot.hint', 'Offered as sessions in terminals and on the HPC. The agent chat runs the first Claude command.')));
   }

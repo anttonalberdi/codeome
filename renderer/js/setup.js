@@ -4,7 +4,7 @@
 // prompts work, and nothing is installed without asking first.
 (function () {
   const h = App.h;
-  const U = { status: null, vpnUp: false, loginTest: null };
+  const U = { status: null, vpnUp: false, loginTest: null, vpnTest: null };
   App.setup = U;
   const T = () => App.views.terminals;
   const and = (xs) => (xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
@@ -106,6 +106,20 @@
     setTimeout(() => { if (T().get(t.id)) T().close(t.id); App.pollHpc(); }, 2000);
     App.toast('VPN tunnel stopped.');
   };
+
+  // Whether the HPC network answers: directly (campus, Cisco Secure Client) or through the tunnel.
+  // ok | dns | refused | unreachable | other | notunnel | nohost, with the host and port it tried.
+  const vpnKey = () => { const c = App.cfg.hpc; return [c.host, c.vpnCheckHost, c.vpn.mode, c.vpn.port].join('|'); };
+  U.testVpn = async () => {
+    const key = vpnKey();
+    U.vpnTest = { result: 'busy', key };
+    App.emit('vpn-test', U.vpnTest);
+    U.vpnTest = { ...(await codeome.setup.testVpn()), key };
+    App.emit('vpn-test', U.vpnTest);
+    return U.vpnTest;
+  };
+  // A result is about one setup; changing the login, check host or tunnel starts over.
+  App.listen('config', () => { if (U.vpnTest && U.vpnTest.key !== vpnKey()) U.vpnTest = null; });
 
   // ---------- ssh key ----------
   U.createKey = async () => {

@@ -256,10 +256,9 @@ ipcMain.handle('hpc:disconnect', () => ssh.disconnect(cfg.hpc.host));
 ipcMain.handle('hpc:vpn', async () => {
   const v = cfg.hpc.vpn;
   if (v.mode === 'tunnel') return { known: true, tunnel: true, up: await setup.portOpen(setup.portOf(v)) };
-  const h = cfg.hpc.vpnCheckHost;
-  if (!h) return { known: false };
-  const r = await run('nc', ['-z', '-G', '3', h, '22'], { timeout: 5000 });
-  return { known: true, up: r.code === 0 };
+  const t = await setup.vpnTarget(cfg);
+  if (!t) return { known: false };
+  return { known: true, up: (await setup.probe(t.host, t.port)).result === 'ok', host: t.host };
 });
 ipcMain.handle('remote:list', (_e, dir) => ssh.list(cfg.hpc.host, dir));
 ipcMain.handle('remote:read', (_e, p) => ssh.readFile(cfg.hpc.host, p));
@@ -274,6 +273,7 @@ ipcMain.handle('remote:quota', async () => {
 });
 
 ipcMain.handle('setup:status', () => setup.status(cfg, loginShell()));
+ipcMain.handle('setup:testVpn', () => setup.testVpn(cfg));
 ipcMain.handle('setup:testLogin', async () => {
   if (!cfg.hpc.host) return { result: 'nohost' };
   const r = await ssh.testLogin(cfg.hpc.host);

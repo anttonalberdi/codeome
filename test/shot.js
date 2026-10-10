@@ -20,7 +20,7 @@ if (storageDir) {
 const extra = {
   files: { storage: { host: 'erda', root: storageDir || '' }, ui: { panes: { remote: { collapsed: false }, storage: { title: 'ERDA archive', weight: 1.4 }, local: { weight: 1 } } } },
   // SHOT_HOST: the HPC login to check (default myhpc). Uses Codeome's own VPN tunnel.
-  'settings-hpc': { hpc: { host: process.env.SHOT_HOST || 'myhpc', vpn: { mode: 'tunnel', server: 'vpn.example.org', user: '', port: 11097, args: '' } } }
+  'settings-hpc': { hpc: { host: process.env.SHOT_HOST || 'myhpc', vpn: { mode: process.env.SHOT_VPN_MODE || 'tunnel', server: 'vpn.example.org', user: '', port: 11097, args: '' } } }
 }[scenario] || {};
 fs.writeFileSync(path.join(out, 'profile', 'config.json'), JSON.stringify({ recentFolders: [path.resolve(__dirname, '..')], hpc: { host: 'myhpc' }, ...extra }));
 require('../main/main.js');
@@ -69,7 +69,7 @@ const steps = {
   agents: [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { App.setView('agents'); setTimeout(() => { const j = App.views.agents.jobs.find((x) => x.engine === 'codex'); if (j) App.views.agents.openJob(j); }, 1200); }); 0`],
   settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(${JSON.stringify(process.env.SHOT_SECTION || '')}); 0`],
   // The HPC setup checklist; SHOT_TEST also runs the key test.
-  'settings-hpc': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('hpc').then(() => setTimeout(() => document.querySelector('.su-list').scrollIntoView(), 600)); if (${JSON.stringify(process.env.SHOT_TEST || '')}) setTimeout(() => App.setup.testLogin(), 800); 0`],
+  'settings-hpc': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('hpc').then(() => setTimeout(() => document.querySelector('.su-list').scrollIntoView(), 600)); if (${JSON.stringify(process.env.SHOT_TEST || '')}) setTimeout(() => App.setup.testLogin(), 800); if (${JSON.stringify(process.env.SHOT_VPN || '')}) setTimeout(() => App.setup.testVpn(), 800); 0`],
   // SHOT_PROJECT: a folder with the agent kit installed. Opens the Agents section.
   'settings-agents': [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('agents'); }); 0`],
   // Four chat tabs in different states (made up; no agent sessions are started).
