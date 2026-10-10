@@ -2,10 +2,13 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 0.3.2
 
 ### Added
 - **GitHub Actions**: a *CI* workflow runs the tests on every push to `main` and on pull requests, and a *Build macOS app* workflow builds the unsigned `.dmg` files on every push to `main` (the *Codeome-mac* artifact) and attaches them to a GitHub release when a `v*` tag matching the version in `package.json` is pushed.
+
+### Fixed
+- A Codex that fails to start no longer crashes the app: the broken pipe on its input is now handled.
 
 ## 0.3.1
 
