@@ -138,7 +138,8 @@ svg { width: 18px; height: 18px; display: block; }
 .u-line .u-bar { height: 6px; border-radius: 3px; }
 .u-r { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .u-pop-foot { display: flex; gap: 6px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line); }
-.usage-note { font-size: 12px; border-left-width: 3px; }
+.usage-note { font-size: 12px; border-left-width: 3px; position: relative; padding-right: 30px; }
+.usage-note .dismiss { position: absolute; top: 4px; right: 4px; }
 .usage-note.warn { border-left-color: var(--pend); }
 .usage-note.bad { border-left-color: var(--fail); }
 .tab .acct { font-size: 10.5px; color: var(--muted); }

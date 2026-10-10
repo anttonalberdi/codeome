@@ -187,18 +187,23 @@
 
   // ---------- usage ----------
   // A notice when an active account is close to (or past) the point where jobs wait.
+  // A dismissed notice stays away until the account or its state (near, past) changes.
+  const dismissed = {};
   function renderUsage() {
     const U = App.views.usage;
     if (!U || !U.snap || !A.kit || !A.kit.installed) return;
     for (const [engine, label] of [['claude', 'Claude'], ['codex', 'Codex']]) {
       const a = U.active(engine), lv = U.level(a);
-      if (lv == null || lv < U.stopAt() - 15) continue;
+      if (lv == null || lv < U.stopAt() - 15) { delete dismissed[engine]; continue; }
       const past = lv >= U.stopAt();
+      const key = a.name + (past ? '|past' : '|near');
+      if (dismissed[engine] === key) continue;
       const spare = U.accounts(engine).filter((x) => x !== a && !x.signedOut && (U.level(x) == null || U.level(x) < U.stopAt()));
       const what = engine === 'claude'
         ? (past ? 'New Claude subagents are paused, and new chats start on another account.' : `Claude subagents pause at ${U.stopAt()}%.`)
         : (past ? (spare.length ? `Codex jobs now run on ${spare[0].name}.` : 'New Codex jobs are held back.') : `Codex jobs move to another account at ${U.stopAt()}%.`);
       usageEl.append(h('div.card.usage-note' + (past ? '.bad' : '.warn'),
+        h('button.icon-btn.small.dismiss', { title: 'Dismiss', 'aria-label': 'Dismiss', html: App.icons.close, onclick: () => { dismissed[engine] = key; usageEl.innerHTML = ''; renderUsage(); } }),
         h('div', h('b', `${label} · ${a.name}`), ` at ${U.worst(a)}. ${what}`),
         engine === 'claude' && past && spare.length ? h('div.row', { style: { marginTop: '6px' } },
           spare.slice(0, 2).map((x) => h('button.btn.small.primary', { title: 'A new chat on this account picks up the newest plan where it stopped', onclick: () => App.views.chat.newChat({ account: x.name, send: '/orchestrate resume' }) }, `Resume plan on ${x.name}`))) : null,
