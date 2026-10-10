@@ -5,9 +5,10 @@
 // every signed-in account stays ready and switching never asks again. Codeome picks
 // the folder; an empty dir means the CLI's default (~/.claude, ~/.codex).
 //   Codex  — `codex app-server` answers account/rateLimits/read live; no tokens touched.
-//   Claude — Claude Code hands rate_limits to its status line. Sessions Codeome starts
-//            get a status line (codeome-statusline) that records them in
-//            ~/.codeome/usage/claude-<account>.json and then runs your own status line.
+//   Claude — a headless `claude -p` answers the get_usage control request live; no
+//            message is sent and no tokens touched. Between two checks, sessions Codeome
+//            starts also record what Claude Code hands their status line
+//            (codeome-statusline). Both land in ~/.codeome/usage/claude-<account>.json.
 // Codeome writes the combined picture to ~/.codeome/usage.json; codeome-agent reads it
 // to choose an account for each job and to hold jobs back near a limit.
 const fs = require('fs');
@@ -83,6 +84,19 @@ function claudeWindows(rl) {
   if (pick(rl && rl.five_hour)) out.fiveHour = pick(rl.five_hour);
   if (pick(rl && rl.seven_day)) out.weekly = pick(rl.seven_day);
   return out;
+}
+
+// get_usage's rate_limits → the status line's rate_limits shape, which readClaude() reads.
+function claudeUsageLimits(rl) {
+  const one = (w) => {
+    if (!w || w.utilization == null) return null;
+    const t = w.resets_at ? Date.parse(w.resets_at) / 1000 : null;
+    return { used_percentage: Number(w.utilization), resets_at: Number.isFinite(t) ? t : null };
+  };
+  const out = {};
+  if (one(rl && rl.five_hour)) out.five_hour = one(rl.five_hour);
+  if (one(rl && rl.seven_day)) out.seven_day = one(rl.seven_day);
+  return Object.keys(out).length ? out : null;
 }
 
 // A window that has reset since the reading is back at zero.
@@ -164,6 +178,42 @@ function queryCodex(dir, codexCmd = 'codex', timeoutMs = 20000) {
   });
 }
 
+// One short-lived headless `claude -p` per account, asked for its usage and closed before
+// any message is sent. Your settings, hooks and MCP servers are left out of it.
+function queryClaude(dir, claudeCmd = 'claude', timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    const env = augmentedEnv();
+    if (dir) env.CLAUDE_CONFIG_DIR = expandHome(dir); else delete env.CLAUDE_CONFIG_DIR;
+    let child;
+    try {
+      fs.mkdirSync(home(), { recursive: true });
+      child = spawn(claudeCmd, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '', '--strict-mcp-config'],
+        { env, cwd: home(), stdio: ['pipe', 'pipe', 'ignore'] });
+    } catch (e) { return resolve({ error: String(e.message || e) }); }
+    let buf = '', done = false;
+    const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { child.kill(); } catch {} resolve(r); };
+    const timer = setTimeout(() => finish({ error: 'Claude Code did not answer in time' }), timeoutMs);
+    child.on('error', (e) => finish({ error: String(e.message || e) }));
+    child.on('close', () => finish({ error: 'Claude Code exited before answering' }));
+    child.stdin.on('error', () => {});
+    child.stdout.on('data', (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        let m; try { m = JSON.parse(line); } catch { continue; }
+        const r = m.type === 'control_response' && m.response;
+        if (!r || r.request_id !== 'usage') continue;
+        if (r.subtype === 'error') return finish({ error: r.error || 'Claude Code could not read usage' });
+        const u = r.response || {};
+        const rateLimits = claudeUsageLimits(u.rate_limits);
+        finish(rateLimits ? { rateLimits, plan: u.subscription_type || null } : { error: 'Claude Code has no usage for this account (signed in?)' });
+      }
+    });
+    child.stdin.write(JSON.stringify({ type: 'control_request', request_id: 'usage', request: { subtype: 'get_usage' } }) + '\n');
+  });
+}
+
 // Who is signed in to a Claude config folder (email, plan). Never reads credentials.
 async function claudeIdentity(dir, claudeCmd = 'claude') {
   const env = {};
@@ -219,4 +269,4 @@ function codexModels(dir) {
   return { default: def, models };
 }
 
-module.exports = { codexModels, isEmail, folderFor, signInState, findFolders, ENV_VAR, DEFAULT_DIR, STALE_S, home, normDir, accountKey, codexWindows, claudeWindows, windowPct, level, pick, readClaude, queryCodex, claudeIdentity, launch, installStatusline, writeSnapshot };
+module.exports = { codexModels, isEmail, folderFor, signInState, findFolders, ENV_VAR, DEFAULT_DIR, STALE_S, home, normDir, accountKey, codexWindows, claudeWindows, claudeUsageLimits, windowPct, level, pick, readClaude, queryCodex, queryClaude, claudeIdentity, launch, installStatusline, writeSnapshot };

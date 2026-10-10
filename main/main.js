@@ -657,6 +657,18 @@ function refreshCodex() {
   return codexBusy;
 }
 
+// Ask Claude Code for each signed-in account's usage and record it where the status line does.
+let claudeBusy = null;
+function refreshClaude() {
+  if (claudeBusy) return claudeBusy;
+  claudeBusy = Promise.all(cfg.accounts.claude.list.map(async (a) => {
+    if ((identities.claude[rk(a)] || {}).signedOut) return;
+    const r = await usage.queryClaude(a.dir, cliCmd('claude'));
+    if (r.rateLimits) { try { chat.recordUsage(a.dir, r.rateLimits); } catch (e) { console.error('claude usage', e); } }
+  })).then(readClaudeUsage).finally(() => { claudeBusy = null; });
+  return claudeBusy;
+}
+
 async function refreshIdentities() {
   await Promise.all(cfg.accounts.claude.list.map(async (a) => {
     const id = await usage.claudeIdentity(a.dir, cliCmd('claude'));
@@ -666,7 +678,7 @@ async function refreshIdentities() {
 
 async function refreshUsage(full) {
   readClaudeUsage();
-  if (full) await Promise.all([refreshCodex(), refreshIdentities()]);
+  if (full) await Promise.all([refreshCodex(), refreshIdentities().then(refreshClaude)]);
   return publishUsage();
 }
 
@@ -709,12 +721,13 @@ ipcMain.handle('usage:setActive', (_e, { engine, name }) => {
 function startUsage() {
   try { statusline = usage.installStatusline(path.join(__dirname, 'codeome-statusline')); } catch (e) { console.error('statusline', e); }
   refreshUsage(true);
-  // Claude readings are files a status line rewrites; Codex is asked every few minutes.
+  // Both CLIs are asked every few minutes; between two checks, Claude readings are also
+  // files a running session's status line rewrites.
   const dir = path.join(usage.home(), 'usage');
   try { fs.mkdirSync(dir, { recursive: true }); let t = null; fs.watch(dir, () => { clearTimeout(t); t = setTimeout(() => refreshUsage(false), 500); }); } catch {}
   setInterval(() => refreshUsage(false), 30000);
-  let lastCodex = Date.now();
-  setInterval(() => { if (Date.now() - lastCodex >= (cfg.usage.codexRefreshSeconds || 180) * 1000) { lastCodex = Date.now(); refreshCodex().then(publishUsage); } }, 15000);
+  let lastAsked = Date.now();
+  setInterval(() => { if (Date.now() - lastAsked >= (cfg.usage.codexRefreshSeconds || 180) * 1000) { lastAsked = Date.now(); Promise.all([refreshCodex(), refreshClaude()]).then(publishUsage); } }, 15000);
   setInterval(() => refreshIdentities().then(publishUsage), 15 * 60000);
 }
 

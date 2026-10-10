@@ -98,7 +98,7 @@ Open **Settings** (`⌘,`). It is a full page with a section list on the left. C
 
 ### Where the usage numbers come from
 - **Codex**: Codeome asks `codex app-server` for each account every few minutes and when a Codex job ends.
-- **Claude**: Claude Code reports its rate limits to its status line. Claude Code sessions started from Codeome get a status line, `~/.codeome/bin/codeome-statusline`, that records them and then shows your own status line, so your settings files are untouched. The Agent chat records the rate limits Claude Code reports with each reply in the same place. The Claude bars therefore update while the chat or a Claude Code session started from Codeome is in use, and they show readings older than 30 minutes as stale. Windows that have reset since count as empty.
+- **Claude**: Codeome asks a headless `claude -p` for each signed-in account's usage every few minutes; no message is sent, so the check uses none of the limit. Between two checks, Claude Code sessions started from Codeome get a status line, `~/.codeome/bin/codeome-statusline`, that records the rate limits Claude Code reports and then shows your own status line, so your settings files are untouched, and the Agent chat records the rate limits that come with each reply in the same place. A reading older than 30 minutes (an account that is signed out, or a check that fails) is shown as stale. Windows that have reset since count as empty.
 - Codeome writes the combined picture to `~/.codeome/usage.json`. `codeome-agent` reads it to choose accounts and hold jobs back. Without it (Codeome closed, or on the HPC) jobs run on the default account with no limit checks. Codeome never reads or stores the CLIs' credentials.
 
 ### Agent kit

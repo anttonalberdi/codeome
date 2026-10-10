@@ -58,7 +58,7 @@
     if (!a) return label + ': no account';
     const parts = WINDOWS.map(([k, , long]) => { const p = U.pct(a, k); return p == null ? null : `${long} ${Math.round(p)}%` + (a.windows[k].resetsAt ? `, resets ${App.fmtReset(a.windows[k].resetsAt)}` : ''); }).filter(Boolean);
     const who = U.accounts(engine).length > 1 ? ` · ${a.name}` : '';
-    if (!parts.length) return `${label}${who}: ${engine === 'claude' ? 'no reading yet — appears once a Claude Code session started here gets its first reply' : (a.error || 'no reading yet')}`;
+    if (!parts.length) return `${label}${who}: ${a.error || 'no reading yet'}`;
     return `${label}${who}: ${parts.join(' · ')}${fresh(a) ? '' : ' (old reading)'}`;
   }
 
@@ -82,7 +82,7 @@
         h('span.u-v', p == null ? '–' : Math.round(p) + '%'),
         h('span.u-r', w && w.resetsAt ? 'resets ' + App.fmtReset(w.resetsAt) : ''));
     }),
-    h('div.sub', a.asOf ? 'Updated ' + App.fmtAgo(a.asOf * 1000) + (fresh(a) ? '' : ' — old reading, not used for limits') : (engine === 'claude' ? 'Appears once a Claude Code session started from Codeome gets its first reply.' : (a.error || 'No reading yet.')))
+    h('div.sub', a.asOf ? 'Updated ' + App.fmtAgo(a.asOf * 1000) + (fresh(a) ? '' : ' — old reading, not used for limits') : (a.error || 'No reading yet.'))
   ];
 
   function paint() {

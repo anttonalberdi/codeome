@@ -25,6 +25,14 @@ test('Claude status line rate limits map to the same windows', () => {
   assert.deepStrictEqual(usage.claudeWindows(undefined), {});
 });
 
+test('a live Claude usage answer is recorded in the status line shape', () => {
+  const rl = usage.claudeUsageLimits({ five_hour: { utilization: 19, resets_at: '2026-10-10T08:59:59+00:00' }, seven_day: { utilization: 84, resets_at: null }, seven_day_opus: null });
+  assert.deepStrictEqual(rl, { five_hour: { used_percentage: 19, resets_at: Date.UTC(2026, 9, 10, 8, 59, 59) / 1000 }, seven_day: { used_percentage: 84, resets_at: null } });
+  assert.strictEqual(usage.claudeWindows(rl).weekly.pct, 84);
+  // A signed-out account answers without rate limits.
+  assert.strictEqual(usage.claudeUsageLimits(null), null);
+});
+
 test('level is the busiest window, zero after a reset, unknown when stale', () => {
   assert.strictEqual(usage.level(acct('a', 30, 70), now), 70);
   assert.strictEqual(usage.level({ ...acct('a', 95, 10), windows: { fiveHour: { pct: 95, resetsAt: now - 1 } } }, now), 0);
