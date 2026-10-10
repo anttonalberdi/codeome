@@ -10,6 +10,7 @@ const DEFAULTS = {
   hpc: {
     host: '',              // an alias from ~/.ssh/config, or user@login.cluster.org
     remoteRoot: '~',       // starting folder on the HPC
+    agentRoot: '',         // where agents put the projects they run on the HPC, one folder each; '' leaves it to them
     vpnCheckHost: '',      // optional host to probe to tell whether the VPN is up
     useTmux: true,         // run remote agent sessions inside tmux so they survive disconnects
     // How the HPC's network is reached. system: campus, or a VPN for the whole Mac (Cisco Secure Client);

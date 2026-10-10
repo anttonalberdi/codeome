@@ -15,6 +15,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 - **Chat history**: the clock button in the Agent header lists every saved chat of the project, newest first, with a search box. Click one to open it in a tab; a chat that is not open can be deleted there.
 - The agent chat adapts to the width of its section: in a narrow sidebar the controls under the message box wrap and the gutters tighten, and in a wide one the tabs show more of their titles and answer options sit side by side.
 - **Switch a chat's Claude account**: click the account's email under the message box and pick another account. The conversation moves with its history and continues there with your next message.
+- **Agent projects on the HPC**: Settings → *HPC* → *Agent projects* names the folder where the agents put the projects they run on the HPC, each in its own folder named after the project. The agent chat is told the folder when it starts, and reuses a project's folder if it is already there.
 - **App icon**: a pair of braces around four coloured lines, in the Dock, the app switcher and Finder.
 - The version number next to CODEOME in the title bar.
 - This changelog.

@@ -45,6 +45,20 @@ function linkedPrompt(linked, kitInstalled) {
   ].filter((l) => l !== null).join('\n') + '\n';
 }
 
+// What the orchestrator is told about the HPC: the login, and the folder its projects go in
+// (Settings → HPC → Agent projects). '' when no folder is set.
+function hpcPrompt(hpc) {
+  const root = String((hpc && hpc.agentRoot) || '').trim().replace(/(.)\/+$/, '$1');
+  if (!root) return '';
+  return ['', '## Projects on the HPC', '',
+    `Work that you or your team run on the HPC${hpc.host ? ` (\`ssh ${hpc.host}\`)` : ''} goes in one folder per project under \`${root}/\`, named after the project in lowercase words joined by hyphens.`,
+    '',
+    '- Before creating a folder, list the ones there and reuse the one this project already has.',
+    '- Keep scripts, environments, logs and results inside that folder, and give its path in every HPC brief.',
+    '- Use another place only when the user or the project\'s `CLAUDE.md` names one for this project.'
+  ].join('\n') + '\n';
+}
+
 // The configured command's extra words with a value chosen in Settings, which wins
 // over the same flag in the command. '' keeps the command as it is.
 function withFlag(extra, flag, value) {
@@ -61,10 +75,10 @@ const withModel = (extra, model) => withFlag(extra, '--model', model);
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
-// linked: folders of the projects connected to this one.
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [] }) {
+// linked: folders of the projects connected to this one. hpc: the HPC settings (host, agentRoot).
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', systemPrompt(kitInstalled) + linkedPrompt(linked, kitInstalled)];
+    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', systemPrompt(kitInstalled) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc)];
   for (const d of linked) args.push('--add-dir', d);
   args.push(resume ? '--resume' : '--session-id', id);
   if (mode && mode !== 'default' && MODES.includes(mode)) args.push('--permission-mode', mode);
@@ -247,4 +261,4 @@ function moveSession(fromDir, toDir, id) {
   if (fs.existsSync(path.join(root, folder, id))) fs.cpSync(path.join(root, folder, id), path.join(dest, id), { recursive: true });
 }
 
-module.exports = { Session, systemPrompt, linkedPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };
+module.exports = { Session, systemPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };

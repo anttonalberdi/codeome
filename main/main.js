@@ -661,7 +661,7 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter })
     const linked = ((cfg.projectLinks || {})[project] || []).filter((d) => d !== project && fs.existsSync(d));
     if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
     const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
-    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked }), env, autoAllow, meter: resume ? { ...(meter || {}), resumed: true } : {} });
+    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc }), env, autoAllow, meter: resume ? { ...(meter || {}), resumed: true } : {} });
     s.on('message', (msg) => send('chat:event', { id, msg }));
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
     s.on('turn', (t) => { try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, ...t }); } catch (e) { console.error('chat stats', e); } });

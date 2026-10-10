@@ -46,6 +46,15 @@ test('connected projects are added as folders and named in the prompt', () => {
   assert.strictEqual(chat.linkedPrompt([], true), '');
 });
 
+test('the folder for agent projects on the HPC is named in the prompt', () => {
+  const at = (a) => a[a.indexOf('--append-system-prompt') + 1];
+  assert.ok(!at(chat.buildArgs({ id: ID, hpc: { host: 'myhpc', agentRoot: '' } })).includes('Projects on the HPC'));
+  const prompt = at(chat.buildArgs({ id: ID, hpc: { host: 'myhpc', agentRoot: '/projects/lab/me/projects/' } }));
+  assert.ok(prompt.includes('## Projects on the HPC') && prompt.includes('`ssh myhpc`') && prompt.includes('under `/projects/lab/me/projects/`'));
+  assert.ok(!chat.hpcPrompt({ agentRoot: '/p' }).includes('ssh'));
+  assert.strictEqual(chat.hpcPrompt(null), '');
+});
+
 test('the model chosen in Settings replaces a --model in the command', () => {
   assert.deepStrictEqual(chat.withModel(['--model', 'opus', '--verbose'], ''), ['--model', 'opus', '--verbose']);
   assert.deepStrictEqual(chat.withModel(['--model', 'opus', '--verbose'], 'claude-fable-5-1'), ['--verbose', '--model', 'claude-fable-5-1']);
