@@ -28,6 +28,8 @@ const DEFAULTS = {
   },
   // Agent jobs are held back once the 5-hour or weekly limit passes this percentage.
   usage: { stopAt: 90, codexRefreshSeconds: 180 },
+  chat: { model: '' },    // the orchestrator's Claude model; '' uses the command's own
+  chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   activeProject: null,
   ui: { projectsCollapsed: false },

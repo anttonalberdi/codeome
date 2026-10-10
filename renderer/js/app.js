@@ -82,7 +82,7 @@
       h('div.quick',
         h('button', { onclick: () => App.openProject() }, h('b', App.project ? 'Open another project' : 'Open folder'), h('span', App.project ? 'It gets its own card on the left; this one keeps running' : 'A local project with your R and Python code')),
         h('button', { onclick: () => App.views.editor.newFile() }, h('b', 'New file'), h('span', 'Script, notebook or report')),
-        App.project ? h('button', { onclick: () => App.views.chat.ask('') }, h('b', 'Ask the agent'), h('span', 'One chat; it hands work to Codex and Claude specialists')) : null,
+        App.project ? h('button', { onclick: () => App.views.chat.ask('') }, h('b', 'Ask the agent'), h('span', 'Chats in tabs; they hand work to Codex and Claude specialists')) : null,
         h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login and VPN check')),
         h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts'))),
       App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null,
@@ -112,8 +112,11 @@
     'open-folder': () => App.openProject(), 'close-project': () => App.project && App.views.projects.close(App.project),
     'next-project': () => App.views.projects.cycle(1), 'prev-project': () => App.views.projects.cycle(-1), 'new-file': () => App.views.editor.newFile(), save: () => App.views.editor.save(),
     'close-tab': () => { const t = App.views.editor.cur(); if (t) App.views.editor.close(t.id); },
-    settings: () => App.views.settings.open(),
+    settings: () => App.views.settings.toggle(),
     'view-files': () => App.setView('files'), 'view-slurm': () => App.setView('slurm'), 'view-git': () => App.setView('git'),
+    'new-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.newChat(); },
+    'next-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(1); },
+    'prev-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(-1); },
     'view-publish': () => App.setView('publish'), 'view-pip': () => App.setView('pip'), 'view-agents': () => App.setView('agents'),
     'toggle-panel': () => App.views.terminals.togglePanel(), 'new-terminal': () => App.views.terminals.localShell(),
     'new-hpc-terminal': () => App.views.terminals.hpcShell(), preview: () => App.views.editor.previewCurrent()
@@ -129,7 +132,7 @@
     App.applyTheme();
     initResize();
     document.querySelectorAll('#rail button').forEach((b) => { b.onclick = () => App.setView(b.dataset.view); });
-    document.getElementById('settings-btn').onclick = () => App.views.settings.open();
+    document.getElementById('settings-btn').onclick = () => App.views.settings.toggle();
     document.getElementById('project-btn').onclick = () => App.openProject();
     const cl = document.getElementById('cluster');
     cl.onclick = () => clusterMenu(cl);

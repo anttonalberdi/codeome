@@ -20,6 +20,23 @@ const steps = {
   // SHOT_PROJECT: a folder with the agent kit installed and some jobs recorded.
   agents: [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { App.setView('agents'); setTimeout(() => { const j = App.views.agents.jobs.find((x) => x.engine === 'codex'); if (j) App.views.agents.openJob(j); }, 1200); }); 0`],
   settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(); 0`],
+  // SHOT_PROJECT: a folder with the agent kit installed. Opens the Agents section.
+  'settings-agents': [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('agents'); }); 0`],
+  // Four chat tabs in different states (made up; no agent sessions are started).
+  chats: [`(async () => {
+    const P = ${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))};
+    await App.openProject(P); App.setView('agents');
+    await new Promise((r) => setTimeout(r, 900));
+    const C = App.views.chat;
+    const mk = (title, f) => { C.newChat(); const c = C.current(); c.title = title; c.started = true; c.items.push({ t: 'user', text: title }); f(c); return c; };
+    const now = Date.now();
+    mk('Fix the failing assembly tests', (c) => { c.running = c.busy = true; c.items.push({ t: 'job', id: 'j1', engine: 'codex', role: 'debugger', title: 'Find why test_assembly fails', status: 'running', startedAt: now - 95000 }, { t: 'job', id: 'j2', engine: 'claude', role: 'explorer', title: 'Map the assembly module', status: 'running', startedAt: now - 40000, activity: 'Read main/assembly.py' }); });
+    mk('Plan the 0.4 release', (c) => { c.running = c.busy = true; const it = { t: 'ask', requestId: 'r1', questions: [{ question: 'Ship the kit update in 0.4?', header: 'Release', options: [{ label: 'Yes', description: 'Bump to 0.4.0' }, { label: 'Later' }] }] }; c.items.push(it); c.requests.r1 = { input: {}, item: it }; });
+    mk('How is this project organised?', (c) => { c.running = true; c.unread = true; c.outcome = 'done'; c.items.push({ t: 'text', text: 'Three parts: **main/** (Electron), **renderer/** (UI) and **kit/**.' }); });
+    const d = mk('Review my uncommitted changes', (c) => { c.running = true; c.items.push({ t: 'tool', id: 't1', name: 'Bash', input: { command: 'git diff --stat' }, done: true }, { t: 'text', text: 'The diff touches **4 files**. Two findings:\\n\\n1. renderer/js/chat.js:120 — the draft is lost when a tab closes.\\n2. Missing test for withModel.' }); });
+    C.activate(d);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+  })(); 0`],
   // Two project cards, a file in each, and usage bars from made-up readings.
   projects: [`(async () => {
     const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });

@@ -56,7 +56,8 @@
   P.close = async (dir) => {
     const T = App.views.terminals, E = App.views.editor;
     const live = T.list.filter((t) => t.project === dir && t.alive).map((t) => t.title);
-    if (App.views.chat.isBusy(dir)) live.unshift('the agent chat');
+    const busyChats = App.views.chat.stats(dir).working + App.views.chat.stats(dir).waiting;
+    if (busyChats) live.unshift(busyChats > 1 ? `${busyChats} agent chats` : 'the agent chat');
     if (live.length && !(await App.confirm(`Close ${App.basename(dir)}?`,
       `${live.length > 1 ? 'These' : 'This'} will be stopped: ${live.join(', ')}. Sessions kept in tmux on the HPC and specialist jobs keep running.`, 'Close project', true))) return;
     if (!(await E.closeProject(dir))) return;
@@ -119,15 +120,19 @@
     const active = dir === App.project;
     const jobs = state(dir).jobs || 0;
     const sessions = App.views.terminals.list.filter((t) => t.project === dir && t.alive).length;
-    const working = App.views.chat.isBusy(dir);
+    const cs = App.views.chat.stats(dir);
+    const working = cs.working > 0;
     const unsaved = App.views.editor.tabs.filter((t) => t.project === dir && t.dirty).length;
+    const workingText = cs.working > 1 ? `${cs.working} agents working` : 'agent working';
     const stat = [
-      working ? h('span.ps-jobs', h('i'), 'agent working') : null,
+      cs.waiting ? h('span.ps-wait', `${cs.waiting > 1 ? cs.waiting + ' chats need' : 'agent needs'} you`) : null,
+      working ? h('span.ps-jobs', h('i'), workingText) : null,
       jobs ? h('span.ps-jobs', working ? null : h('i'), `${jobs} job${jobs > 1 ? 's' : ''}`) : null,
+      cs.unread ? h('span.ps-done', `${cs.unread} repl${cs.unread > 1 ? 'ies' : 'y'} ready`) : null,
       sessions ? h('span', `${sessions} session${sessions > 1 ? 's' : ''}`) : null,
       unsaved ? h('span.ps-dirty', `${unsaved} unsaved`) : null
     ].filter(Boolean);
-    const label = [name, working ? 'agent working' : '', jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ');
+    const label = [name, cs.waiting ? `${cs.waiting} chat${cs.waiting > 1 ? 's' : ''} waiting for you` : '', working ? workingText : '', jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', cs.unread ? `${cs.unread} unseen agent repl${cs.unread > 1 ? 'ies' : 'y'}` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ');
     const c = h('div.proj' + (active ? '.active' : ''), {
       role: 'tab', 'aria-selected': String(active), 'aria-label': label, tabindex: active ? '0' : '-1', draggable: 'true',
       title: App.tildify(dir), style: '--ph: ' + hue(name),
@@ -162,7 +167,7 @@
         render();
       }
     },
-    h('span.pmono', initials(name), jobs || working ? h('i.m-jobs') : (unsaved ? h('i.m-dirty') : null)),
+    h('span.pmono', initials(name), cs.waiting ? h('i.m-wait') : jobs || working ? h('i.m-jobs') : cs.unread ? h('i.m-done') : (unsaved ? h('i.m-dirty') : null)),
     h('span.pinfo',
       h('span.pname', name),
       h('span.ppath', App.tildify(App.dirname(dir))),

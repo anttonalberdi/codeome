@@ -50,6 +50,10 @@ contextBridge.exposeInMainWorld('codeome', {
   },
   pip: { list: invoke('pip:list'), hasToken: invoke('pypi:hasToken') },
   kit: { status: invoke('kit:status'), install: (project, groups) => ipcRenderer.invoke('kit:install', { project, groups }) },
+  agents: {
+    list: invoke('agents:list'), models: invoke('agents:models'),
+    set: (project, name, patch) => ipcRenderer.invoke('agents:set', { project, name, patch })
+  },
   jobs: {
     list: invoke('jobs:list'), clear: invoke('jobs:clear'),
     read: (project, id, part) => ipcRenderer.invoke('jobs:read', { project, id, part }),

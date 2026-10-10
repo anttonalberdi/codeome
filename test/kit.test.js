@@ -261,3 +261,79 @@ test('the hook refuses new Claude subagents when the session account is past the
   assert.strictEqual(ok.stdout, '');
   assert.strictEqual(fs.readdirSync(path.join(p, '.codeome/jobs/.pending')).length, 1);
 });
+
+test('agents list kit roles and the project\'s own, with engine and models', () => {
+  const p = tmp();
+  kit.install(p);
+  fs.writeFileSync(path.join(p, '.claude/agents/stats.md'), '---\nname: stats\ndescription: Checks statistics | carefully.\ntools: Read, Grep\n---\n\nBody.\n');
+  const list = kit.agents(p);
+  const by = Object.fromEntries(list.map((a) => [a.name, a]));
+  assert.strictEqual(by.implementer.engine, 'codex');
+  assert.strictEqual(by.implementer.kit, true);
+  assert.strictEqual(by.implementer.access, 'writes');
+  assert.strictEqual(by.explorer.claudeModel, 'sonnet');
+  assert.strictEqual(by.reviewer.engine, 'cross');
+  assert.strictEqual(by.stats.kit, false);
+  assert.strictEqual(by.stats.engine, 'claude');
+  assert.strictEqual(by.stats.access, 'read-only');
+});
+
+test('setting an agent\'s engine and models updates routing, frontmatter and agents.json, and survives kit updates', () => {
+  const p = tmp();
+  kit.install(p);
+  const routing = path.join(p, '.claude/skills/orchestrate/routing.md');
+  let a = kit.setAgent(p, 'implementer', { engine: 'claude', claudeModel: 'opus' });
+  assert.strictEqual(a.engine, 'claude');
+  assert.strictEqual(a.claudeModel, 'opus');
+  assert.match(fs.readFileSync(routing, 'utf8'), /\| `implementer` \| Claude \| writes \|/);
+  assert.match(fs.readFileSync(path.join(p, '.claude/agents/implementer.md'), 'utf8'), /^---\nname: implementer\n[\s\S]*\nmodel: opus\n---\n/);
+  // Changed by Codeome, so still counted as unedited; a reinstall keeps the choices.
+  assert.deepStrictEqual(kit.status(p).modified, []);
+  assert.deepStrictEqual(kit.install(p).written, []);
+  a = kit.setAgent(p, 'explorer', { claudeModel: '' });
+  assert.doesNotMatch(fs.readFileSync(path.join(p, '.claude/agents/explorer.md'), 'utf8'), /^model:/m);
+  kit.setAgent(p, 'debugger', { codexModel: 'gpt-6-sol' });
+  assert.deepStrictEqual(readJson(path.join(p, '.codeome/agents.json')).roles, { implementer: { engine: 'claude', claudeModel: 'opus' }, explorer: { claudeModel: '' }, debugger: { codexModel: 'gpt-6-sol' } });
+  // Back to the kit default drops the override.
+  kit.setAgent(p, 'implementer', { engine: 'codex', claudeModel: '' });
+  assert.deepStrictEqual(readJson(path.join(p, '.codeome/agents.json')).roles.implementer, undefined);
+  assert.match(fs.readFileSync(routing, 'utf8'), /\| `implementer` \| Codex \|/);
+  // A user-edited file is patched in place and stays "edited".
+  fs.appendFileSync(path.join(p, '.claude/agents/tester.md'), '\nHouse rules.\n');
+  kit.setAgent(p, 'tester', { claudeModel: 'haiku' });
+  const tester = fs.readFileSync(path.join(p, '.claude/agents/tester.md'), 'utf8');
+  assert.match(tester, /\nmodel: haiku\n---/);
+  assert.match(tester, /House rules/);
+  assert.ok(kit.status(p).modified.includes('.claude/agents/tester.md'));
+  assert.throws(() => kit.setAgent(p, 'tester', { engine: 'gemini' }), /Unknown engine/);
+  assert.throws(() => kit.setAgent(p, 'tester', { codexModel: 'x; rm -rf /' }), /Not a model/);
+  assert.throws(() => kit.setAgent(p, '../x', {}), /Bad agent/);
+});
+
+test('the project\'s own agents get a routing row when an engine is chosen, kept on reinstall', () => {
+  const p = tmp();
+  kit.install(p);
+  fs.writeFileSync(path.join(p, '.claude/agents/stats.md'), '---\nname: stats\ndescription: Checks statistics.\ntools: Read, Edit\n---\n\nBody.\n');
+  kit.setAgent(p, 'stats', { engine: 'codex' });
+  const routing = path.join(p, '.claude/skills/orchestrate/routing.md');
+  assert.match(fs.readFileSync(routing, 'utf8'), /\| `stats` \| Codex \| writes \| Checks statistics\. \|/);
+  kit.install(p);
+  assert.match(fs.readFileSync(routing, 'utf8'), /\| `stats` \| Codex \|/);
+  assert.strictEqual(kit.agents(p).find((a) => a.name === 'stats').engine, 'codex');
+});
+
+test('codeome-agent uses the Codex model chosen for the role unless --model is given', () => {
+  const p = tmp();
+  kit.install(p);
+  const codex = fakeCodex(p);
+  kit.setAgent(p, 'implementer', { codexModel: 'gpt-6-sol' });
+  let r = runAgent(p, ['codex', '--role', 'implementer'], 'x', { CODEOME_CODEX: codex });
+  assert.strictEqual(r.status, 0, r.stderr);
+  let argv = readJson(path.join(p, 'call.json')).argv;
+  assert.strictEqual(argv[argv.indexOf('-m') + 1], 'gpt-6-sol');
+  r = runAgent(p, ['codex', '--role', 'implementer', '--model', 'gpt-6-luna'], 'x', { CODEOME_CODEX: codex });
+  argv = readJson(path.join(p, 'call.json')).argv;
+  assert.strictEqual(argv[argv.indexOf('-m') + 1], 'gpt-6-luna');
+  runAgent(p, ['codex', '--role', 'tester'], 'x', { CODEOME_CODEX: codex });
+  assert.ok(!readJson(path.join(p, 'call.json')).argv.includes('-m'));
+});

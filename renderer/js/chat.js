@@ -1,14 +1,14 @@
-// Agent chat: one conversation per project with the orchestrator, a headless Claude
-// Code session (main/chat.js). It answers directly or hands work to Claude subagents
-// and Codex jobs, which appear here as cards. Permission prompts and AskUserQuestion
-// (the approval gates) appear as buttons. Conversations keep running while another
-// project is shown.
+// Agent chat: conversations with the orchestrator, a headless Claude Code session
+// (main/chat.js), shown as tabs; each tab is its own session. It answers directly or
+// hands work to Claude subagents and Codex jobs, which appear here as cards. Permission
+// prompts and AskUserQuestion (the approval gates) appear as buttons. Conversations keep
+// running while another tab or project is shown.
 (function () {
   const h = App.h;
-  const C = { byProject: {}, byId: {} };
+  const C = { byProject: {}, byId: {} }; // byProject[dir] = { tabs: [chat], active: chat }
   App.views.chat = C;
   const dom = new WeakMap(); // item → element
-  let logEl, ta, modeSel, acctEl, sendBtn, stopBtn, stateEl;
+  let logEl, ta, modeSel, acctEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl;
 
   const MODES = [
     { value: 'default', label: 'Ask before changes' },
@@ -45,15 +45,51 @@
     C.byId[chat.id] = chat;
     return chat;
   }
-  const cur = () => C.byProject[App.project] || null;
+  const cur = () => { const t = C.byProject[App.project]; return t ? t.active : null; };
+  const tabsOf = (project) => (C.byProject[project] ? C.byProject[project].tabs : []);
   C.current = cur;
-  C.isBusy = (project) => { const c = C.byProject[project]; return !!(c && c.busy); };
+  C.isBusy = (project) => tabsOf(project).some((c) => c.busy);
   C.title = () => { const c = cur(); return c && c.title; };
+  const waiting = (c) => Object.keys(c.requests).length > 0;
+  const runningJobs = (c) => c.items.filter((x) => x.t === 'job' && x.status === 'running');
 
+  // What the tabs, the summary line and the project cards show.
+  C.stats = (project) => {
+    const s = { sessions: 0, live: 0, working: 0, waiting: 0, unread: 0, subagents: 0, codex: 0 };
+    for (const c of tabsOf(project)) {
+      s.sessions++;
+      if (c.running) s.live++;
+      if (waiting(c)) s.waiting++; else if (c.busy) s.working++;
+      if (c.unread) s.unread++;
+      for (const j of runningJobs(c)) if (j.engine === 'codex') s.codex++; else s.subagents++;
+    }
+    return s;
+  };
+
+  // Tabs reopen from last time; without any, the newest conversation.
   async function restore(project) {
-    const list = await codeome.chat.list(project);
-    const saved = list[0] && await codeome.chat.load(project, list[0].id);
-    return saved && saved.items ? live(saved) : blank(project);
+    const saved = (App.cfg.chatTabs || {})[project] || {};
+    let ids = (saved.open || []).filter(Boolean);
+    if (!ids.length) { const list = await codeome.chat.list(project); if (list[0]) ids = [list[0].id]; }
+    const tabs = [];
+    for (const id of ids) {
+      const c = C.byId[id] || await codeome.chat.load(project, id).then((x) => (x && x.items ? live(x) : null));
+      if (c) tabs.push(c);
+    }
+    if (!tabs.length) tabs.push(blank(project));
+    return { tabs, active: tabs.find((c) => c.id === saved.active) || tabs[0] };
+  }
+
+  let persistTimer = null;
+  function persistTabs(project) {
+    const t = C.byProject[project];
+    if (!t) return;
+    const open = t.tabs.filter((c) => c.started || c.items.length).map((c) => c.id);
+    const entry = { open, active: t.active && open.includes(t.active.id) ? t.active.id : null };
+    App.cfg.chatTabs = App.cfg.chatTabs || {};
+    if (JSON.stringify(App.cfg.chatTabs[project]) === JSON.stringify(entry)) return;
+    App.cfg.chatTabs[project] = entry;
+    clearTimeout(persistTimer); persistTimer = setTimeout(() => App.saveConfig(), 500);
   }
 
   let saveTimers = {};
@@ -67,34 +103,79 @@
     if (now) run(); else saveTimers[chat.id] = setTimeout(run, 800);
   }
 
+  // A new tab; an unused blank tab is reused rather than piling up.
   C.newChat = async (opts = {}) => {
     const project = App.project;
     if (!project) return App.toast('Open a project folder first.');
-    const old = C.byProject[project];
-    if (old && old.busy && !(await App.confirm('Start a new chat?', 'The agent is still working in this one. It will be stopped; specialist jobs it started keep running.', 'New chat', true))) return;
-    if (old && old.running) { old.stopping = true; codeome.chat.stop(old.id); }
-    C.byProject[project] = blank(project, opts);
-    paint();
-    App.emit('chat');
+    const t = C.byProject[project] || (C.byProject[project] = { tabs: [], active: null });
+    let chat = t.tabs.find((c) => !c.started && !c.items.length && !c.running);
+    if (chat) { if (opts.account) chat.account = opts.account; }
+    else { chat = blank(project, opts); t.tabs.push(chat); }
+    C.activate(chat);
     if (opts.send) C.send(opts.send); else focus();
   };
 
+  // Open a saved conversation in a tab (or show its tab).
   C.open = async (id) => {
     const project = App.project;
-    const c = C.byId[id] || await codeome.chat.load(project, id).then((s) => s && live(s));
-    if (!c) return App.err('That conversation could not be loaded.');
-    const old = C.byProject[project];
-    if (old && old !== c && old.running && !old.busy) { old.stopping = true; codeome.chat.stop(old.id); }
-    C.byProject[project] = c;
+    const t = C.byProject[project];
+    if (!t) return;
+    let c = t.tabs.find((x) => x.id === id);
+    if (!c) {
+      c = C.byId[id] || await codeome.chat.load(project, id).then((s) => (s && s.items ? live(s) : null));
+      if (!c) return App.err('That conversation could not be loaded.');
+      t.tabs.push(c);
+    }
+    C.activate(c);
+  };
+
+  C.activate = (chat) => {
+    const t = C.byProject[chat.project];
+    if (!t) return;
+    const old = t.active;
+    if (old && ta && chat.project === App.project && old !== chat) old.draft = ta.value;
+    t.active = chat;
+    if (chat.project !== App.project) return persistTabs(chat.project);
+    if (ta && old !== chat) { ta.value = chat.draft || ''; autosize(); }
     paint();
     App.emit('chat');
+    persistTabs(chat.project);
+  };
+
+  // Close a tab; the conversation stays in Recent chats.
+  C.closeTab = async (chat) => {
+    const t = C.byProject[chat.project];
+    if (!t) return;
+    if (chat.busy && !(await App.confirm('Close this chat?', 'The agent is still working in it. It will be stopped; specialist jobs it started keep running. You can reopen the conversation from Recent chats.', 'Close chat', true))) return;
+    if (chat.running) { chat.stopping = true; codeome.chat.stop(chat.id); }
+    const i = t.tabs.indexOf(chat);
+    if (i < 0) return;
+    t.tabs.splice(i, 1);
+    save(chat, true);
+    if (!t.tabs.length) t.tabs.push(blank(chat.project));
+    if (t.active === chat) { t.active = null; C.activate(t.tabs[Math.min(i, t.tabs.length - 1)]); }
+    else { paintTabs(); persistTabs(chat.project); App.emit('chat-state'); }
+  };
+
+  async function renameTab(chat) {
+    const v = await App.prompt('Rename chat', 'Name', chat.title || '');
+    if (v == null) return;
+    chat.title = v.slice(0, 80);
+    save(chat, true); paintTabs(); App.emit('chat');
+  }
+
+  C.cycle = (step) => {
+    const t = C.byProject[App.project];
+    if (!t || t.tabs.length < 2) return;
+    const i = t.tabs.indexOf(t.active);
+    C.activate(t.tabs[(i + step + t.tabs.length) % t.tabs.length]);
   };
 
   C.history = async () => {
     if (!App.project) return [];
     const list = await codeome.chat.list(App.project);
-    const c = cur();
-    return list.filter((x) => !c || x.id !== c.id).slice(0, 10);
+    const open = new Set(tabsOf(App.project).map((c) => c.id));
+    return list.filter((x) => !open.has(x.id)).slice(0, 10);
   };
 
   C.remove = async (id) => { await codeome.chat.delete(App.project, id); };
@@ -109,8 +190,7 @@
   function focus() { setTimeout(() => { if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }, 0); }
 
   C.closeProject = (project) => {
-    const c = C.byProject[project];
-    if (c && c.running) { c.stopping = true; codeome.chat.stop(c.id); }
+    for (const c of tabsOf(project)) if (c.running) { c.stopping = true; codeome.chat.stop(c.id); }
     delete C.byProject[project];
   };
 
@@ -128,6 +208,7 @@
     if (r.error) { note(chat, r.error, 'error'); chat.busy = false; paintState(); }
     chat.started = true;
     save(chat, true);
+    persistTabs(chat.project);
   };
 
   async function start(chat) {
@@ -169,7 +250,9 @@
     if (!chat || !chat.started) return App.toast('Send a message first.');
     if (chat.busy && !(await App.confirm('Move this chat to a terminal?', 'The agent is still working. It will be stopped here and the conversation reopened in a terminal.', 'Move', true))) return;
     if (chat.running) { chat.stopping = true; await codeome.chat.stop(chat.id); }
-    const cmd = (App.cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
+    let cmd = (App.cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
+    const model = (App.cfg.chat || {}).model;
+    if (model) cmd = cmd.replace(/\s--model(=|\s+)\S+/, '') + ' --model ' + model;
     App.views.terminals.open({ kind: 'agent-local', title: 'Agent chat', command: cmd + ' --resume ' + chat.id, cwd: chat.project, badge: 'Mac', engine: 'claude', account: chat.accountName || 'auto' });
     note(chat, 'Continued in a terminal. Messages sent there are not shown here, but the agent remembers them.', 'info');
     save(chat);
@@ -207,14 +290,19 @@
         if (req) { req.item.expired = true; delete chat.requests[m.request_id]; update(chat, req.item); }
         break;
       }
-      case 'result':
+      case 'result': {
         chat.busy = false; chat.stream = {};
         for (const it of chat.items) if (it.t === 'text' && it.live) { it.live = false; update(chat, it); }
+        const failed = (m.subtype && m.subtype !== 'success') || (m.is_error && m.result);
         if (m.subtype && m.subtype !== 'success') note(chat, m.subtype === 'error_max_turns' ? 'The agent stopped: it reached its turn limit.' : 'The agent stopped with an error' + (m.result ? ': ' + m.result : '.'), 'error');
         else if (m.is_error && m.result) note(chat, m.result, 'error');
+        chat.outcome = failed ? 'error' : 'done';
+        chat.finishedAt = Date.now();
+        chat.unread = !seen(chat);
         paintState(); App.emit('sessions'); save(chat);
-        if (document.hidden || App.currentView !== 'agents' || chat.project !== App.project) attention(chat, 'The agent finished.');
+        attention(chat, failed ? 'The agent stopped with an error.' : 'The agent finished.');
         break;
+      }
     }
   }
 
@@ -325,10 +413,9 @@
 
   // Job records (.codeome/jobs) carry the authoritative status and the log; link each card to one.
   C.syncJobs = (project, jobs) => {
-    const chat = C.byProject[project];
-    if (!chat) return;
-    const claimed = new Set(chat.items.filter((x) => x.t === 'job' && x.jobId).map((x) => x.jobId));
-    for (const it of chat.items) {
+    const chats = tabsOf(project);
+    const claimed = new Set(chats.flatMap((c) => c.items.filter((x) => x.t === 'job' && x.jobId).map((x) => x.jobId)));
+    for (const chat of chats) for (const it of chat.items) {
       if (it.t !== 'job') continue;
       let j = it.jobId && jobs.find((x) => x.id === it.jobId);
       if (!j && !it.jobId) {
@@ -344,6 +431,7 @@
       }
       if (it.status === 'running' || j) update(chat, it);
     }
+    scheduleTabs();
   };
 
   // ---------- permission prompts and questions ----------
@@ -386,9 +474,25 @@
     chat.requests = {};
   }
 
+  // Is this chat on screen right now?
+  const seen = (chat) => !document.hidden && App.currentView === 'agents' && App.views.agents.pane === 'chat' && chat.project === App.project && chat === cur();
+
   function attention(chat, text) {
-    if (!document.hidden && App.currentView === 'agents' && chat.project === App.project) return;
-    App.toast(`${App.basename(chat.project)}: ${text}`, { action: { label: 'Show', run: () => { App.views.projects.switchTo(chat.project).then(() => { App.setView('agents'); App.views.agents.show('chat'); }); } } });
+    if (seen(chat)) return;
+    const where = App.basename(chat.project) + (tabsOf(chat.project).length > 1 ? ' · ' + (chat.title || 'New chat').slice(0, 40) : '');
+    App.toast(`${where}: ${text}`, { action: { label: 'Show', run: () => C.reveal(chat) } });
+  }
+
+  C.reveal = async (chat) => {
+    await App.views.projects.switchTo(chat.project);
+    App.setView('agents'); App.views.agents.show('chat');
+    C.activate(chat);
+  };
+
+  C.markSeen = () => markSeen();
+  function markSeen() {
+    const c = cur();
+    if (c && c.unread && seen(c)) { c.unread = false; paintTabs(); App.emit('chat-state'); }
   }
 
   // ---------- items ----------
@@ -401,6 +505,7 @@
 
   let raf = new Set(), rafId = 0;
   function update(chat, it) {
+    if (it.t === 'job') scheduleTabs();
     if (chat !== cur() || !dom.get(it)) return;
     raf.add(it);
     if (!rafId) rafId = requestAnimationFrame(() => {
@@ -555,13 +660,28 @@
     stateEl = h('span.chat-state.grow');
     stopBtn = h('button.btn.small', { onclick: () => C.stop(), hidden: true }, 'Stop');
     sendBtn = h('button.btn.small.primary', { onclick: submit }, 'Send');
-    host.append(logEl, h('div.chat-compose', ta, h('div.row.chat-bar', modeSel, acctEl, stateEl, stopBtn, sendBtn)));
+    tabsEl = h('div.chat-tabs', { role: 'tablist', 'aria-label': 'Chats' });
+    sumEl = h('div.chat-sum', { 'aria-live': 'polite' });
+    host.append(h('div.chat-tabbar', tabsEl, h('button.chat-tab-new', { title: 'New chat (each tab is its own agent session)', 'aria-label': 'New chat', onclick: () => C.newChat(), html: App.icons.plus })),
+      sumEl, logEl, h('div.chat-compose', ta, h('div.row.chat-bar', modeSel, acctEl, stateEl, stopBtn, sendBtn)));
+    const restoring = {};
     App.listen('project', async (p) => {
-      if (p && !C.byProject[p]) C.byProject[p] = await restore(p);
-      if (p === App.project) { paint(); App.emit('chat'); }
+      if (p && !C.byProject[p]) {
+        const r = await (restoring[p] = restoring[p] || restore(p));
+        delete restoring[p];
+        if (!C.byProject[p]) C.byProject[p] = r;
+      }
+      if (p === App.project) {
+        if (ta) { ta.value = (cur() && cur().draft) || ''; autosize(); }
+        paint(); App.emit('chat');
+      }
     });
     App.listen('usage', () => paintState());
     App.listen('config', () => paintState());
+    App.listen('view', () => markSeen());
+    document.addEventListener('visibilitychange', markSeen);
+    window.addEventListener('focus', markSeen);
+    ta.addEventListener('input', () => { const c = cur(); if (c) c.draft = ta.value; });
     setInterval(() => { const c = cur(); if (c && logEl.isConnected) for (const it of c.items) if (it.t === 'job' && it.status === 'running') update(c, it); }, 5000);
     paint();
   };
@@ -571,6 +691,7 @@
     if (!v.trim()) return;
     if (!App.project) return App.toast('Open a project folder first.');
     ta.value = ''; autosize();
+    if (cur()) cur().draft = '';
     C.send(v);
   }
   function autosize() { ta.style.height = 'auto'; ta.style.height = Math.min(220, ta.scrollHeight + 2) + 'px'; }
@@ -593,6 +714,7 @@
     if (!logEl) return;
     logEl.innerHTML = '';
     const chat = cur();
+    if (chat && chat.unread && seen(chat)) chat.unread = false;
     if (!App.project) { logEl.append(h('div.chat-empty', h('p', 'Open a project folder to talk to the agent.'))); paintState(); return; }
     if (!chat || !chat.items.length) {
       logEl.append(h('div.chat-empty',
@@ -624,6 +746,83 @@
     const waiting = chat && Object.keys(chat.requests).length;
     if (chat && chat.busy) stateEl.append(waiting ? h('span.hint', 'Waiting for you') : h('span.hint', h('span.spinner'), ' Working…'));
     stopBtn.hidden = !(chat && chat.busy);
+    paintTabs();
     App.emit('chat-state');
+  }
+
+  // ---------- tabs ----------
+  // Each tab shows whether its agent is working, waiting for you, or has a reply you
+  // have not seen yet, plus the specialists it has running.
+  function tabState(c) {
+    if (waiting(c)) return ['waiting', 'Waiting for you'];
+    if (c.busy) return ['working', 'Working'];
+    if (c.unread) return c.outcome === 'error' ? ['error', 'Stopped with an error — not seen yet'] : ['done', 'Reply ready — not seen yet'];
+    if (c.outcome === 'error') return ['error-seen', 'Last turn ended with an error'];
+    if (c.running) return ['idle', 'Finished; session open'];
+    return ['off', c.started ? 'Session closed (resumes when you send a message)' : 'New chat'];
+  }
+
+  let tabsRaf = 0;
+  function scheduleTabs() { if (!tabsRaf) tabsRaf = requestAnimationFrame(() => { tabsRaf = 0; paintTabs(); App.emit('chat-state'); }); }
+
+  function paintTabs() {
+    if (!tabsEl) return;
+    const t = C.byProject[App.project];
+    const focused = tabsEl.contains(document.activeElement);
+    tabsEl.innerHTML = '';
+    sumEl.innerHTML = '';
+    if (!t) return;
+    for (const c of t.tabs) {
+      const [st, label] = tabState(c);
+      const jobs = runningJobs(c);
+      const active = c === t.active;
+      const title = c.title || 'New chat';
+      const tip = [title, label, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, c.accountName && App.cfg.accounts.claude.list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
+      const el = h('div.ctab.' + st + (active ? '.active' : ''), {
+        role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
+        onclick: () => C.activate(c),
+        onauxclick: (e) => { if (e.button === 1) C.closeTab(c); },
+        oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, tabMenu(c)); },
+        onkeydown: (e) => {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); C.cycle(e.key === 'ArrowRight' ? 1 : -1); setTimeout(() => tabsEl.querySelector('.ctab.active')?.focus()); }
+          else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); C.closeTab(c); }
+        }
+      },
+      st === 'working' ? h('span.spinner.cdot') : h('i.cdot'),
+      h('span.ct', title),
+      jobs.length ? h('span.cjobs', { title: `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` }, String(jobs.length)) : null,
+      h('button.cx', { title: 'Close chat', 'aria-label': 'Close ' + title, tabindex: '-1', onclick: (e) => { e.stopPropagation(); C.closeTab(c); } }, '×'));
+      tabsEl.append(el);
+    }
+    const a = tabsEl.querySelector('.ctab.active');
+    if (a) { if (focused) a.focus(); a.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+    paintSummary(t);
+  }
+
+  // One line under the tabs: sessions, who is working, who needs you, specialists, unseen replies.
+  function paintSummary(t) {
+    const s = C.stats(App.project);
+    const first = (f) => t.tabs.find(f);
+    const part = (cls, n, one, many, go) => (n ? h(go ? 'button.cs.' + cls : 'span.cs.' + cls, go ? { onclick: () => C.activate(go), title: 'Show it' } : {}, h('b', String(n)), ' ', n > 1 ? many : one) : null);
+    sumEl.append(
+      h('span.cs', { title: `${s.live} of ${s.sessions} with an agent session open` }, h('b', String(s.sessions)), s.sessions > 1 ? ' chats' : ' chat'),
+      part('working', s.working, 'working', 'working', s.working === 1 ? first((c) => c.busy && !waiting(c) && c !== t.active) : null),
+      part('waiting', s.waiting, 'needs you', 'need you', first((c) => waiting(c) && c !== t.active)),
+      part('done', s.unread, 'reply ready', 'replies ready', first((c) => c.unread && c !== t.active)),
+      part('jobs', s.subagents, 'subagent', 'subagents', null),
+      part('jobs', s.codex, 'Codex job', 'Codex jobs', null));
+  }
+
+  function tabMenu(c) {
+    const t = C.byProject[c.project];
+    return [
+      { label: 'Rename…', run: () => renameTab(c) },
+      { label: 'New chat', run: () => C.newChat() },
+      '-',
+      { label: 'Continue in a terminal', disabled: !c.started, run: () => { C.activate(c); C.toTerminal(); } },
+      '-',
+      { label: 'Close chat', run: () => C.closeTab(c) },
+      { label: 'Close other chats', disabled: t.tabs.length < 2, run: async () => { for (const x of t.tabs.slice()) if (x !== c) await C.closeTab(x); } }
+    ];
   }
 })();

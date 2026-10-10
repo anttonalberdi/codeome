@@ -14,11 +14,12 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **Terminals** — tabs in the bottom panel (`⌘J`): local shells, HPC shells, and Claude Code / Codex sessions on the cluster. HPC agent sessions run inside `tmux`, so they keep working if the VPN drops and reattach when you reopen them.
 
-**Agent chat** (`⌘6`) — one chat per project, instead of separate Claude Code and Codex windows. Behind it is a headless Claude Code session acting as the orchestrator. It answers questions and makes small changes itself. For anything bigger it plans the work, checks with you, and hands it to specialists, whether Claude subagents or Codex jobs.
+**Agent chat** (`⌘6`) — agent chats per project, instead of separate Claude Code and Codex windows. Behind each chat is a headless Claude Code session acting as the orchestrator. It answers questions and makes small changes itself. For anything bigger it plans the work, checks with you, and hands it to specialists, whether Claude subagents or Codex jobs.
 - Replies are rendered as Markdown. Tool calls appear as one-line entries you can expand. Each specialist job appears as a card with live status; open a card for the job's brief, log and result.
 - Permission prompts, questions and the approval gates appear as buttons in the chat. The selector under the message box sets what the agent may do without asking: *Ask before changes*, *Accept edits*, *Auto* or *Plan only*.
-- Conversations are saved (in `~/.codeome/chats/`) and keep running while you work in another project. The ⋯ menu reopens recent chats or moves the current one into a Claude Code terminal session.
-- The chat runs the first Claude command in Settings → Agents (for example `claude --model opus`).
+- **Several chats at once.** Each chat is a tab above the conversation and runs its own session, so one can plan while another fixes a bug. `⇧⌘N` opens a new chat; `⇧⌘]` / `⇧⌘[` switch. Each tab shows its state: a spinner while the agent works, amber when it is waiting for you, green when a reply is ready that you haven't seen, red after an error. A badge counts the specialists that chat has running. The line under the tabs sums it up (for example *3 chats · 1 working · 1 needs you · 2 subagents · 1 Codex job*). Click *needs you* or *reply ready* to jump to that chat. Project cards and the rail icon show the same states for every project.
+- Conversations are saved (in `~/.codeome/chats/`) and keep running while you work in another tab or project. Open tabs come back when you reopen the project. Closing a tab stops its session, and the ⋯ menu reopens the conversation later. The ⋯ menu can also move the current chat into a Claude Code terminal session.
+- The chat runs the first Claude command in Settings → Agents (for example `claude --model opus`), with the model chosen there.
 
 **The team** — install the *agent kit* into a project (from the banner in the chat) and the agent gains a team:
 - 15 roles in four groups, chosen at install: core (planner, explorer, implementer, debugger, tester, reviewer), research computing (analyst, pipeline-engineer, hpc-operator, report-writer), web stack (backend, frontend, security-reviewer), release & docs (docs-writer, release-manager).
@@ -65,7 +66,7 @@ If terminals say they need a rebuild, run `npm run rebuild`.
 
 ## Set up
 
-Open **Settings** (`⌘,`):
+Open **Settings** (`⌘,`). It is a full page with a section list on the left. Changes save as you make them, and `Esc` or *Done* returns to your work.
 
 1. **HPC login** — ideally a Host alias from `~/.ssh/config`, for example:
    ```
@@ -75,7 +76,10 @@ Open **Settings** (`⌘,`):
      IdentityFile ~/.ssh/id_ed25519
    ```
 2. **VPN check** (optional) — a host only reachable on the VPN, so the title bar can tell you whether the VPN is up.
-3. **Agents** — one per line, `Name = command`. Defaults: `Claude Code = claude`, `Codex = codex`. Add variants like `Claude (Opus) = claude --model opus`.
+3. **Agents**
+   - *Agent chat*: the orchestrator's Claude model (or the one in its command).
+   - *Team in <project>*: every agent in the project's `.claude/agents/`, kit roles and your own. Each has an **AI** dropdown (Claude, Codex, or the other engine for reviewers) and a **Model** dropdown (Claude models for Claude, the models your Codex account offers for Codex, or *Other…* for any model ID). *Edit .md* opens the agent's instructions in the editor, and *+ New agent* creates one. The AI goes into `routing.md`, the Claude model into the agent file, and the Codex model into `.codeome/agents.json`. Kit updates keep these choices.
+   - *Command-line agents*: name and command for each agent offered as a terminal session. Defaults: `Claude Code = claude`, `Codex = codex`. Add variants like `Claude (Opus) = claude --model opus`.
 4. **Accounts & usage limits** — one account per line, `Name = folder`. A Claude account is a `CLAUDE_CONFIG_DIR` and a Codex account a `CODEX_HOME`; `~/.claude` and `~/.codex` are the defaults. *Add account…* in the usage popover creates one and opens a terminal to sign in. You can also set the stop threshold here.
 5. **Zenodo / PyPI tokens** if you publish from here.
 

@@ -33,6 +33,14 @@ test('arguments start a new session or resume one, with the configured extras fi
   assert.ok(!chat.buildArgs({ id: ID, mode: 'bogus' }).includes('--permission-mode'));
 });
 
+test('the model chosen in Settings replaces a --model in the command', () => {
+  assert.deepStrictEqual(chat.withModel(['--model', 'opus', '--verbose'], ''), ['--model', 'opus', '--verbose']);
+  assert.deepStrictEqual(chat.withModel(['--model', 'opus', '--verbose'], 'claude-fable-5-1'), ['--verbose', '--model', 'claude-fable-5-1']);
+  assert.deepStrictEqual(chat.withModel(['--model=opus'], 'sonnet'), ['--model', 'sonnet']);
+  const a = chat.buildArgs({ id: ID, extra: ['--model', 'opus'], model: 'haiku' });
+  assert.deepStrictEqual(a.slice(0, 3), ['--model', 'haiku', '-p']);
+});
+
 test('rate limit events become status-line readings that usage reads back', () => {
   const ev = { type: 'rate_limit_event', rate_limit_info: { unifiedWindows: { five_hour: { utilization: 0.335, resetsAt: 2e9 }, seven_day: { utilization: 0.11, resetsAt: 2e9 + 1 } } } };
   const rl = chat.rateLimits(ev);

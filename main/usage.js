@@ -176,4 +176,16 @@ function writeSnapshot(snap) {
   return p;
 }
 
-module.exports = { ENV_VAR, DEFAULT_DIR, STALE_S, home, normDir, accountKey, codexWindows, claudeWindows, windowPct, level, pick, readClaude, queryCodex, claudeIdentity, launch, installStatusline, writeSnapshot };
+// The models Codex offers this account (its models_cache.json) and its configured default.
+function codexModels(dir) {
+  const base = expandHome(dir || DEFAULT_DIR.codex);
+  let def = null, models = [];
+  try { const m = fs.readFileSync(path.join(base, 'config.toml'), 'utf8').match(/^model\s*=\s*"([^"]+)"/m); if (m) def = m[1]; } catch {}
+  try {
+    const c = JSON.parse(fs.readFileSync(path.join(base, 'models_cache.json'), 'utf8'));
+    models = (Array.isArray(c.models) ? c.models : []).filter((m) => m && m.slug && m.visibility !== 'hide').map((m) => ({ id: m.slug, label: m.display_name || m.slug }));
+  } catch {}
+  return { default: def, models };
+}
+
+module.exports = { codexModels, ENV_VAR, DEFAULT_DIR, STALE_S, home, normDir, accountKey, codexWindows, claudeWindows, windowPct, level, pick, readClaude, queryCodex, claudeIdentity, launch, installStatusline, writeSnapshot };

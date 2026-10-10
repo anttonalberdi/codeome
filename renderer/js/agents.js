@@ -48,6 +48,7 @@
     chatEl.hidden = pane !== 'chat';
     jobsEl.hidden = pane !== 'jobs';
     paintHead();
+    if (pane === 'chat') App.views.chat.markSeen();
     if (pane === 'jobs') A.refresh();
   };
 
@@ -56,9 +57,8 @@
   A.refreshSoon = () => { clearTimeout(soon); soon = setTimeout(() => A.refresh(), 1500); };
 
   function paintHead() {
-    const t = App.views.chat.title();
     titleEl.innerHTML = '';
-    titleEl.append(h('h2', 'Agent'), t ? h('span.agent-chat-title', { title: t }, t) : null);
+    titleEl.append(h('h2', 'Agent'));
     const n = A.jobs.filter(isLive).length;
     tabsEl.innerHTML = '';
     for (const [k, label] of [['chat', 'Chat'], ['jobs', 'Jobs' + (n ? ` · ${n}` : '')]]) {
@@ -71,12 +71,13 @@
     const past = await C.history();
     const k = A.kit;
     App.menuAt(anchor, [
-      { label: 'New chat', run: () => C.newChat() },
-      past.length ? { header: 'Recent chats' } : null,
+      { label: 'New chat', key: '⇧⌘N', run: () => C.newChat() },
+      past.length ? { header: 'Reopen a recent chat' } : null,
       ...past.map((c) => ({ label: (c.title || 'Untitled chat').slice(0, 48), key: App.fmtAgo(c.updatedAt), run: () => C.open(c.id) })),
       '-',
       { label: 'Continue this chat in a terminal', disabled: !C.current() || !C.current().started, run: () => C.toTerminal() },
       { label: 'Specialist jobs', run: () => A.show('jobs') },
+      { label: 'Agents & models…', run: () => App.views.settings.open('agents') },
       '-',
       k && k.installed ? { label: k.outdated ? 'Update the agent kit…' : 'Agent kit roles…', run: () => A.install() } : { label: 'Install the agent kit…', run: () => A.install() },
       k && k.installed ? { label: 'Edit routing', run: () => App.views.editor.openFile(App.join(App.project, '.claude/skills/orchestrate/routing.md')) } : null
@@ -114,9 +115,11 @@
   function paintRail() {
     const b = document.querySelector('#rail button[data-view="agents"]');
     if (!b) return;
-    const n = A.jobs.filter(isLive).length, working = App.views.chat.isBusy(App.project);
-    b.classList.toggle('busy', n > 0 || working);
-    b.title = 'Agent (⌘6)' + (working ? ' — working' : '') + (n ? ` — ${n} job${n > 1 ? 's' : ''} running` : '');
+    const n = A.jobs.filter(isLive).length, s = App.views.chat.stats(App.project);
+    b.classList.toggle('busy', n > 0 || s.working > 0);
+    b.classList.toggle('needs', s.waiting > 0);
+    b.classList.toggle('ready', !s.waiting && !s.working && !n && s.unread > 0);
+    b.title = 'Agent (⌘6)' + (s.waiting ? ` — ${s.waiting} waiting for you` : '') + (s.working ? ` — ${s.working} working` : '') + (n ? ` — ${n} job${n > 1 ? 's' : ''} running` : '') + (s.unread ? ` — ${s.unread} repl${s.unread > 1 ? 'ies' : 'y'} ready` : '');
   }
 
   // ---------- kit ----------

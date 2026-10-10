@@ -67,6 +67,9 @@ function buildMenu() {
       { label: 'Publish (Zenodo, PyPI)', accelerator: 'CmdOrCtrl+4', click: cmd('view-publish') },
       { label: 'Python Packages', accelerator: 'CmdOrCtrl+5', click: cmd('view-pip') },
       { label: 'Agent Chat', accelerator: 'CmdOrCtrl+6', click: cmd('view-agents') },
+      { label: 'New Agent Chat', accelerator: 'CmdOrCtrl+Shift+N', click: cmd('new-chat') },
+      { label: 'Next Agent Chat', accelerator: 'CmdOrCtrl+Shift+]', click: cmd('next-chat') },
+      { label: 'Previous Agent Chat', accelerator: 'CmdOrCtrl+Shift+[', click: cmd('prev-chat') },
       { type: 'separator' },
       { label: 'Next Project', accelerator: 'Ctrl+Tab', click: cmd('next-project') },
       { label: 'Previous Project', accelerator: 'Ctrl+Shift+Tab', click: cmd('prev-project') },
@@ -347,6 +350,13 @@ ipcMain.handle('pypi:hasToken', (_e, which) => config.hasSecret('pypi:' + which)
 // ---------- agent kit & jobs ----------
 ipcMain.handle('kit:status', (_e, project) => { try { return kit.status(project); } catch (e) { return { error: e.message }; } });
 ipcMain.handle('kit:install', (_e, { project, groups }) => { try { return kit.install(project, { groups }); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('agents:list', (_e, project) => { try { return { agents: kit.agents(project) }; } catch (e) { return { error: e.message }; } });
+ipcMain.handle('agents:set', (_e, { project, name, patch }) => { try { return { agent: kit.setAgent(project, name, patch) }; } catch (e) { return { error: e.message }; } });
+ipcMain.handle('agents:models', () => {
+  const c = cfg.accounts.codex;
+  const acct = c.list.find((a) => a.name === c.active) || c.list[0] || { dir: '' };
+  return { codex: usage.codexModels(acct.dir) };
+});
 ipcMain.handle('jobs:list', (_e, project) => jobs.list(project));
 ipcMain.handle('jobs:read', (_e, { project, id, part }) => jobs.read(project, id, part));
 ipcMain.handle('jobs:cancel', (_e, { project, id }) => jobs.cancel(project, id));
@@ -368,7 +378,7 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode }) => {
     const env = augmentedEnv({ ...acct.env, TERM_PROGRAM: 'Codeome' });
     for (const k of acct.unset) delete env[k];
     const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
-    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra }), env, autoAllow });
+    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model }), env, autoAllow });
     s.on('message', (msg) => send('chat:event', { id, msg }));
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
     s.on('exit', (r) => { chats.delete(id); send('chat:exit', { id, ...r }); });

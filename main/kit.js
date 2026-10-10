@@ -8,6 +8,7 @@
 //   .claude/settings.json              hooks that record Claude subagent jobs (merged)
 //   .codeome/bin/codeome-agent         Codex wrapper, job records, hook entry point
 //   .codeome/kit.json                  version, groups and hashes of installed files
+//   .codeome/agents.json               engine and model chosen per agent in Settings
 // Files the user has edited since installation are never overwritten or removed.
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +20,10 @@ const HOOK_CMD = 'python3 "$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent" hook'
 const PERMISSION = 'Bash(.codeome/bin/codeome-agent *)';
 const IGNORE = ['.codeome/jobs/', '.codeome/worktrees/', '.codeome/plans/'];
 const ENGINE_LABEL = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
+const ENGINES = Object.keys(ENGINE_LABEL);
+const ROUTING = '.claude/skills/orchestrate/routing.md';
+const AGENTS_JSON = '.codeome/agents.json';
+const MODEL_RE = /^[\w.:/[\]-]{0,80}$/;
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
@@ -51,8 +56,10 @@ function agentFile(r) {
   return fm.join('\n') + '\n---\n\n' + r.body;
 }
 
+const routingRow = (r) => `| \`${r.name}\` | ${ENGINE_LABEL[r.engine] || r.engine} | ${!r.tools || /Edit|Write/.test(r.tools) ? 'writes' : 'read-only'} | ${String(r.description || '').replace(/\|/g, '/').replace(/\s+/g, ' ').trim()} |`;
+
 function routingFile(list) {
-  const rows = list.map((r) => `| \`${r.name}\` | ${ENGINE_LABEL[r.engine] || r.engine} | ${/Edit|Write/.test(r.tools || '') ? 'writes' : 'read-only'} | ${r.description} |`);
+  const rows = list.map(routingRow);
   return [
     '# Routing',
     '',
@@ -90,12 +97,21 @@ function normalizeGroups(groups) {
   return valid.filter((g) => want.has(g));
 }
 
+// A role with the engine and Claude model chosen for it in Settings.
+function applyOverride(r, o = {}) {
+  const out = { ...r };
+  if (o.engine) out.engine = o.engine;
+  if ('claudeModel' in o) { if (o.claudeModel) out.model = o.claudeModel; else delete out.model; }
+  return out;
+}
+
 // Everything the kit would write for these groups: { relPath: content }.
-function plan(groups) {
-  const chosen = roles().filter((r) => groups.includes(r.group));
+// overrides: .codeome/agents.json roles; custom: the project's own agents with an engine set.
+function plan(groups, overrides = {}, custom = []) {
+  const chosen = roles().filter((r) => groups.includes(r.group)).map((r) => applyOverride(r, overrides[r.name]));
   const files = { ...skillFiles() };
   for (const r of chosen) files[`.claude/agents/${r.name}.md`] = agentFile(r);
-  files['.claude/skills/orchestrate/routing.md'] = routingFile(chosen);
+  files[ROUTING] = routingFile([...chosen, ...custom]);
   files['.codeome/bin/codeome-agent'] = fs.readFileSync(path.join(KIT, 'bin', 'codeome-agent'), 'utf8');
   return files;
 }
@@ -149,7 +165,8 @@ function install(project, opts = {}) {
   if (!project || !fs.existsSync(project)) throw new Error('Project folder not found: ' + project);
   const groups = normalizeGroups(opts.groups);
   const prev = readState(project) || { files: {} };
-  const files = plan(groups);
+  const overrides = readOverrides(project);
+  const files = plan(groups, overrides, customRouted(project, overrides));
   const r = { written: [], unchanged: [], skipped: [], removed: [], kept: [], groups };
   const record = {};
 
@@ -182,4 +199,131 @@ function install(project, opts = {}) {
   return r;
 }
 
-module.exports = { install, status, plan, roles, parseFrontmatter, MANIFEST, HOOK_CMD };
+// ---------- agents: engine and model per agent ----------
+// Every agent in .claude/agents/ (kit roles and the project's own). The engine lives in
+// routing.md, which the orchestrator reads; the Claude model in the agent file's
+// frontmatter, which Claude Code reads; the Codex model in .codeome/agents.json, which
+// codeome-agent reads. agents.json also keeps the choices across kit updates.
+function readOverrides(project) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(project, AGENTS_JSON), 'utf8')); return j && typeof j.roles === 'object' && j.roles ? j.roles : {}; } catch { return {}; }
+}
+
+function writeOverrides(project, rolesMap) {
+  const p = path.join(project, AGENTS_JSON);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify({ version: 1, roles: rolesMap }, null, 2) + '\n');
+}
+
+// role → engine key, from the Engine column of routing.md.
+function parseRouting(text) {
+  const byLabel = Object.fromEntries(Object.entries(ENGINE_LABEL).map(([k, v]) => [v.toLowerCase(), k]));
+  const out = {};
+  for (const m of String(text || '').matchAll(/^\|\s*`([\w.-]+)`\s*\|\s*([^|]+?)\s*\|/gm)) {
+    const k = byLabel[m[2].toLowerCase()];
+    if (k) out[m[1]] = k;
+  }
+  return out;
+}
+
+// Set (or add) one role's Engine cell in routing.md, leaving the rest as it is.
+function setRoutingEngine(text, row) {
+  const lines = text.split('\n');
+  const i = lines.findIndex((l) => new RegExp('^\\|\\s*`' + row.name.replace(/[.]/g, '\\.') + '`\\s*\\|').test(l));
+  if (i >= 0) {
+    const cells = lines[i].split('|');
+    cells[2] = ' ' + ENGINE_LABEL[row.engine] + ' ';
+    lines[i] = cells.join('|');
+  } else {
+    let last = -1;
+    lines.forEach((l, k) => { if (/^\|\s*`/.test(l)) last = k; });
+    if (last < 0) return text;
+    lines.splice(last + 1, 0, routingRow(row));
+  }
+  return lines.join('\n');
+}
+
+// Set, replace or remove one key in a Markdown file's frontmatter.
+function setFrontmatter(text, key, value) {
+  const m = text.match(/^---\n([\s\S]*?)\n---(\n|$)/);
+  const line = `${key}: ${value}`;
+  if (!m) return value ? `---\n${line}\n---\n\n` + text : text;
+  const lines = m[1].split('\n');
+  const i = lines.findIndex((l) => l.startsWith(key + ':'));
+  if (i >= 0) { if (value) lines[i] = line; else lines.splice(i, 1); } else if (value) lines.push(line);
+  return '---\n' + lines.join('\n') + '\n---' + m[2] + text.slice(m[0].length);
+}
+
+const agentPath = (project, name) => path.join(project, '.claude', 'agents', name + '.md');
+const accessOf = (tools) => (!tools || /Edit|Write/.test(tools) ? 'writes' : 'read-only');
+
+// The project's own agents whose engine was set here: they get a row in routing.md.
+function customRouted(project, overrides) {
+  const kitNames = new Set(roles().map((r) => r.name));
+  return Object.entries(overrides).filter(([n, o]) => !kitNames.has(n) && o.engine).sort().map(([n, o]) => {
+    const text = read(agentPath(project, n));
+    if (text === null) return null;
+    const { meta } = parseFrontmatter(text);
+    return { name: n, engine: o.engine, tools: meta.tools || '', description: meta.description || '' };
+  }).filter(Boolean);
+}
+
+function agents(project) {
+  const st = readState(project);
+  const ov = readOverrides(project);
+  const kitRoles = new Map(roles().map((r) => [r.name, r]));
+  const routed = parseRouting(read(path.join(project, ROUTING)));
+  let names = [];
+  try { names = fs.readdirSync(path.join(project, '.claude', 'agents')).filter((f) => /^[\w.-]+\.md$/.test(f)); } catch {}
+  return names.sort().map((f) => {
+    const name = f.slice(0, -3), rel = `.claude/agents/${f}`;
+    const text = read(path.join(project, rel)) || '';
+    const { meta } = parseFrontmatter(text);
+    const k = kitRoles.get(name);
+    const o = ov[name] || {};
+    const fromKit = !!(k && st && st.files && rel in st.files);
+    return {
+      name, file: rel, path: path.join(project, rel), description: meta.description || '',
+      kit: fromKit, group: fromKit ? k.group : null,
+      engine: routed[name] || o.engine || (fromKit ? k.engine : 'claude'), defaultEngine: fromKit ? k.engine : 'claude',
+      claudeModel: meta.model || '', defaultClaudeModel: fromKit ? k.model || '' : '',
+      codexModel: o.codexModel || '', access: accessOf(meta.tools),
+      edited: !!(fromKit && sha(text) !== st.files[rel])
+    };
+  });
+}
+
+// patch: { engine?, claudeModel?, codexModel? }. Files the kit wrote and the user has not
+// edited stay "unedited" (their recorded hash follows), so kit updates still apply to them.
+function setAgent(project, name, patch = {}) {
+  if (!/^[\w.-]+$/.test(name || '')) throw new Error('Bad agent name');
+  const abs = agentPath(project, name);
+  const text = read(abs);
+  if (text === null) throw new Error('No agent ' + name + ' in .claude/agents/');
+  if ('engine' in patch && !ENGINES.includes(patch.engine)) throw new Error('Unknown engine ' + patch.engine);
+  for (const k of ['claudeModel', 'codexModel']) if (k in patch && !MODEL_RE.test(String(patch[k] || '').trim())) throw new Error('Not a model name: ' + patch[k]);
+  const st = readState(project);
+  const k = roles().find((r) => r.name === name && st && st.files && `.claude/agents/${name}.md` in st.files);
+  const ov = readOverrides(project);
+  const o = { ...(ov[name] || {}) };
+  if ('engine' in patch) { if (k && patch.engine === k.engine) delete o.engine; else o.engine = patch.engine; }
+  if ('claudeModel' in patch) { const v = String(patch.claudeModel || '').trim(); if (k && v === (k.model || '')) delete o.claudeModel; else o.claudeModel = v; }
+  if ('codexModel' in patch) { const v = String(patch.codexModel || '').trim(); if (v) o.codexModel = v; else delete o.codexModel; }
+  if (Object.keys(o).length) ov[name] = o; else delete ov[name];
+  writeOverrides(project, ov);
+
+  const write = (rel, before, after) => {
+    if (after === before) return;
+    fs.writeFileSync(path.join(project, rel), after);
+    if (st && st.files && st.files[rel] && sha(before) === st.files[rel]) st.files[rel] = sha(after);
+  };
+  const { meta } = parseFrontmatter(text);
+  if ('claudeModel' in patch) write(`.claude/agents/${name}.md`, text, setFrontmatter(text, 'model', String(patch.claudeModel || '').trim()));
+  if ('engine' in patch) {
+    const cur = read(path.join(project, ROUTING));
+    if (cur !== null) write(ROUTING, cur, setRoutingEngine(cur, { name, engine: patch.engine, tools: meta.tools || '', description: meta.description || '' }));
+  }
+  if (st) fs.writeFileSync(path.join(project, '.codeome', 'kit.json'), JSON.stringify(st, null, 2) + '\n');
+  return agents(project).find((a) => a.name === name);
+}
+
+module.exports = { install, status, plan, roles, parseFrontmatter, agents, setAgent, parseRouting, setFrontmatter, MANIFEST, HOOK_CMD };

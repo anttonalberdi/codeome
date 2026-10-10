@@ -152,6 +152,17 @@ def read_role(role):
     return body.strip(), read_only
 
 
+def configured_model(role):
+    """The Codex model chosen for this role in Codeome's Settings (.codeome/agents.json)."""
+    try:
+        with open(os.path.join(ROOT, '.codeome', 'agents.json'), encoding='utf-8') as f:
+            r = (json.load(f).get('roles') or {}).get(role)
+    except (OSError, ValueError, AttributeError):
+        return None
+    m = r.get('codexModel') if isinstance(r, dict) else None
+    return m if isinstance(m, str) and re.match(r'^[\w.:/\[\]-]{1,80}$', m) else None
+
+
 PREAMBLE = """You are the "{role}" specialist in a development team. An orchestrator (Claude Code) planned the work and sent you one job; it will verify your result and decide what happens next. You have no other context than what is below.
 
 # Your role
@@ -347,8 +358,9 @@ def cmd_codex(a):
         argv = [codex, 'exec', 'resume', a.resume, '-c', 'sandbox_mode="%s"' % sandbox, '-o', result]
     else:
         argv = [codex, 'exec', '-C', workdir, '-s', sandbox, '-o', result]
-    if a.model:
-        argv += ['-m', a.model]
+    model = a.model or configured_model(role)
+    if model:
+        argv += ['-m', model]
     if not in_git:
         argv.append('--skip-git-repo-check')
     argv.append('-')
@@ -363,7 +375,7 @@ def cmd_codex(a):
         'id': job_id, 'engine': 'codex', 'role': role, 'title': a.title or role, 'status': 'running',
         'startedAt': now_iso(), 'endedAt': None, 'exitCode': None, 'pid': os.getpid(),
         'cwd': workdir, 'worktree': worktree, 'branch': branch, 'sandbox': sandbox,
-        'model': a.model, 'session': a.resume, 'resumedFrom': prev['id'] if prev else None,
+        'model': model, 'session': a.resume, 'resumedFrom': prev['id'] if prev else None,
         'account': account.get('name') if account else None, 'accountDir': env.get('CODEX_HOME') or ''
     }
     save_job(job)
