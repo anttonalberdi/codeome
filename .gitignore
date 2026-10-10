@@ -2,3 +2,8 @@
 node_modules/
 dist/
 *.log
+
+# Codeome agent jobs
+.codeome/jobs/
+.codeome/worktrees/
+.codeome/plans/
