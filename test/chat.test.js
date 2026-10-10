@@ -109,7 +109,7 @@ test('a session relays messages, answers permission requests and its own control
   s.user('hello');
   const res = await done;
   assert.strictEqual(res.result, 'answer:{"Q?":"Yes"}');
-  assert.deepStrictEqual(seen.map((m) => m.type + (m.subtype ? '/' + m.subtype : '')), ['system/init', 'control_request', 'result/success']);
+  assert.deepStrictEqual(seen.map((m) => m.type + (m.subtype ? '/' + m.subtype : '')), ['system/init', 'control_request', 'turn_usage', 'result/success']);
   const exited = new Promise((resolve) => s.on('exit', resolve));
   s.stop();
   await exited;

@@ -8,6 +8,8 @@
 //        {type:'control_response'}   answers to can_use_tool: permissions and AskUserQuestion
 //   out: system/init, assistant, user (tool results), stream_event (partial text),
 //        rate_limit_event, control_request (can_use_tool), result (end of a turn)
+// The panel also gets two messages of ours, from the session's token meter (stats.js):
+//        {type:'context'} how full the context window is, {type:'turn_usage'} what a turn used.
 //
 // Conversations are saved (as the chat panel shows them) in ~/.codeome/chats/<project>/.
 const fs = require('fs');
@@ -16,6 +18,7 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const usage = require('./usage');
+const { Meter } = require('./stats');
 
 const PROMPT = path.join(__dirname, '..', 'kit', 'chat.md');
 const MODES = ['default', 'acceptEdits', 'auto', 'plan'];
@@ -106,10 +109,12 @@ function slim(m, cur) {
 class Session extends EventEmitter {
   // shell: a login shell, so the agent's tools see the same PATH as a terminal.
   // autoAllow(request): true for tool requests the host approves without asking.
-  constructor({ id, cwd, shell, bin, args, env, autoAllow }) {
+  // meter: where a resumed conversation's token meter picks up (see stats.Meter).
+  constructor({ id, cwd, shell, bin, args, env, autoAllow, meter }) {
     super();
     Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow });
     this.seq = 0; this.waiting = new Map(); this.stderr = ''; this.stream = {};
+    this.meter = new Meter(meter);
   }
 
   start() {
@@ -144,6 +149,9 @@ class Session extends EventEmitter {
     }
     if (m.type === 'system' && QUIET.has(m.subtype)) return;
     if (m.type === 'rate_limit_event') this.emit('rateLimits', rateLimits(m));
+    const u = this.meter.feed(m);
+    if (u && u.context) this.emit('message', { type: 'context', ...u.context });
+    if (u && u.turn) { this.emit('turn', u.turn); this.emit('message', { type: 'turn_usage', ...u.turn }); }
     const r = m.type === 'control_request' && m.request;
     if (r && r.subtype === 'can_use_tool' && this.autoAllow && this.autoAllow(r)) return this.respond(m.request_id, { behavior: 'allow', updatedInput: r.input });
     const out = slim(m, this.stream);

@@ -77,6 +77,7 @@
       '-',
       { label: 'Continue this chat in a terminal', disabled: !C.current() || !C.current().started, run: () => C.toTerminal() },
       { label: 'Specialist jobs', run: () => A.show('jobs') },
+      { label: 'Session statistics', run: () => App.views.stats.open() },
       { label: 'Agents & models…', run: () => App.views.settings.open('agents') },
       '-',
       k && k.installed ? { label: k.outdated ? 'Update the agent kit…' : 'Agent kit roles…', run: () => A.install() } : { label: 'Install the agent kit…', run: () => A.install() },

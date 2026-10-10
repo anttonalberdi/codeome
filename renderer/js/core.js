@@ -73,6 +73,14 @@ App.fmtAgo = (ms) => {
   if (s < 86400 * 30) return Math.floor(s / 86400) + ' d ago';
   return new Date(ms).toLocaleDateString();
 };
+// 950, 8.4k, 84k, 1.25M
+App.fmtTokens = (n) => {
+  if (n == null || isNaN(n)) return '–';
+  if (n < 1000) return String(Math.round(n));
+  if (n < 999500) return (n / 1000).toFixed(n < 9950 ? 1 : 0) + 'k';
+  return (n / 1e6).toFixed(n < 9995000 ? 2 : 1) + 'M';
+};
+App.fmtUsd = (n) => '$' + (n >= 100 ? Math.round(n).toLocaleString() : (n || 0).toFixed(2));
 App.basename = (p) => (p || '').replace(/\/+$/, '').split('/').pop() || p;
 App.dirname = (p) => { const s = (p || '').replace(/\/+$/, ''); const i = s.lastIndexOf('/'); return i <= 0 ? '/' : s.slice(0, i); };
 App.join = (a, b) => (a === '/' ? '' : (a || '').replace(/\/+$/, '')) + '/' + b;
@@ -183,15 +191,16 @@ App.menuAt = (el, items, above) => {
 };
 
 // ---------- popovers ----------
-// A panel under an anchor; Escape or a click outside closes it. Only one at a time.
+// A panel under an anchor, or over it where there is no room below; Escape or a click
+// outside closes it. Only one at a time.
 App.popover = (anchor, content, label) => {
   App.closePopover();
   const pop = h('div.popover', { role: 'dialog', 'aria-label': label || '' }, content);
   document.body.append(pop);
   const place = () => {
-    const r = anchor.getBoundingClientRect(), w = pop.getBoundingClientRect().width;
+    const r = anchor.getBoundingClientRect(), { width: w, height: ph } = pop.getBoundingClientRect();
     pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
-    pop.style.top = (r.bottom + 6) + 'px';
+    pop.style.top = (r.bottom + 6 + ph > innerHeight - 8 && r.top - ph - 6 >= 8 ? r.top - ph - 6 : r.bottom + 6) + 'px';
   };
   place();
   const outside = (e) => { if (!pop.contains(e.target) && !anchor.contains(e.target)) close(); };

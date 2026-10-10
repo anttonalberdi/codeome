@@ -8,7 +8,7 @@
   const C = { byProject: {}, byId: {} }; // byProject[dir] = { tabs: [chat], active: chat }
   App.views.chat = C;
   const dom = new WeakMap(); // item → element
-  let logEl, ta, attEl, modeSel, acctEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl;
+  let logEl, ta, attEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl;
 
   const MODES = [
     { value: 'default', label: 'Ask before changes' },
@@ -98,7 +98,7 @@
     clearTimeout(saveTimers[chat.id]);
     const run = () => {
       const items = chat.items.map((it) => (it.result && it.result.length > 4000 ? { ...it, result: it.result.slice(0, 4000) + '\n…' } : it));
-      codeome.chat.save(chat.project, { id: chat.id, title: chat.title, account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, items });
+      codeome.chat.save(chat.project, { id: chat.id, title: chat.title, account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
     };
     if (now) run(); else saveTimers[chat.id] = setTimeout(run, 800);
   }
@@ -217,7 +217,8 @@
 
   async function start(chat) {
     // A conversation lives in its account's config folder, so it resumes there.
-    const r = await codeome.chat.start({ id: chat.id, project: chat.project, account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode });
+    const r = await codeome.chat.start({ id: chat.id, project: chat.project, account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
+      meter: chat.usage ? { context: chat.usage.context, run: chat.usage.run } : null });
     if (r.error) { note(chat, r.error, 'error'); return false; }
     chat.running = true;
     const a = r.account;
@@ -286,6 +287,8 @@
         else if (m.subtype === 'compact_boundary') note(chat, 'Earlier messages were summarised to free up context.', 'info');
         break;
       case 'text_delta': delta(chat, m); break;
+      case 'context': contextMoved(chat, m); break;
+      case 'turn_usage': turnUsed(chat, m); break;
       case 'assistant': assistant(chat, m); break;
       case 'user': results(chat, m); break;
       case 'control_request': request(chat, m); break;
@@ -308,6 +311,86 @@
         break;
       }
     }
+  }
+
+  // ---------- token use ----------
+  // What the session's meter (main/stats.js) reports: how full the context window is, and
+  // what each turn used. The totals are kept with the conversation.
+  const USED = ['input', 'output', 'cacheRead', 'cacheWrite'];
+  const warnAt = () => Math.min(95, Math.max(20, Number((App.cfg.chat || {}).contextWarnAt) || 70));
+  const ctxPct = (chat) => { const u = chat && chat.usage; return u && u.window && u.context ? Math.min(100, u.context / u.window * 100) : null; };
+  const ctxTone = (p) => (p == null ? 'none' : p >= Math.min(97, warnAt() + 15) ? 'bad' : p >= warnAt() ? 'warn' : 'ok');
+  const meterOf = (chat) => chat.usage || (chat.usage = { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0, context: 0, window: 0, peak: 0, compactions: 0 });
+
+  function contextMoved(chat, m) {
+    const u = meterOf(chat);
+    u.context = m.used;
+    if (m.window) u.window = m.window;
+    u.peak = Math.max(u.peak, m.used);
+    if (chat === cur()) paintCtx();
+  }
+
+  function turnUsed(chat, t) {
+    const u = meterOf(chat);
+    u.turns++;
+    for (const k of [...USED, 'costUsd', 'compactions']) u[k] += t[k] || 0;
+    Object.assign(u, { context: t.context, window: t.window || u.window, peak: Math.max(u.peak, t.peak || 0), run: t.run });
+    // Said once each time the chat passes the mark (again after it was summarised and refilled).
+    const p = ctxPct(chat);
+    if (p != null && p >= warnAt() && !u.warned) {
+      u.warned = true;
+      push(chat, { t: 'note', kind: 'info', newChat: true, text: `This chat has filled ${Math.round(p)}% of its context window (${App.fmtTokens(u.context)} of ${App.fmtTokens(u.window)} tokens). Every turn sends all of it again, so turns here use more of your limits than in a new chat, and once it is full the earlier messages are summarised. For the next task, start a new chat.` });
+    } else if (p != null && p < warnAt()) u.warned = false;
+    if (chat === cur()) paintCtx();
+  }
+
+  // The context meter beside the account: a bar and a percentage, with the session's totals behind it.
+  function paintCtx() {
+    if (!ctxEl) return;
+    const chat = cur(), u = chat && chat.usage;
+    ctxEl.hidden = !(u && u.context);
+    if (ctxEl.hidden) return;
+    const p = ctxPct(chat);
+    const tip = p == null ? `${App.fmtTokens(u.context)} tokens in this chat's context` : `Context window ${Math.round(p)}% full (${App.fmtTokens(u.context)} of ${App.fmtTokens(u.window)} tokens)`;
+    ctxEl.className = 'chat-ctx ' + ctxTone(p);
+    ctxEl.title = tip; ctxEl.setAttribute('aria-label', tip);
+    ctxEl.innerHTML = '';
+    ctxEl.append(h('span.u-bar', h('i', { style: { width: (p || 0) + '%' } })), h('span.u-v', p == null ? App.fmtTokens(u.context) : Math.round(p) + '%'));
+    if (App.pop && App.pop.ctx === chat) App.pop.set(ctxPop(chat));
+  }
+
+  function openCtx() {
+    const chat = cur();
+    if (!chat || !chat.usage) return;
+    if (App.pop && App.pop.ctx === chat) return App.closePopover();
+    App.popover(ctxEl, ctxPop(chat), 'Token use of this chat').ctx = chat;
+  }
+
+  function ctxPop(chat) {
+    const u = chat.usage, p = ctxPct(chat), tone = ctxTone(p);
+    const all = USED.reduce((n, k) => n + u[k], 0);
+    const row = (k, v, title) => h('div.cx-row', { title }, h('span', k), h('b', v));
+    const advice = p == null ? 'How large the context window is shows after the first reply.'
+      : tone === 'bad' ? 'Nearly full. Claude Code will soon summarise the earlier messages to make room, and details get lost. Start a new chat for the next task.'
+        : tone === 'warn' ? 'Getting full. Every turn sends the whole conversation again, so turns here use more of your limits than in a new chat.'
+          : 'Plenty of room.';
+    return h('div.u-pop',
+      h('div.u-pop-head', h('h3', 'This chat')),
+      h('div.u-acc',
+        h('div.u-line.' + tone, h('span.u-k', 'Context'), h('span.u-bar', h('i', { style: { width: (p || 0) + '%' } })), h('span.u-v', p == null ? '–' : Math.round(p) + '%'),
+          h('span.u-r', App.fmtTokens(u.context) + (u.window ? ' of ' + App.fmtTokens(u.window) : '') + ' tokens')),
+        h('div.sub', advice)),
+      u.turns ? h('div.u-acc',
+        row('Turns', String(u.turns)),
+        row('Tokens processed', App.fmtTokens(all), `New input ${App.fmtTokens(u.input)} · written to the cache ${App.fmtTokens(u.cacheWrite)} · read from the cache ${App.fmtTokens(u.cacheRead)} · replies ${App.fmtTokens(u.output)}. Subagents are counted; Codex jobs are not.`),
+        row('Of which replies', App.fmtTokens(u.output)),
+        u.costUsd ? row('At API prices', App.fmtUsd(u.costUsd), 'What these tokens cost at API list prices. On a subscription nothing is charged; the figure weighs cached and new tokens the way your limits do.') : null,
+        u.compactions ? row('Summarised to make room', u.compactions === 1 ? 'once' : u.compactions + ' times') : null,
+        chat.model ? row('Model', chat.model) : null) : null,
+      h('div.u-pop-foot',
+        h('button.btn.small', { onclick: () => { App.closePopover(); C.newChat(); } }, 'New chat'),
+        h('span.grow'),
+        h('button.btn.small.ghost', { onclick: () => { App.closePopover(); App.views.stats.open(); } }, 'Statistics')));
   }
 
   // Partial text, one live item per content block until the full block arrives.
@@ -555,7 +638,7 @@
     switch (it.t) {
       case 'user': el = h('div.msg.user', it.text, it.files ? h('div.msg-files', it.files.map((f) => h('span.fchip', { title: App.tildify(f) }, h('span', App.basename(f))))) : null); break;
       case 'text': el = h('div.msg.md' + (it.live ? '.live' : ''), { html: App.md(it.text) }); break;
-      case 'note': el = h('div.note.' + (it.kind || 'info'), it.text); break;
+      case 'note': el = h('div.note.' + (it.kind || 'info'), it.text, it.newChat ? [' ', h('button.btn.small', { onclick: () => C.newChat() }, 'New chat')] : null); break;
       case 'tool': {
         const [verb, what] = summary(it.name, it.input || {}, chat.project);
         el = h('div.tool' + (it.done ? '' : '.run') + (it.error ? '.err' : '') + (it.open ? '.open' : ''),
@@ -664,13 +747,14 @@
     const attachBtn = h('button.icon-btn', { title: 'Attach files', 'aria-label': 'Attach files', onclick: attach, html: App.icons.plus });
     const quickBtn = h('button.icon-btn', { title: 'Saved messages', 'aria-label': 'Saved messages', 'aria-haspopup': 'menu', onclick: () => App.menuAt(quickBtn, quickMenu(), true), html: App.icons.bolt });
     acctEl = h('span.chat-acct');
+    ctxEl = h('button.chat-ctx', { hidden: true, 'aria-haspopup': 'dialog', onclick: openCtx });
     stateEl = h('span.chat-state.grow');
     stopBtn = h('button.btn.small', { onclick: () => C.stop(), hidden: true }, 'Stop');
     sendBtn = h('button.btn.small.primary', { onclick: submit }, 'Send');
     tabsEl = h('div.chat-tabs', { role: 'tablist', 'aria-label': 'Chats' });
     sumEl = h('div.chat-sum', { 'aria-live': 'polite' });
     host.append(h('div.chat-tabbar', tabsEl, h('button.chat-tab-new', { title: 'New chat (each tab is its own agent session)', 'aria-label': 'New chat', onclick: () => C.newChat(), html: App.icons.plus })),
-      sumEl, logEl, h('div.chat-compose', attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, stateEl, stopBtn, sendBtn)));
+      sumEl, logEl, h('div.chat-compose', attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, stopBtn, sendBtn)));
     const restoring = {};
     App.listen('project', async (p) => {
       if (p && !C.byProject[p]) {
@@ -808,6 +892,7 @@
     const waiting = chat && Object.keys(chat.requests).length;
     if (chat && chat.busy) stateEl.append(waiting ? h('span.hint', 'Waiting for you') : h('span.hint', h('span.spinner'), ' Working…'));
     stopBtn.hidden = !(chat && chat.busy);
+    paintCtx();
     paintTabs();
     App.emit('chat-state');
   }
@@ -839,7 +924,7 @@
       const jobs = runningJobs(c);
       const active = c === t.active;
       const title = c.title || 'New chat';
-      const tip = [title, label, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, c.accountName && App.cfg.accounts.claude.list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
+      const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, c.accountName && App.cfg.accounts.claude.list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
       const el = h('div.ctab.' + st + (active ? '.active' : ''), {
         role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
         onclick: () => C.activate(c),
@@ -866,13 +951,13 @@
     const s = C.stats(App.project);
     const first = (f) => t.tabs.find(f);
     const part = (cls, n, one, many, go) => (n ? h(go ? 'button.cs.' + cls : 'span.cs.' + cls, go ? { onclick: () => C.activate(go), title: 'Show it' } : {}, h('b', String(n)), ' ', n > 1 ? many : one) : null);
-    sumEl.append(
+    sumEl.append(...[
       h('span.cs', { title: `${s.live} of ${s.sessions} with an agent session open` }, h('b', String(s.sessions)), s.sessions > 1 ? ' chats' : ' chat'),
       part('working', s.working, 'working', 'working', s.working === 1 ? first((c) => c.busy && !waiting(c) && c !== t.active) : null),
       part('waiting', s.waiting, 'needs you', 'need you', first((c) => waiting(c) && c !== t.active)),
       part('done', s.unread, 'reply ready', 'replies ready', first((c) => c.unread && c !== t.active)),
       part('jobs', s.subagents, 'subagent', 'subagents', null),
-      part('jobs', s.codex, 'Codex job', 'Codex jobs', null));
+      part('jobs', s.codex, 'Codex job', 'Codex jobs', null)].filter(Boolean));
   }
 
   function tabMenu(c) {

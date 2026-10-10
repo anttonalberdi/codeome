@@ -123,6 +123,18 @@ const steps = {
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
     if (${JSON.stringify(process.env.SHOT_QUICK || '')}) setTimeout(() => document.querySelector('.chat-row .icon-btn:last-child').click(), 300);
   })(); 0`],
+  // A chat whose context is filling up, and the Statistics tab. The meter's messages are sent
+  // from here as a session would send them. CODEOME_HOME: a folder with stats/turns.jsonl to show.
+  // SHOT_POPOVER: also open the chat's token popover.
+  stats: [`(async () => {
+    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))}); App.setView('agents');
+    await new Promise((r) => setTimeout(r, 900));
+    const C = App.views.chat;
+    C.newChat(); const c = C.current(); c.title = 'Rework the transfer queue'; c.started = c.running = true; c.model = 'claude-opus-5-5';
+    c.items.push({ t: 'user', text: c.title }, { t: 'text', text: 'Done: the queue now retries a failed copy **twice** before it gives up.' });
+    C.activate(c);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+  })(); 0`],
   // SHOT_PROJECT: an R project. Starts an R console there and draws a few plots.
   // SHOT_PLOTS: also pick a journal size and open the plots in a tab ('tab').
   plots: [`(async () => {
@@ -208,6 +220,14 @@ app.whenReady().then(() => {
     win.webContents.on('console-message', (_e, level, msg) => { if (level >= 1) console.log('[renderer]', msg); });
     for (const s of steps[scenario] || []) { try { await win.webContents.executeJavaScript(s); } catch (e) { console.log('step error', e.message); } }
     await new Promise((r) => setTimeout(r, Number(process.env.SHOT_WAIT) || 2500));
+    if (scenario === 'stats') {
+      const id = await win.webContents.executeJavaScript('App.views.chat.current().id');
+      const say = (msg) => win.webContents.send('chat:event', { id, msg });
+      say({ type: 'context', used: 61000, window: 0 });
+      say({ type: 'turn_usage', input: 5200, output: 9100, cacheRead: 1840000, cacheWrite: 96000, costUsd: 2.41, context: 148200, peak: 148200, window: 200000, compactions: 0, run: {} });
+      say({ type: 'result', subtype: 'success' });
+      await win.webContents.executeJavaScript(`App.views.stats.open(); if (${JSON.stringify(process.env.SHOT_POPOVER || '')}) setTimeout(() => document.querySelector('.chat-ctx').click(), 400); 0`);
+    }
     if (scenario === 'slurm') await win.webContents.executeJavaScript(`App.views.slurm.stop(); App.views.slurm.render(); App.views.slurm.openJob(App.views.slurm.queue[0]);`).catch((e)=>console.log(e.message));
     await new Promise((r) => setTimeout(r, 800));
     const img = await win.webContents.capturePage();

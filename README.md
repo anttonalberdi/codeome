@@ -28,6 +28,7 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 - **Several chats at once.** Each chat is a tab above the conversation and runs its own session, so one can plan while another fixes a bug. `⇧⌘N` opens a new chat; `⇧⌘]` / `⇧⌘[` switch. Each tab shows its state: a spinner while the agent works, amber when it is waiting for you, green when a reply is ready that you haven't seen, red after an error. A badge counts the specialists that chat has running. The line under the tabs sums it up (for example *3 chats · 1 working · 1 needs you · 2 subagents · 1 Codex job*). Click *needs you* or *reply ready* to jump to that chat. Project cards and the rail icon show the same states for every project.
 - Conversations are saved (in `~/.codeome/chats/`) and keep running while you work in another tab or project. Open tabs come back when you reopen the project. Closing a tab stops its session, and the ⋯ menu reopens the conversation later. The ⋯ menu can also move the current chat into a Claude Code terminal session.
 - The chat runs the first Claude command in Settings → Agents (for example `claude --model opus`), with the model chosen there.
+- **Token use.** The meter under the message box shows how full the chat's context window is; click it for what the chat has used so far (turns, tokens, and the figure at API list prices). Past 70% (Settings → Agents) it turns amber and the chat suggests starting a new one, since every turn sends the whole conversation again. Each finished turn is also kept as one line in `~/.codeome/stats/turns.jsonl`, on this Mac only, and ⋯ → *Session statistics* sums them up by day, project, chat and by how full the context was when the turn started. Terminal sessions and Codex jobs are not counted.
 
 **The team** — install the *agent kit* into a project (from the banner in the chat) and the agent gains a team:
 - 15 roles in four groups, chosen at install: core (planner, explorer, implementer, debugger, tester, reviewer), research computing (analyst, pipeline-engineer, hpc-operator, report-writer), web stack (backend, frontend, security-reviewer), release & docs (docs-writer, release-manager).
@@ -150,6 +151,7 @@ main/          Electron main process
   zenodo.js      Zenodo REST client
   config.js      settings + Keychain-encrypted tokens
   chat.js        the Agent chat's headless Claude Code sessions (stream-json), saved chats
+  stats.js       each chat's token meter (context window, tokens a turn) and the statistics log
   kit.js         installs/updates the agent kit in a project
   jobs.js        reads agent job records from .codeome/jobs/
   usage.js       Claude/Codex accounts and usage limits; writes ~/.codeome/usage.json

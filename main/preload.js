@@ -91,6 +91,7 @@ contextBridge.exposeInMainWorld('codeome', {
     delete: (project, id) => ipcRenderer.invoke('chat:delete', { project, id }),
     onEvent: on('chat:event'), onExit: on('chat:exit')
   },
+  stats: { get: invoke('stats:get') },
   usage: {
     get: invoke('usage:get'), refresh: invoke('usage:refresh'), found: invoke('usage:found'),
     setActive: (engine, name) => ipcRenderer.invoke('usage:setActive', { engine, name }),

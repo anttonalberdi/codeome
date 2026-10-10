@@ -47,7 +47,8 @@ const DEFAULTS = {
   usage: { stopAt: 90, codexRefreshSeconds: 180 },
   // model: the orchestrator's Claude model; '' uses the command's own.
   // quick: messages sent often, listed under the button beside the message box.
-  chat: { model: '', quick: ['Commit, push and deploy'] },
+  // contextWarnAt: a chat suggests starting a new one once its context window is this full (%).
+  chat: { model: '', quick: ['Commit, push and deploy'], contextWarnAt: 70 },
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   projectColors: {},      // project → hue (0–359) of its card and title-bar tag; picked when first opened

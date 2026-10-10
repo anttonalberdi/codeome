@@ -393,7 +393,9 @@
         row('AI', h('span.pill.ok', 'Claude Code'), `Runs "${chatCmd}" — the first Claude command below.`),
         row('Model', modelSelect([{ value: '', label: fromCmd ? `From the command (${fromCmd})` : 'Claude Code default' }, ...CLAUDE_MODELS], (App.cfg.chat || {}).model || '',
           (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), model: v }; commit(); }, 'Chat model'),
-          'For chats started from now on. Chats already open keep their model until they restart.')),
+          'For chats started from now on. Chats already open keep their model until they restart.'),
+        row('Suggest a new chat at', h('div.row', text(() => (App.cfg.chat || {}).contextWarnAt ?? 70, (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), contextWarnAt: Math.min(95, Math.max(20, Number(v) || 70)) }; }, { type: 'number', label: 'Percent' }), h('span.hint', '% of the context window')),
+          'Each chat shows how full its context window is. Past this mark the meter turns amber and the chat says so once.')),
       agentsHost = h('div'),
       card('Command-line agents', cliAgents(),
         h('div.sp-foot.hint', 'Offered as sessions in terminals and on the HPC. The agent chat runs the first Claude command.')));

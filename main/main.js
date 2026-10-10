@@ -11,6 +11,7 @@ const zenodo = require('./zenodo');
 const kit = require('./kit');
 const jobs = require('./jobs');
 const usage = require('./usage');
+const stats = require('./stats');
 const chat = require('./chat');
 const rtools = require('./rtools');
 const setup = require('./setup');
@@ -584,7 +585,7 @@ ipcMain.handle('jobs:clear', (_e, project) => jobs.clear(project));
 // One headless Claude Code orchestrator per conversation; see chat.js.
 const claudeCmd = () => (cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
 
-ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode }) => {
+ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter }) => {
   if (chats.has(id)) return { ok: true };
   if (!project || !fs.existsSync(project)) return { error: 'Project folder not found.' };
   try {
@@ -596,9 +597,10 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode }) => {
     const env = augmentedEnv({ ...acct.env, TERM_PROGRAM: 'Codeome' });
     for (const k of acct.unset) delete env[k];
     const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
-    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model }), env, autoAllow });
+    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model }), env, autoAllow, meter: resume ? { ...(meter || {}), resumed: true } : {} });
     s.on('message', (msg) => send('chat:event', { id, msg }));
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
+    s.on('turn', (t) => { try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, ...t }); } catch (e) { console.error('chat stats', e); } });
     s.on('exit', (r) => { chats.delete(id); send('chat:exit', { id, ...r }); });
     s.start();
     chats.set(id, s);
@@ -613,6 +615,18 @@ ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { return chat.sa
 ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));
 ipcMain.handle('chat:load', (_e, { project, id }) => chat.loadChat(project, id));
 ipcMain.handle('chat:delete', (_e, { project, id }) => chat.deleteChat(project, id));
+// What the sessions used over the last days, with each session's chat title where it still exists.
+ipcMain.handle('stats:get', (_e, days) => {
+  try {
+    const sum = stats.summary(stats.read(), { days: Number(days) || 30 });
+    const titles = {};
+    for (const s of sum.sessions) {
+      if (!titles[s.project]) { titles[s.project] = {}; for (const c of chat.listChats(s.project)) titles[s.project][c.id] = c.title; }
+      s.title = titles[s.project][s.session] || null;
+    }
+    return { ...sum, file: stats.file() };
+  } catch (e) { return { error: e.message }; }
+});
 
 // ---------- usage limits & accounts ----------
 // Live readings per account, keyed engine → account folder (an account can change its name).
