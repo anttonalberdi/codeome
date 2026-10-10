@@ -9,12 +9,13 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 **Usage limits** — the title bar shows the 5-hour and weekly usage of Claude and Codex for the active account; click either for every account, reset times, and to switch or add accounts.
 
 **Editor** — Monaco (the VS Code editor core) with syntax highlighting for R, Python, shell, Quarto, R Markdown, Snakemake, YAML and more. Opens files on your Mac *and* directly on the HPC.
-- `⌘↩` sends the current line or selection to the active terminal (R, Python or shell REPL), RStudio-style; `⇧⌘↩` runs the whole file.
+- `⌘↩` runs the current line or selection, RStudio-style. R code goes to the project's R console (started on demand), and with no selection it sends the whole statement under the cursor; other languages go to the active terminal. `⇧⌘↩` sources an R script into the console, or runs other files in a terminal.
+- **R Markdown and Quarto** documents are runnable: chunks are shaded and highlighted in their own language, with *Run chunk* / *Run chunks above* over each and *Knit* / *Run all chunks* at the top. `⇧⌘↩` runs the chunk under the cursor, `⌥⌘R` all chunks, `⌥⌘P` the chunks above, `⌥⌘N` the next one, `⌃⌥I` inserts a chunk and `⇧⌘K` knits.
 - Right-click → *Ask the agent about this…* puts a reference to the file and selected lines in the Agent chat.
 
-**Terminals** — tabs in the bottom panel (`⌘J`): local shells, HPC shells, and Claude Code / Codex sessions on the cluster. HPC agent sessions run inside `tmux`, so they keep working if the VPN drops and reattach when you reopen them.
+**Terminals** — tabs in the bottom panel (`⌘J`): local shells, HPC shells, R consoles (on the Mac or the HPC; the command is set in Settings → R), and Claude Code / Codex sessions on the cluster. Right-click any terminal → *Send R code here* to make it the one R code goes to, e.g. R inside an interactive job. HPC agent sessions run inside `tmux`, so they keep working if the VPN drops and reattach when you reopen them.
 
-**Agent chat** (`⌘6`) — agent chats per project, instead of separate Claude Code and Codex windows. Behind each chat is a headless Claude Code session acting as the orchestrator. It answers questions and makes small changes itself. For anything bigger it plans the work, checks with you, and hands it to specialists, whether Claude subagents or Codex jobs.
+**Agent chat** (`⌘1`) — agent chats per project, instead of separate Claude Code and Codex windows. Behind each chat is a headless Claude Code session acting as the orchestrator. It answers questions and makes small changes itself. For anything bigger it plans the work, checks with you, and hands it to specialists, whether Claude subagents or Codex jobs.
 - Replies are rendered as Markdown. Tool calls appear as one-line entries you can expand. Each specialist job appears as a card with live status; open a card for the job's brief, log and result.
 - Permission prompts, questions and the approval gates appear as buttons in the chat. The selector under the message box sets what the agent may do without asking: *Ask before changes*, *Accept edits*, *Auto* or *Plan only*.
 - **Several chats at once.** Each chat is a tab above the conversation and runs its own session, so one can plan while another fixes a bug. `⇧⌘N` opens a new chat; `⇧⌘]` / `⇧⌘[` switch. Each tab shows its state: a spinner while the agent works, amber when it is waiting for you, green when a reply is ready that you haven't seen, red after an error. A badge counts the specialists that chat has running. The line under the tabs sums it up (for example *3 chats · 1 working · 1 needs you · 2 subagents · 1 Codex job*). Click *needs you* or *reply ready* to jump to that chat. Project cards and the rail icon show the same states for every project.
@@ -30,7 +31,7 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **HPC connection** — uses your system `ssh`, so `~/.ssh/config`, keys, ProxyJump and the VPN behave exactly as in iTerm2. You log in once (password or one-time code prompts appear in a terminal tab); every other operation reuses that connection for 12 hours. The title bar shows VPN reachability, connection state and your running / waiting / failed jobs.
 
-**Files & transfer** (replaces FileZilla) — the Mac project folder and the HPC side by side. Drag between them, or drag from Finder onto the HPC pane, to copy with `rsync` (resumable, incremental, with progress). Rename, delete, folder size, storage quota, "terminal here", "Claude here".
+**Files & transfer** (replaces FileZilla) — three stacked sections: the Mac project folder, the HPC, and long-term storage over SFTP (such as ERDA; set it up in Settings → Storage). Click a section's header to collapse it, drag the line between sections to resize them (double-click to even them out), and right-click a header to rename it or show only that section. Drag between sections, or from Finder, to copy: Mac ↔ HPC with `rsync` (resumable, incremental, with progress), Mac ↔ storage with `sftp`, and HPC ↔ storage directly from the HPC in a terminal there, so the data doesn't pass through the Mac. Rename, delete, folder size, storage quota, "terminal here", "R console here", "Claude here".
 
 **Slurm** — live `squeue`, recent `sacct` history with exit codes and memory, a log viewer that follows `stdout`/`stderr`, cancel, submit (`sbatch`) from the editor, and a job-script template.
 
@@ -101,7 +102,7 @@ Agent chat → **Install…** (in the banner, or the ⋯ menu) writes into the p
 
 Commit `.claude/` and `.codeome/bin/` + `.codeome/kit.json` so collaborators get the same team. The chat approves its own job-runner calls (`codeome-agent` with a brief and no other shell syntax), except `--ignore-limits`; job records, plans and worktrees are git-ignored. Updating the kit never overwrites a role or skill you have edited. Codex jobs run in Codex's sandbox (read-only for reviewers and planners, workspace-write otherwise, no network). From a terminal: `.codeome/bin/codeome-agent list`, `show <id>`, `cancel <id>`, `usage`. Pass `--account <name>` to run a Codex job on a specific account, or `--ignore-limits` to start one past the threshold.
 
-Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `quarto`, `Rscript`, `python3`, `tmux` (on the HPC), `claude`, `codex`. Settings shows which ones it found.
+Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `sftp`, `quarto`, `R`, `Rscript`, `python3`, `tmux` (on the HPC), `claude`, `codex`. Settings shows which ones it found.
 
 ## Keyboard
 
@@ -110,11 +111,13 @@ Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `quarto`, `Rscript`,
 | `⌘O` | Open a project (adds a card) |
 | `⌃⇥` / `⌃⇧⇥` / `⇧⌘W` | Next / previous / close project |
 | `⌘S` / `⌘W` | Save / close tab |
-| `⌘↩` / `⇧⌘↩` | Run line or selection / whole file in terminal |
+| `⌘↩` / `⇧⌘↩` | Run line, statement or selection / whole file (current chunk in Rmd and Quarto) |
+| `⌥⌘R` / `⌥⌘P` / `⌥⌘N` | Rmd and Quarto: run all chunks / chunks above / next chunk |
+| `⌃⌥I` / `⇧⌘K` | Rmd and Quarto: insert a chunk / knit |
 | `⇧⌘V` | Preview or render current file |
 | `⌘T` / `⇧⌘T` | New local / HPC terminal |
 | `⌘J` | Show or hide terminal panel |
-| `⌘1`–`⌘6` | Files, Slurm, Git, Publish, Python packages, Agent chat |
+| `⌘1`–`⌘6` | Agent chat, Files, Slurm, Git, Publish, Python packages |
 
 ## Project layout
 
@@ -122,6 +125,7 @@ Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `quarto`, `Rscript`,
 main/          Electron main process
   main.js        window, menus, IPC handlers
   ssh.js         shared SSH connection (ControlMaster), remote files
+  sftp.js        long-term storage over SFTP (e.g. ERDA): listing, files, transfers
   slurm.js       squeue / sacct / scancel / sbatch
   zenodo.js      Zenodo REST client
   config.js      settings + Keychain-encrypted tokens
@@ -133,7 +137,7 @@ main/          Electron main process
   preload.js     the bridge the interface is allowed to use
 renderer/      Interface (plain JS, no build step)
   index.html, styles.css
-  js/            one file per area: projects, usage, editor, terminals, files, slurm, git, publish, pip, chat, agents, settings
+  js/            one file per area: projects, usage, editor, rmd, terminals, files, slurm, git, publish, pip, chat, agents, settings
 kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-agent, manifest.json;
                chat.md, the orchestrator instructions for the Agent chat
 test/          parser tests (npm test) and a screenshot helper

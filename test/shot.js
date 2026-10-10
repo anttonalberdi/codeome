@@ -8,7 +8,19 @@ const out = path.resolve(rest[0] || 'shots');
 const scenario = rest[1] || 'welcome';
 app.setPath('userData', path.join(out, 'profile'));
 fs.mkdirSync(path.join(out, 'profile'), { recursive: true });
-fs.writeFileSync(path.join(out, 'profile', 'config.json'), JSON.stringify({ recentFolders: [path.resolve(__dirname, '..')], hpc: { host: 'myhpc' } }));
+// SHOT_STORAGE: a local folder the storage section browses through a stand-in sftp
+// that talks to this Mac's own sftp-server instead of a real host.
+const storageDir = process.env.SHOT_STORAGE;
+if (storageDir) {
+  const bin = path.join(out, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'sftp'), '#!/bin/sh\n# drop the destination (last argument)\nn=$#; i=0; for a; do i=$((i+1)); [ $i -lt $n ] && set -- "$@" "$a"; done; shift $n\nexec /usr/bin/sftp -D /usr/libexec/sftp-server "$@"\n', { mode: 0o755 });
+  process.env.PATH = bin + ':' + process.env.PATH;
+}
+const extra = {
+  files: { storage: { host: 'erda', root: storageDir || '' }, ui: { panes: { remote: { collapsed: false }, storage: { title: 'ERDA archive', weight: 1.4 }, local: { weight: 1 } } } }
+}[scenario] || {};
+fs.writeFileSync(path.join(out, 'profile', 'config.json'), JSON.stringify({ recentFolders: [path.resolve(__dirname, '..')], hpc: { host: 'myhpc' }, ...extra }));
 require('../main/main.js');
 
 const steps = {
@@ -16,10 +28,38 @@ const steps = {
   editor: [`App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../main/slurm.js'))})`],
   slurm: [`App.hpcConnected = true; App.emit('hpc', true); App.views.slurm.queue = [{id:'4810231',name:'metaspades_assembly',state:'RUNNING',elapsed:'5:12:40',limit:'1-00:00:00',cpus:'32',partition:'gpu',reason:'node-a17',workdir:'/projects/holo/asm'},{id:'4810240',name:'kraken2_classify',state:'PENDING',elapsed:'0:00',limit:'8:00:00',cpus:'16',partition:'standard',reason:'(Priority)'}]; App.views.slurm.history=[{id:'4810101',name:'fastp_qc',state:'COMPLETED',elapsed:'00:42:10',exitcode:'0:0',maxrss:'3.1G',end:new Date(Date.now()-3600e3).toISOString()},{id:'4810099',name:'bowtie2_map',state:'OUT_OF_MEMORY',elapsed:'01:02:00',exitcode:'0:125',maxrss:'64G',end:new Date(Date.now()-7200e3).toISOString()}]; App.emit('jobs',{running:1,pending:1,failed:1}); App.setView('slurm'); App.views.slurm.refresh = ()=>{}; document.querySelector('[data-view=slurm] .jobs') && App.setView('slurm');`],
   git: [`App.setView('git')`],
+  // Three file sections; the storage one lists SHOT_STORAGE through the stand-in sftp.
+  files: [`(async () => {
+    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    App.setView('files');
+    App.storageConnected = true; App.emit('storage', true);
+    if (${JSON.stringify(process.env.SHOT_COLLAPSE || '')}) { App.views.files.toggle('remote'); App.views.files.rename('local'); document.querySelector('.pane-rename').value = 'Laptop'; document.querySelector('.pane-rename').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); }
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    // SHOT_DOWNLOAD: also copy a file and a folder up to the storage, and a file down into this folder.
+    const dl = ${JSON.stringify(process.env.SHOT_DOWNLOAD || '')};
+    if (dl) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const F = App.views.files, root = ${JSON.stringify(path.resolve(__dirname, '..'))};
+      await F.transfer('local', root + '/LICENSE', 'storage', F.storage.dir);
+      await F.transfer('local', root + '/kit/roles', 'storage', F.storage.dir);
+      await F.transfer('storage', F.storage.dir + '/reads_R1.fastq.gz', 'local', dl);
+    }
+  })(); 0`],
+  // SHOT_RMD: an R Markdown file. Opens it, then runs its second chunk in a new R console.
+  rmd: [`(async () => {
+    const f = ${JSON.stringify(process.env.SHOT_RMD || '')};
+    await App.openProject(${JSON.stringify(path.dirname(process.env.SHOT_RMD || __dirname))});
+    const t = await App.views.editor.openFile(f);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); }
+    const c = App.views.rmd.parseChunks(t.model.getLinesContent())[1];
+    App.views.editor.editor.setPosition({ lineNumber: c.start + 1, column: 1 });
+    App.views.rmd.runChunk(t.model, c.start + 1);
+    setTimeout(() => { App.views.editor.editor.setPosition({ lineNumber: c.end + 3, column: 1 }); App.views.editor.sendSelection(App.views.editor.editor); }, 2500);
+  })(); 0`],
   diff: [`App.views.editor.diff({key:'d',title:'x.R',original:'a <- 1\\nb <- 2\\n',modified:'a <- 1\\nb <- 3\\nc <- 4\\n',lang:'r'}); 0`],
   // SHOT_PROJECT: a folder with the agent kit installed and some jobs recorded.
   agents: [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { App.setView('agents'); setTimeout(() => { const j = App.views.agents.jobs.find((x) => x.engine === 'codex'); if (j) App.views.agents.openJob(j); }, 1200); }); 0`],
-  settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(); 0`],
+  settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(${JSON.stringify(process.env.SHOT_SECTION || '')}); 0`],
   // SHOT_PROJECT: a folder with the agent kit installed. Opens the Agents section.
   'settings-agents': [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('agents'); }); 0`],
   // Four chat tabs in different states (made up; no agent sessions are started).
@@ -64,7 +104,7 @@ app.whenReady().then(() => {
     const win = BrowserWindow.getAllWindows()[0];
     win.webContents.on('console-message', (_e, level, msg) => { if (level >= 1) console.log('[renderer]', msg); });
     for (const s of steps[scenario] || []) { try { await win.webContents.executeJavaScript(s); } catch (e) { console.log('step error', e.message); } }
-    await new Promise((r) => setTimeout(r, 2500));
+    await new Promise((r) => setTimeout(r, Number(process.env.SHOT_WAIT) || 2500));
     if (scenario === 'slurm') await win.webContents.executeJavaScript(`App.views.slurm.stop(); App.views.slurm.render(); App.views.slurm.openJob(App.views.slurm.queue[0]);`).catch((e)=>console.log(e.message));
     await new Promise((r) => setTimeout(r, 800));
     const img = await win.webContents.capturePage();

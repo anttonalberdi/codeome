@@ -13,6 +13,14 @@ const DEFAULTS = {
     vpnCheckHost: '',      // optional host to probe to tell whether the VPN is up
     useTmux: true          // run remote agent sessions inside tmux so they survive disconnects
   },
+  // Long-term storage reached over SFTP, e.g. ERDA (io.erda.dk); it needs no shell.
+  storage: {
+    host: '',              // an alias from ~/.ssh/config, or user@io.erda.dk
+    root: '',              // starting folder; '' is the login folder
+    hpcHost: ''            // how the HPC reaches it for direct copies; '' uses host
+  },
+  // The R console: a command on this Mac, and one on the HPC (e.g. "module load R && R …").
+  r: { local: 'R --no-save --quiet', remote: 'R --no-save --quiet' },
   agents: [
     { name: 'Claude Code', cmd: 'claude' },
     { name: 'Codex', cmd: 'codex' }
@@ -32,7 +40,8 @@ const DEFAULTS = {
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   activeProject: null,
-  ui: { projectsCollapsed: false },
+  // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight }
+  ui: { projectsCollapsed: false, panes: {} },
   recentFolders: []
 };
 

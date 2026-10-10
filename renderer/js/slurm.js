@@ -81,7 +81,7 @@
     const live = ['RUNNING', 'PENDING'].includes(norm(j.state));
     return [
       { label: 'Show output', run: () => S.openJob(j) },
-      j.workdir ? { label: 'Open working folder', run: () => { App.setView('files'); App.views.files.go('remote', j.workdir); } } : null,
+      j.workdir ? { label: 'Open working folder', run: () => App.views.files.show('remote', j.workdir) } : null,
       { label: 'Copy job ID', run: () => navigator.clipboard.writeText(j.id) },
       live ? '-' : null,
       live ? { label: 'Cancel job…', danger: true, run: () => S.cancel(j) } : null

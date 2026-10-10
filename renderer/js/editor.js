@@ -7,7 +7,7 @@
   App.views.editor = E;
 
   const LANG = {
-    r: 'r', R: 'r', rmd: 'markdown', qmd: 'markdown', md: 'markdown', py: 'python', ipynb: 'json', sh: 'shell', bash: 'shell', zsh: 'shell',
+    r: 'r', R: 'r', rmd: 'rmarkdown', qmd: 'rmarkdown', md: 'markdown', py: 'python', ipynb: 'json', sh: 'shell', bash: 'shell', zsh: 'shell',
     slurm: 'shell', sbatch: 'shell', smk: 'python', snakefile: 'python', nf: 'groovy', json: 'json', yml: 'yaml', yaml: 'yaml', toml: 'ini', cfg: 'ini', ini: 'ini',
     js: 'javascript', ts: 'typescript', html: 'html', css: 'css', sql: 'sql', tex: 'latex', bib: 'latex', c: 'c', cpp: 'cpp', h: 'cpp', java: 'java', rs: 'rust', go: 'go', jl: 'julia',
     xml: 'xml', csv: 'plaintext', tsv: 'plaintext', txt: 'plaintext', log: 'plaintext', dockerfile: 'dockerfile', makefile: 'shell'
@@ -38,11 +38,12 @@
     E.applyTheme();
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', E.applyTheme);
 
-    E.editor.addAction({ id: 'codeome.send', label: 'Run line or selection in terminal', keybindings: [m.KeyMod.CtrlCmd | m.KeyCode.Enter], contextMenuGroupId: 'navigation', contextMenuOrder: 0, run: (ed) => E.sendSelection(ed) });
-    E.editor.addAction({ id: 'codeome.sendFile', label: 'Run whole file in terminal', keybindings: [m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter], contextMenuGroupId: 'navigation', contextMenuOrder: 1, run: () => E.runFile() });
+    E.editor.addAction({ id: 'codeome.send', label: 'Run line, statement or selection', keybindings: [m.KeyMod.CtrlCmd | m.KeyCode.Enter], contextMenuGroupId: 'navigation', contextMenuOrder: 0, run: (ed) => E.sendSelection(ed) });
+    E.editor.addAction({ id: 'codeome.sendFile', label: 'Run whole file (current chunk in Rmd)', keybindings: [m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter], contextMenuGroupId: 'navigation', contextMenuOrder: 1, run: (ed) => E.runFile(ed) });
     E.editor.addAction({ id: 'codeome.preview', label: 'Preview / render', contextMenuGroupId: 'navigation', contextMenuOrder: 2, run: () => E.previewCurrent() });
     E.editor.addAction({ id: 'codeome.sbatch', label: 'Submit to Slurm (sbatch)', contextMenuGroupId: 'navigation', contextMenuOrder: 3, run: () => { const t = E.cur(); if (t && t.remote) App.views.slurm.submit(t.path); else App.toast('Open the script from the HPC side to submit it.'); } });
     E.editor.addAction({ id: 'codeome.askAgent', label: 'Ask the agent about this…', contextMenuGroupId: 'navigation', contextMenuOrder: 4, run: (ed) => E.askAgent(ed) });
+    App.views.rmd.init(E.editor);
   };
 
   E.applyTheme = () => {
@@ -55,19 +56,22 @@
   const mine = (t, project = App.project) => t.project === project;
   E.visible = () => E.tabs.filter((t) => mine(t));
 
+  // Files open from this Mac, the HPC (remote) or the long-term storage (storage).
+  const fileApi = (t) => (t.remote ? codeome.remote : t.storage ? codeome.storage : codeome.local);
+  const prefix = (o) => (o.remote ? 'hpc:' : o.storage ? 'store:' : '');
   E.openFile = async function (path, opts = {}) {
-    const remote = !!opts.remote;
-    const key = (remote ? 'hpc:' : '') + path;
+    const remote = !!opts.remote, storage = !opts.remote && !!opts.storage;
+    const key = prefix({ remote, storage }) + path;
     const existing = E.tabs.find((t) => t.key === key && mine(t));
     if (existing) { E.activate(existing.id); return existing; }
-    if (E.isBinary(path)) { if (E.isPreviewable(path)) return E.preview(path, { remote }); App.toast(App.basename(path) + ' is a binary file.'); return; }
-    const r = remote ? await codeome.remote.read(path) : await codeome.local.read(path);
+    if (E.isBinary(path)) { if (E.isPreviewable(path)) return E.preview(path, { remote, storage }); App.toast(App.basename(path) + ' is a binary file.'); return; }
+    const r = await fileApi({ remote, storage }).read(path);
     if (r.error) { App.err(r.error); return; }
-    const uri = monaco.Uri.from({ scheme: remote ? 'hpc' : 'file', path: path.startsWith('/') ? path : '/' + path });
+    const uri = monaco.Uri.from({ scheme: remote ? 'hpc' : storage ? 'store' : 'file', path: path.startsWith('/') ? path : '/' + path });
     const model = monaco.editor.getModel(uri) || monaco.editor.createModel(r.content, E.lang(path), uri);
     // Two projects can open the same file: they share its model (and its unsaved edits).
     const twin = E.tabs.find((t) => t.model === model);
-    const tab = { id: 'e' + (++E.seq), key, kind: 'file', path, remote, title: App.basename(path), model, project: App.project, saved: twin ? twin.saved : model.getAlternativeVersionId(), viewState: null };
+    const tab = { id: 'e' + (++E.seq), key, kind: 'file', path, remote, storage, title: App.basename(path), model, project: App.project, saved: twin ? twin.saved : model.getAlternativeVersionId(), viewState: null };
     model.onDidChangeContent(() => { tab.dirty = model.getAlternativeVersionId() !== tab.saved; renderTabs(); });
     E.tabs.push(tab);
     E.activate(tab.id);
@@ -158,7 +162,7 @@
   E.save = async function (t = E.cur()) {
     if (!t || t.kind !== 'file') return false;
     const content = t.model.getValue();
-    const r = t.remote ? await codeome.remote.write(t.path, content) : await codeome.local.write(t.path, content);
+    const r = await fileApi(t).write(t.path, content);
     if (r.error) { App.err('Could not save: ' + r.error); return false; }
     // Tabs sharing the model (same file in two projects) are saved too.
     for (const x of E.tabs) if (x.model === t.model) { x.saved = t.model.getAlternativeVersionId(); x.dirty = false; }
@@ -167,23 +171,51 @@
     return true;
   };
 
+  // R code (R files, R chunks) goes to the R console; anything else to the active terminal.
+  // With no selection, R sends the whole statement under the cursor, like RStudio.
   E.sendSelection = function (ed) {
+    const t = E.cur(); if (!t || t.kind !== 'file') return;
     const sel = ed.getSelection(); const model = ed.getModel();
-    let text;
+    const R = App.views.rmd;
+    const line = sel.startLineNumber;
+    let lo = 1, hi = model.getLineCount(), lang = E.lang(t.path);
+    if (R.isRmd(t.path)) {
+      const c = R.chunkAt(model, line);
+      if (!c || line === c.start || (c.closed && line === c.end)) {
+        // Prose: step to the next line; a selection still goes to R.
+        if (sel.isEmpty()) { const n = Math.min(line + 1, hi); ed.setPosition({ lineNumber: n, column: 1 }); ed.revealLine(n); return; }
+        lang = 'r';
+      } else { lo = c.start + 1; hi = c.closed ? c.end - 1 : c.end; lang = c.engine === 'r' ? 'r' : c.engine; }
+    }
+    let text, last = line;
+    if (!sel.isEmpty()) text = model.getValueInRange(sel);
+    else if (lang === 'r') {
+      const st = R.statementAt(model, line, lo, hi);
+      if (st) { text = model.getValueInRange({ startLineNumber: st.start, startColumn: 1, endLineNumber: st.end, endColumn: model.getLineMaxColumn(st.end) }); last = st.end; }
+    } else text = model.getLineContent(line);
+    // Move on to the next line with code (or just past the chunk / file).
     if (sel.isEmpty()) {
-      text = model.getLineContent(sel.startLineNumber);
-      const next = Math.min(sel.startLineNumber + 1, model.getLineCount());
-      ed.setPosition({ lineNumber: next, column: 1 }); ed.revealLine(next);
-    } else text = model.getValueInRange(sel);
-    if (text.trim()) App.views.terminals.send(text.replace(/\r/g, ''));
+      let n = last + 1;
+      while (n <= hi && !model.getLineContent(n).trim()) n++;
+      if (n > hi) n = Math.min(last + 1, model.getLineCount());
+      ed.setPosition({ lineNumber: n, column: 1 }); ed.revealLine(n);
+    }
+    if (!text || !text.trim()) return;
+    text = text.replace(/\r/g, '');
+    if (lang === 'r') App.views.terminals.sendR(text, R.whereFor(t)); else App.views.terminals.send(text);
   };
 
-  E.runFile = async function () {
+  E.runFile = async function (ed) {
     const t = E.cur(); if (!t || t.kind !== 'file') return;
+    // In R Markdown and Quarto, ⇧⌘↩ runs the chunk under the cursor, like RStudio.
+    if (App.views.rmd.isRmd(t.path)) return App.views.rmd.runChunk(t.model, (ed || E.editor).getPosition().lineNumber);
     if (t.dirty) await E.save(t);
     const ext = App.ext(t.path);
+    // R scripts are sourced into the R console, so their objects stay around.
+    if (ext === 'r' && !t.storage) return App.views.terminals.sourceR(t.path, App.views.rmd.whereFor(t));
     const runner = { r: 'Rscript', py: App.cfg.python[t.remote ? 'remote' : 'local'], sh: 'bash', bash: 'bash' }[ext];
     if (!runner) return App.toast('No runner for .' + ext + ' files.');
+    if (t.storage) return App.toast('Copy the file to this Mac or the HPC to run it.');
     const cmd = `${runner} '${t.path.replace(/'/g, "'\\''")}'`;
     if (t.remote) App.views.terminals.hpcTask(t.title, cmd, App.dirname(t.path)); else App.views.terminals.task(t.title, cmd, App.dirname(t.path));
   };
@@ -193,40 +225,41 @@
     const t = E.cur();
     if (!t || t.kind !== 'file') return App.views.chat.ask('');
     const s = ed.getSelection();
-    const where = t.remote ? `${t.path} on the HPC` : App.views.files.relRef(t.path);
+    const where = t.remote ? `${t.path} on the HPC` : t.storage ? `${t.path} on ${App.views.files.title('storage')} (SFTP storage)` : App.views.files.relRef(t.path);
     App.views.chat.ask(s.isEmpty() ? `In ${where}: ` : `In ${where}, lines ${s.startLineNumber}-${s.endLineNumber}: `);
   };
 
-  E.previewCurrent = () => { const t = E.cur(); if (t && t.kind === 'file') E.preview(t.path, { remote: t.remote }); };
+  E.previewCurrent = () => { const t = E.cur(); if (t && t.kind === 'file') E.preview(t.path, { remote: t.remote, storage: t.storage }); };
 
   // ---------- previews ----------
-  E.preview = function (path, { remote } = {}) {
+  E.preview = function (path, { remote, storage } = {}) {
     const ext = App.ext(path);
     const renderable = ['qmd', 'rmd', 'ipynb'].includes(ext);
+    const away = remote || storage;
     return E.openCustom({
-      key: 'preview:' + (remote ? 'hpc:' : '') + path, title: App.basename(path), badge: 'Preview',
+      key: 'preview:' + prefix({ remote, storage }) + path, title: App.basename(path), badge: 'Preview',
       render: (el, tab) => {
         const frameWrap = h('div', { style: { flex: 1, display: 'flex', minHeight: 0 } });
         const status = h('span.hint');
         const log = h('pre.logbox.small', { hidden: true });
         const auto = h('input', { type: 'checkbox', checked: true });
         const bar = h('div.toolbar',
-          h('span.path', (remote ? 'HPC: ' : '') + path), status,
-          renderable && !remote ? h('label.check', auto, 'Re-render on save') : null,
+          h('span.path', (remote ? 'HPC: ' : storage ? App.views.files.title('storage') + ': ' : '') + path), status,
+          renderable && !away ? h('label.check', auto, 'Re-render on save') : null,
           h('button.btn.small', { onclick: () => load(true) }, renderable ? 'Render' : 'Reload'),
           h('button.btn.small', { onclick: () => tab.localFile && codeome.shell.openPath(tab.localFile) }, 'Open externally'));
         el.append(bar, frameWrap, log);
         let unlog = null;
         async function load(force) {
           let file = path;
-          if (remote) {
-            status.textContent = 'Fetching from HPC…';
-            const r = await codeome.preview.fetchRemote(path);
+          if (away) {
+            status.textContent = 'Fetching…';
+            const r = remote ? await codeome.preview.fetchRemote(path) : await codeome.storage.fetch(path);
             if (r.error) { status.textContent = ''; return App.err(r.error); }
             file = r.local;
           }
           if (renderable) {
-            if (remote) { status.textContent = 'Rendering remote notebooks is not supported — render on the HPC, then preview the HTML.'; return; }
+            if (away) { status.textContent = 'Rendering remote notebooks is not supported — render where the file lives, then preview the HTML.'; return; }
             status.innerHTML = ''; status.append(h('span.spinner'), ' Rendering…');
             log.hidden = false; log.textContent = '';
             unlog = codeome.preview.onLog((s) => { log.textContent += s; log.scrollTop = log.scrollHeight; });
@@ -248,7 +281,7 @@
     });
   };
   App.listen('saved', (t) => {
-    const pv = E.tabs.find((x) => x.key === 'preview:' + (t.remote ? 'hpc:' : '') + t.path);
+    const pv = E.tabs.find((x) => x.key === 'preview:' + prefix(t) + t.path);
     if (pv && pv.reload && (!pv.autoRender || pv.autoRender())) pv.reload(true);
   });
 
@@ -275,10 +308,10 @@
     App.emit('sessions');
     for (const t of E.visible()) {
       el.append(h('div.tab' + (t.id === E.active ? '.active' : '') + (t.dirty ? '.dirty' : ''), {
-        onclick: () => E.activate(t.id), title: t.path ? (t.remote ? 'HPC: ' : '') + t.path : t.title,
+        onclick: () => E.activate(t.id), title: t.path ? (t.remote ? 'HPC: ' : t.storage ? App.views.files.title('storage') + ': ' : '') + t.path : t.title,
         onauxclick: (e) => { if (e.button === 1) E.close(t.id); }
       },
-      t.remote ? h('span.badge.hpc', 'HPC') : (t.badge ? h('span.badge', t.badge) : null),
+      t.remote ? h('span.badge.hpc', 'HPC') : t.storage ? h('span.badge.store', App.views.files.title('storage')) : (t.badge ? h('span.badge', t.badge) : null),
       h('span.t', t.title),
       h('button.x', { title: 'Close', onclick: (e) => { e.stopPropagation(); E.close(t.id); } }, h('span', '×'))));
     }

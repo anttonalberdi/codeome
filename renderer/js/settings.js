@@ -1,5 +1,5 @@
 // Settings: a full page over the workspace. Changes save as you make them.
-// Sections: HPC, Agents (the chat's model, the project's agents with their engine and
+// Sections: HPC, long-term storage, Agents (the chat's model, the project's agents with their engine and
 // model, the command-line agents), accounts and limits, Python, publishing tokens,
 // appearance, and what was found on this Mac.
 (function () {
@@ -38,18 +38,19 @@
   const ENGINE_NAME = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
   const MODEL_RE = /^[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
-    ['hpc', 'HPC'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['python', 'Python'],
+    ['hpc', 'HPC'], ['storage', 'Storage'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
     ['publishing', 'Zenodo & PyPI'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
-  const ALIAS = { zenodo: 'publishing', pypi: 'publishing' };
+  const ALIAS = { zenodo: 'publishing', pypi: 'publishing', erda: 'storage' };
 
   // ---------- page ----------
-  S.open = (section) => {
+  S.open = async (section) => {
     if (!page) build();
     S.isOpen = true;
     page.hidden = false;
     document.getElementById('app').classList.add('settings-open');
-    render();
+    // Sections exist only once rendered, so wait before jumping to one.
+    await render();
     const id = ALIAS[section] || section;
     requestAnimationFrame(() => { if (id && sections[id]) jump(id, false); else main.scrollTop = 0; page.querySelector('.sp-nav button.on, .sp-nav button')?.focus(); });
   };
@@ -109,7 +110,7 @@
         if (App.views.editor.editor) App.views.editor.editor.updateOptions({ fontSize: App.cfg.editor.fontSize });
         for (const t of App.views.terminals.list) t.term.options.fontSize = App.cfg.editor.fontSize;
       }
-      if (a.host) App.pollHpc();
+      if (a.host || a.storage) App.pollHpc();
       flash();
     }, 250);
   }
@@ -163,7 +164,7 @@
     main.innerHTML = '';
     agentsHost = h('div');
     main.append(h('div.sp-content',
-      hpcSection(c), agentsSection(c), accountsSection(c), pythonSection(c),
+      hpcSection(c), storageSection(c), agentsSection(c), accountsSection(c), rSection(c), pythonSection(c),
       await publishingSection(), appearanceSection(c), macSection()));
     markNav(SECTIONS[0][0]);
     renderAgents();
@@ -180,6 +181,28 @@
         row('Agent sessions', check('Keep agent sessions on the HPC running in tmux', () => App.cfg.hpc.useTmux, (v) => { App.cfg.hpc.useTmux = v; }),
           'They reattach after a disconnect.'),
         row('Refresh Slurm every', h('div.row', text(() => App.cfg.slurm.refreshSeconds, (v) => { App.cfg.slurm.refreshSeconds = Math.max(5, Number(v) || 20); }, { type: 'number', label: 'Seconds' }), h('span.hint', 'seconds')))));
+  }
+
+  function storageSection(c) {
+    const files = App.views.files;
+    return section('storage', 'Storage', 'Long-term storage reached over SFTP, such as ERDA. It shows as the third section in Files. Servers that only allow SFTP (no shell) work.',
+      card(null,
+        row('Name', text(() => files.title('storage'), (v) => { const p = App.cfg.ui.panes.storage = App.cfg.ui.panes.storage || {}; if (v.trim() && v.trim() !== 'ERDA') p.title = v.trim().slice(0, 40); else delete p.title; }, { placeholder: 'ERDA', label: 'Storage name' }),
+          'How the section is labelled. You can also right-click a section header in Files to rename it.'),
+        row('Login', text(() => App.cfg.storage.host, (v) => { App.cfg.storage.host = v.trim(); }, { placeholder: 'erda  or  you@example.org@io.erda.dk', apply: { storage: true }, label: 'Storage login' }),
+          h('span', 'A Host alias from ~/.ssh/config is easiest, e.g.', h('pre.sp-code', 'Host erda\n  HostName io.erda.dk\n  User you@example.org'), 'For ERDA, set an SFTP password or key first under Setup → SFTP on erda.dk.')),
+        row('Start folder', text(() => App.cfg.storage.root, (v) => { App.cfg.storage.root = v.trim(); }, { placeholder: 'Login folder', label: 'Storage start folder' })),
+        row('From the HPC', text(() => App.cfg.storage.hpcHost, (v) => { App.cfg.storage.hpcHost = v.trim(); }, { placeholder: 'Same as the login', label: 'Storage login from the HPC' }),
+          'Copies between the HPC and the storage run sftp on the HPC, in a terminal there. Set this if the HPC knows the storage by another name.')));
+  }
+
+  function rSection(c) {
+    return section('r', 'R', 'The R console that ⌘↩ sends R code to, from R scripts and from chunks in R Markdown and Quarto documents.',
+      card(null,
+        row('On this Mac', text(() => App.cfg.r.local, (v) => { App.cfg.r.local = v.trim() || 'R --no-save --quiet'; }, { label: 'R command on this Mac' }),
+          'Starts in the project folder, so .Rprofile and renv load as in RStudio.'),
+        row('On the HPC', text(() => App.cfg.r.remote, (v) => { App.cfg.r.remote = v.trim() || 'R --no-save --quiet'; }, { placeholder: 'module load R && R --no-save --quiet', label: 'R command on the HPC' }),
+          'Runs in a login shell. Load modules or a conda environment here if R needs them.')));
   }
 
   // ---------- agents ----------

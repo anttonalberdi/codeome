@@ -35,13 +35,44 @@
   };
   App.disconnectHpc = async () => { await codeome.hpc.disconnect(); await App.pollHpc(); App.toast('Disconnected.'); };
 
+  // ---------- long-term storage (SFTP) ----------
+  // Same pattern as the HPC: a visible login opens a shared connection the file browser reuses.
+  let storageConnecting = false;
+  App.storageConnected = false;
+  App.connectStorage = () => {
+    if (!App.cfg.storage.host) return App.views.settings.open('storage');
+    if (App.storageConnected || storageConnecting) return;
+    storageConnecting = true;
+    const name = App.views.files.title('storage');
+    App.views.terminals.open({
+      kind: 'storage-login', title: 'Connect ' + name, badge: 'SFTP',
+      onExit: async () => {
+        storageConnecting = false; await App.pollHpc();
+        if (!App.storageConnected) return;
+        App.toast('Connected to ' + name + '.');
+        const t = App.views.terminals.list.find((x) => x.spec.kind === 'storage-login' && !x.alive);
+        if (t) setTimeout(() => App.views.terminals.close(t.id), 600);
+      }
+    });
+  };
+  App.disconnectStorage = async () => { await codeome.storage.disconnect(); await App.pollHpc(); App.toast('Disconnected from ' + App.views.files.title('storage') + '.'); };
+  App.requireStorage = () => {
+    const name = App.views.files.title('storage');
+    if (!App.cfg.storage.host) { App.toast(`Set up ${name} in Settings first.`, { action: { label: 'Open Settings', run: () => App.views.settings.open('storage') } }); return false; }
+    if (!App.storageConnected) { App.toast(`Not connected to ${name}.`, { action: { label: 'Connect', run: () => App.connectStorage() } }); return false; }
+    return true;
+  };
+
   let vpn = { known: false }, jobs = null;
   App.pollHpc = async () => {
-    const [st, v] = await Promise.all([codeome.hpc.status(), codeome.hpc.vpn()]);
+    const [st, v, so] = await Promise.all([codeome.hpc.status(), codeome.hpc.vpn(), App.cfg.storage.host ? codeome.storage.status() : { connected: false }]);
     vpn = v;
     const was = App.hpcConnected;
     App.hpcConnected = st.connected;
     if (was !== st.connected) App.emit('hpc', st.connected);
+    const wasStorage = App.storageConnected;
+    App.storageConnected = so.connected;
+    if (wasStorage !== so.connected) App.emit('storage', so.connected);
     if (!st.connected) jobs = null;
     paint();
   };
@@ -65,7 +96,7 @@
     if (!App.cfg.hpc.host) return App.views.settings.open();
     if (!App.hpcConnected) return App.connectHpc();
     App.menuAt(el, [
-      { label: 'Slurm jobs', key: '⌘2', run: () => App.setView('slurm') },
+      { label: 'Slurm jobs', key: '⌘3', run: () => App.setView('slurm') },
       { label: 'HPC terminal', key: '⇧⌘T', run: () => App.views.terminals.hpcShell() },
       ...App.cfg.agents.map((a) => ({ label: a.name + ' on the HPC', run: () => App.views.terminals.agentHpc(a) })),
       '-',
@@ -84,14 +115,16 @@
         h('button', { onclick: () => App.views.editor.newFile() }, h('b', 'New file'), h('span', 'Script, notebook or report')),
         App.project ? h('button', { onclick: () => App.views.chat.ask('') }, h('b', 'Ask the agent'), h('span', 'Chats in tabs; they hand work to Codex and Claude specialists')) : null,
         h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login and VPN check')),
+        h('button', { onclick: () => App.views.terminals.rConsole() }, h('b', 'R console'), h('span', App.project ? 'Starts in ' + App.basename(App.project) + '; ⌘↩ in R and Rmd files runs code there' : 'R and Rmd code runs here with ⌘↩')),
         h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts'))),
       App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null,
       h('div.keys',
-        h('kbd', '⌘↩'), h('span', 'Run the current line or selection in the active terminal (R, Python, shell)'),
-        h('kbd', '⇧⌘↩'), h('span', 'Run the whole file'),
+        h('kbd', '⌘↩'), h('span', 'Run the current line, statement or selection: R code goes to the R console, the rest to the active terminal'),
+        h('kbd', '⇧⌘↩'), h('span', 'Run the whole file (source it, for R); in Rmd and Quarto files, run the current chunk'),
+        h('kbd', '⌥⌘R  ⌥⌘P'), h('span', 'Rmd: run all chunks · run the chunks above'),
         h('kbd', '⇧⌘V'), h('span', 'Preview or render the current file'),
         h('kbd', '⌘J'), h('span', 'Show or hide the terminal panel'),
-        h('kbd', '⌘1–6'), h('span', 'Files, Slurm, Git, Publish, Python packages, Agent chat'),
+        h('kbd', '⌘1–6'), h('span', 'Agent chat, Files, Slurm, Git, Publish, Python packages'),
         h('kbd', '⌃⇥'), h('span', 'Next project (⌃⇧⇥ previous)'))));
   }
   App.listen('hpc', renderWelcome);
@@ -119,7 +152,7 @@
     'prev-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(-1); },
     'view-publish': () => App.setView('publish'), 'view-pip': () => App.setView('pip'), 'view-agents': () => App.setView('agents'),
     'toggle-panel': () => App.views.terminals.togglePanel(), 'new-terminal': () => App.views.terminals.localShell(),
-    'new-hpc-terminal': () => App.views.terminals.hpcShell(), preview: () => App.views.editor.previewCurrent()
+    'new-hpc-terminal': () => App.views.terminals.hpcShell(), 'r-console': () => App.views.terminals.rConsole(), preview: () => App.views.editor.previewCurrent()
   };
 
   App.start = async () => {

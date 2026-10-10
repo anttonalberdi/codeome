@@ -45,6 +45,8 @@
       return true;
     });
     const t = { id, spec, term, fit, el, title: spec.title, alive: true, project: spec.project !== undefined ? spec.project : App.project };
+    // R consoles report when R first shows its prompt, so code isn't typed into a starting shell.
+    if (spec.lang === 'r') t.ready = new Promise((res) => { t.onReady = res; setTimeout(res, 20000); });
     T.list.push(t);
     term.onData((d) => codeome.pty.write(id, d));
     term.onResize(({ cols, rows }) => codeome.pty.resize(id, cols, rows));
@@ -65,13 +67,13 @@
     return t;
   };
 
-  T.activate = function (id) {
+  T.activate = function (id, { focus = true } = {}) {
     T.active = id;
     for (const t of T.list) t.el.hidden = t.id !== id;
     renderTabs();
     const t = T.get(id);
     if (t) T.lastActive[t.project] = id;
-    if (t) setTimeout(() => { try { t.fit.fit(); } catch {} t.term.focus(); }, 0);
+    if (t) setTimeout(() => { try { t.fit.fit(); } catch {} if (focus) t.term.focus(); }, 0);
     document.querySelector('.term-empty')?.remove();
   };
   T.get = (id) => T.list.find((t) => t.id === id);
@@ -113,17 +115,35 @@
   function renderTabs() {
     const el = tabsEl(); el.innerHTML = '';
     App.emit('sessions');
+    const rt = T.rFor();
     for (const t of T.visible()) {
-      el.append(h('div.tab' + (t.id === T.active ? '.active' : ''), { onclick: () => T.activate(t.id), title: t.spec.cwd || '', onauxclick: (e) => { if (e.button === 1) T.close(t.id); } },
+      el.append(h('div.tab' + (t.id === T.active ? '.active' : ''), {
+        onclick: () => T.activate(t.id), title: (t.spec.cwd || '') + (t === rt ? '\nReceives R code from the editor (⌘↩)' : ''),
+        onauxclick: (e) => { if (e.button === 1) T.close(t.id); },
+        oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, tabMenu(t)); } },
         h('i.live' + (t.alive ? '' : '.dead')),
-        t.spec.badge ? h('span.badge' + (t.spec.badge === 'HPC' ? '.hpc' : ''), t.spec.badge) : null,
+        t.spec.badge ? h('span.badge' + (t.spec.badge === 'HPC' ? '.hpc' : t.spec.badge === 'R' ? '.r' : ''), t.spec.badge) : null,
+        t === rt && t.spec.badge !== 'R' ? h('span.badge.r', { title: 'Receives R code' }, 'R') : null,
         h('span.t', t.title),
         t.account && App.cfg.accounts[t.spec.engine] && App.cfg.accounts[t.spec.engine].list.length > 1 ? h('span.acct', t.account) : null,
         h('button.x', { title: 'Close', onclick: (e) => { e.stopPropagation(); T.close(t.id); } }, h('span', '×'))));
     }
   }
 
-  codeome.pty.onData(({ id, data }) => { const t = T.get(id); if (t) t.term.write(data); });
+  function tabMenu(t) {
+    const rt = T.rFor(t.project);
+    return [
+      t.alive && t.spec.kind !== 'hpc-login' && t.spec.kind !== 'storage-login' ? { label: t === rt ? 'Receives R code ✓' : 'Send R code here', disabled: t === rt, run: () => { T.rTarget[t.project] = t.id; renderTabs(); } } : null,
+      t.spec.lang === 'r' ? { label: 'Restart R', run: () => { T.close(t.id); T.rConsole({ remote: isHpc(t), cwd: t.spec.cwd }); } } : null,
+      { label: 'Close', run: () => T.close(t.id) }
+    ];
+  }
+
+  codeome.pty.onData(({ id, data }) => {
+    const t = T.get(id); if (!t) return;
+    t.term.write(data);
+    if (t.onReady && /(^|\n)> $/.test(data.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ''))) { t.onReady(); t.onReady = null; }
+  });
   codeome.pty.onExit(({ id, code }) => {
     const t = T.get(id); if (!t) return;
     t.alive = false; renderTabs();
@@ -143,15 +163,72 @@
   T.task = (title, command, cwd, extra = {}) => T.open({ kind: 'task', title, command, cwd: cwd || App.project || '~', badge: 'Mac', ...extra });
   T.hpcTask = (title, command, cwd) => { if (!App.requireHpc()) return; return T.open({ kind: 'hpc-task', title, command, cwd: cwd || App.remoteDir || '~', badge: 'HPC' }); };
 
+  // ---------- R console ----------
+  // Each project has one terminal that R code from the editor goes to: an R console
+  // started here, or any terminal picked with "Send R code here" (say, R inside an
+  // interactive job on the HPC). It ends with R, so a dead tab is never sent code.
+  T.rTarget = {};
+  const isHpc = (t) => /^(hpc|agent-hpc)/.test(t.spec.kind);
+  T.rFor = (project = App.project) => { const t = T.get(T.rTarget[project]); return t && t.alive ? t : null; };
+  T.rConsole = async ({ remote = false, cwd } = {}) => {
+    if (remote && !App.requireHpc()) return null;
+    const dir = cwd || (remote ? App.remoteDir || '~' : App.project || '~');
+    const command = (remote ? App.cfg.r.remote : App.cfg.r.local) || 'R --no-save --quiet';
+    const t = await T.open({ kind: remote ? 'hpc-console' : 'console', lang: 'r', title: 'R · ' + (App.basename(dir) || '~'), command, cwd: dir, badge: remote ? 'HPC' : 'R' });
+    if (t && t.alive) { T.rTarget[t.project] = t.id; renderTabs(); }
+    return t;
+  };
+
+  // The project's R console, started (here or on the HPC) if there is none, shown and ready.
+  async function rReady({ remote = false, cwd } = {}) {
+    let t = T.rFor();
+    if (!t) { t = await T.rConsole({ remote, cwd }); if (!t || !t.alive) return null; }
+    if (t.ready) await t.ready;
+    T.showPanel();
+    if (T.active !== t.id) T.activate(t.id, { focus: false });
+    return t;
+  }
+  const sourceLine = (file) => `source(${JSON.stringify(file)}, echo = TRUE, max.deparse.length = Inf, keep.source = TRUE, spaced = FALSE)\r`;
+
+  T.sendR = async (code, where) => {
+    const t = await rReady(where); if (!t) return false;
+    code = code.replace(/\r/g, '').replace(/\s+$/, '');
+    if (!code) return true;
+    // R's readline ignores bracketed paste, and typing much ahead overruns the terminal's
+    // input queue while R is busy: short code is typed, longer code is sourced from a file.
+    if (code.length <= 400 && code.split('\n').length <= 12) { codeome.pty.write(t.id, code.replace(/\n/g, '\r') + '\r'); return true; }
+    const file = await rFile(t, code + '\n');
+    if (!file) { App.err('Could not write the code to a temporary file.'); return false; }
+    codeome.pty.write(t.id, sourceLine(file));
+    return true;
+  };
+  // Runs a whole R script in the console, echoed, like RStudio's Source.
+  T.sourceR = async (path, where) => { const t = await rReady(where); if (t) codeome.pty.write(t.id, sourceLine(path)); return !!t; };
+  async function rFile(t, code) {
+    const name = 'run-' + t.id + '.R';
+    if (isHpc(t)) {
+      await codeome.remote.mkdir('.cache/codeome');
+      const r = await codeome.remote.write('.cache/codeome/' + name, code);
+      return r.error ? null : '~/.cache/codeome/' + name;
+    }
+    if (!App.env.tmp) return null;
+    await codeome.local.mkdir(App.env.tmp);
+    const p = App.env.tmp + '/' + name;
+    const r = await codeome.local.write(p, code);
+    return r.error ? null : p;
+  }
+
   T.newMenu = (anchor) => {
-    // Agents on this Mac live in the Agent chat (⌘6); the CLIs on the HPC stay here.
+    // Agents on this Mac live in the Agent chat (⌘1); the CLIs on the HPC stay here.
     const items = [
       { header: 'On this Mac' + (App.project ? ' · ' + App.basename(App.project) : '') },
       { label: 'Terminal', key: '⌘T', run: () => T.localShell() },
-      { label: 'Agent chat', key: '⌘6', run: () => App.views.chat.ask('') },
+      { label: 'R console', run: () => T.rConsole() },
+      { label: 'Agent chat', key: '⌘1', run: () => App.views.chat.ask('') },
       '-',
       { header: 'On the HPC' + (App.remoteDir ? ' · ' + App.basename(App.remoteDir) : '') },
       { label: 'Terminal', key: '⇧⌘T', run: () => T.hpcShell() },
+      { label: 'R console', run: () => T.rConsole({ remote: true }) },
       ...App.cfg.agents.map((a) => ({ label: a.name + (App.cfg.hpc.useTmux ? ' (persistent)' : ''), run: () => T.agentHpc(a) }))
     ];
     if (anchor) App.menuAt(anchor, items); else App.menu(innerWidth / 2 - 110, innerHeight / 2 - 120, items);

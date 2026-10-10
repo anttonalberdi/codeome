@@ -27,21 +27,21 @@
   <nav id="projects" aria-label="Open projects"></nav>
 
   <nav id="rail">
-    <button data-view="files" class="active" title="Files (⌘1)"><svg viewBox="0 0 20 20"><path d="M3 5.5h5l1.5 1.5H17v8.5H3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
-    <button data-view="slurm" title="Slurm jobs (⌘2)"><svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="3" y="8.4" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="3" y="12.8" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5.4" cy="5.6" r=".8" fill="currentColor"/><circle cx="5.4" cy="10" r=".8" fill="currentColor"/><circle cx="5.4" cy="14.4" r=".8" fill="currentColor"/></svg></button>
-    <button data-view="git" title="Git & GitHub (⌘3)"><svg viewBox="0 0 20 20"><circle cx="6" cy="5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="15" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="14" cy="8" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 6.8v6.4M14 9.8c0 2.5-3 2.6-8 3.6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
-    <button data-view="publish" title="Publish: Zenodo & PyPI (⌘4)"><svg viewBox="0 0 20 20"><path d="M10 13V3.5M6.5 7 10 3.5 13.5 7M4 12.5v4h12v-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
-    <button data-view="pip" title="Python packages (⌘5)"><svg viewBox="0 0 20 20"><path d="M10 2.8 16.5 6.5v7L10 17.2 3.5 13.5v-7Z M3.5 6.5 10 10.2l6.5-3.7M10 10.2v7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
-    <button data-view="agents" title="Agent (⌘6)"><svg viewBox="0 0 20 20"><circle cx="10" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="4.8" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="15.2" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8.9 6.9 5.9 12.5M11.1 6.9l3 5.6M7 14.5h6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
+    <button data-view="agents" title="Agent (⌘1)"><svg viewBox="0 0 20 20"><circle cx="10" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="4.8" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="15.2" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8.9 6.9 5.9 12.5M11.1 6.9l3 5.6M7 14.5h6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
+    <button data-view="files" class="active" title="Files (⌘2)"><svg viewBox="0 0 20 20"><path d="M3 5.5h5l1.5 1.5H17v8.5H3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
+    <button data-view="slurm" title="Slurm jobs (⌘3)"><svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="3" y="8.4" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="3" y="12.8" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5.4" cy="5.6" r=".8" fill="currentColor"/><circle cx="5.4" cy="10" r=".8" fill="currentColor"/><circle cx="5.4" cy="14.4" r=".8" fill="currentColor"/></svg></button>
+    <button data-view="git" title="Git & GitHub (⌘4)"><svg viewBox="0 0 20 20"><circle cx="6" cy="5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="15" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="14" cy="8" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 6.8v6.4M14 9.8c0 2.5-3 2.6-8 3.6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
+    <button data-view="publish" title="Publish: Zenodo & PyPI (⌘5)"><svg viewBox="0 0 20 20"><path d="M10 13V3.5M6.5 7 10 3.5 13.5 7M4 12.5v4h12v-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
+    <button data-view="pip" title="Python packages (⌘6)"><svg viewBox="0 0 20 20"><path d="M10 2.8 16.5 6.5v7L10 17.2 3.5 13.5v-7Z M3.5 6.5 10 10.2l6.5-3.7M10 10.2v7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
   </nav>
 
   <aside id="sidebar">
+    <section class="view" data-view="agents" hidden></section>
     <section class="view" data-view="files"></section>
     <section class="view" data-view="slurm" hidden></section>
     <section class="view" data-view="git" hidden></section>
     <section class="view" data-view="publish" hidden></section>
     <section class="view" data-view="pip" hidden></section>
-    <section class="view" data-view="agents" hidden></section>
   </aside>
   <div id="sidebar-resizer" class="resizer v"></div>
 
@@ -74,6 +74,7 @@
 <script src="js/core.js"></script>
 <script src="js/terminals.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/rmd.js"></script>
 <script src="js/files.js"></script>
 <script src="js/slurm.js"></script>
 <script src="js/git.js"></script>

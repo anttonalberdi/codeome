@@ -31,6 +31,14 @@ contextBridge.exposeInMainWorld('codeome', {
     mkdir: invoke('remote:mkdir'), rename: (from, to) => ipcRenderer.invoke('remote:rename', { from, to }),
     delete: invoke('remote:delete'), du: invoke('remote:du')
   },
+  storage: {
+    status: invoke('storage:status'), disconnect: invoke('storage:disconnect'),
+    list: invoke('storage:list'), read: invoke('storage:read'),
+    write: (path, content) => ipcRenderer.invoke('storage:write', { path, content }),
+    mkdir: invoke('storage:mkdir'), rename: (from, to) => ipcRenderer.invoke('storage:rename', { from, to }),
+    delete: (path, dir) => ipcRenderer.invoke('storage:delete', { path, dir }), fetch: invoke('storage:fetch'),
+    hpcCommand: (direction, src, destDir) => ipcRenderer.invoke('storage:hpcCommand', { direction, src, destDir })
+  },
   transfer: { start: invoke('transfer:start'), cancel: invoke('transfer:cancel'), onProgress: on('transfer:progress'), onDone: on('transfer:done') },
   slurm: {
     queue: invoke('slurm:queue'), history: invoke('slurm:history'), details: invoke('slurm:details'),

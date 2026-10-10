@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const config = require('./config');
 const ssh = require('./ssh');
+const sftp = require('./sftp');
 const slurm = require('./slurm');
 const zenodo = require('./zenodo');
 const kit = require('./kit');
@@ -61,12 +62,12 @@ function buildMenu() {
     ] },
     { role: 'editMenu' },
     { label: 'Go', submenu: [
-      { label: 'Files', accelerator: 'CmdOrCtrl+1', click: cmd('view-files') },
-      { label: 'Slurm Jobs', accelerator: 'CmdOrCtrl+2', click: cmd('view-slurm') },
-      { label: 'Git & GitHub', accelerator: 'CmdOrCtrl+3', click: cmd('view-git') },
-      { label: 'Publish (Zenodo, PyPI)', accelerator: 'CmdOrCtrl+4', click: cmd('view-publish') },
-      { label: 'Python Packages', accelerator: 'CmdOrCtrl+5', click: cmd('view-pip') },
-      { label: 'Agent Chat', accelerator: 'CmdOrCtrl+6', click: cmd('view-agents') },
+      { label: 'Agent Chat', accelerator: 'CmdOrCtrl+1', click: cmd('view-agents') },
+      { label: 'Files', accelerator: 'CmdOrCtrl+2', click: cmd('view-files') },
+      { label: 'Slurm Jobs', accelerator: 'CmdOrCtrl+3', click: cmd('view-slurm') },
+      { label: 'Git & GitHub', accelerator: 'CmdOrCtrl+4', click: cmd('view-git') },
+      { label: 'Publish (Zenodo, PyPI)', accelerator: 'CmdOrCtrl+5', click: cmd('view-publish') },
+      { label: 'Python Packages', accelerator: 'CmdOrCtrl+6', click: cmd('view-pip') },
       { label: 'New Agent Chat', accelerator: 'CmdOrCtrl+Shift+N', click: cmd('new-chat') },
       { label: 'Next Agent Chat', accelerator: 'CmdOrCtrl+Shift+]', click: cmd('next-chat') },
       { label: 'Previous Agent Chat', accelerator: 'CmdOrCtrl+Shift+[', click: cmd('prev-chat') },
@@ -77,6 +78,7 @@ function buildMenu() {
       { label: 'Toggle Terminal Panel', accelerator: 'CmdOrCtrl+J', click: cmd('toggle-panel') },
       { label: 'New Local Terminal', accelerator: 'CmdOrCtrl+T', click: cmd('new-terminal') },
       { label: 'New HPC Terminal', accelerator: 'CmdOrCtrl+Shift+T', click: cmd('new-hpc-terminal') },
+      { label: 'R Console', click: cmd('r-console') },
       { label: 'Preview Current File', accelerator: 'CmdOrCtrl+Shift+V', click: cmd('preview') }
     ] },
     { role: 'viewMenu' },
@@ -96,7 +98,11 @@ function ptySpec(spec) {
     case 'shell': return { file: sh, args: ['-l'], cwd };
     case 'task': return { file: sh, args: ['-l', '-c', `${spec.command}; echo; echo "[process exited with $?]"; exec ${sh} -l`], cwd };
     case 'agent-local': return { file: sh, args: ['-l', '-c', `${spec.command}; exec ${sh} -l`], cwd };
+    // A console (R) ends with its program, so a dead tab means a dead session.
+    case 'console': return { file: sh, args: ['-l', '-c', spec.command], cwd };
     case 'hpc-login': return { file: 'ssh', args: ssh.masterArgs(host), cwd: os.homedir() };
+    case 'storage-login': return { file: 'ssh', args: ssh.masterArgs(cfg.storage.host), cwd: os.homedir() };
+    case 'hpc-console': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '~'} 2>/dev/null; ${spec.command}`)}`), cwd: os.homedir() };
     case 'hpc-shell': {
       const dir = spec.cwd && spec.cwd !== '~' ? `cd ${q(spec.cwd)} && exec $SHELL -l` : '';
       return { file: 'ssh', args: ssh.shellArgs(host, dir || undefined), cwd: os.homedir() };
@@ -224,36 +230,84 @@ ipcMain.handle('remote:quota', async () => {
   return { text: r.stdout.trim() || r.stderr.trim() };
 });
 
+// ---------- long-term storage (SFTP) ----------
+const sto = () => cfg.storage.host;
+ipcMain.handle('storage:status', () => ssh.check(sto()));
+ipcMain.handle('storage:disconnect', () => ssh.disconnect(sto()));
+ipcMain.handle('storage:list', (_e, dir) => sftp.list(sto(), dir));
+ipcMain.handle('storage:read', (_e, p) => sftp.readFile(sto(), p));
+ipcMain.handle('storage:write', (_e, { path: p, content }) => sftp.writeFile(sto(), p, content));
+ipcMain.handle('storage:mkdir', (_e, p) => sftp.mkdir(sto(), p));
+ipcMain.handle('storage:rename', (_e, { from, to }) => sftp.rename(sto(), from, to));
+ipcMain.handle('storage:delete', (_e, { path: p, dir }) => sftp.remove(sto(), p, dir));
+ipcMain.handle('storage:fetch', (_e, p) => sftp.fetch(sto(), p));
+// HPC ↔ storage copies run sftp on the HPC itself, in a terminal there.
+ipcMain.handle('storage:hpcCommand', (_e, { direction, src, destDir }) => {
+  try { return { command: sftp.hpcCommand(cfg.storage.hpcHost || sto(), direction, src, destDir) }; } catch (e) { return { error: e.message }; }
+});
+
 let rsyncIsGnu = false;
 run('rsync', ['--version'], { timeout: 5000 }).then((r) => { rsyncIsGnu = /rsync\s+version\s+3/.test(r.stdout) && !/openrsync/.test(r.stdout); });
 
-// Transfers use rsync over the master connection: resumable and incremental.
+// Percent and rate from rsync's or sftp's progress output.
+function progressOf(s) {
+  const m = s.match(/(\d+)%[^\n\r]*?([\d.]+[kKMGT]?B\/s)?/g);
+  if (!m) return null;
+  const last = m[m.length - 1];
+  return { pct: Number(last.match(/(\d+)%/)[1]), rate: (last.match(/([\d.]+[kKMGT]?B\/s)/) || [])[1] || '' };
+}
+
+// Transfers between this Mac and the HPC use rsync over the master connection
+// (resumable and incremental); to and from the storage, sftp.
+// t: {from, to, src, destDir} with from/to in local | remote | storage.
 ipcMain.handle('transfer:start', (_e, t) => {
   const id = 'tx' + Date.now() + Math.random().toString(36).slice(2, 6);
-  const host = cfg.hpc.host;
-  const src = t.direction === 'up' ? t.src : `${host}:${q(t.src)}`;
-  const dst = t.direction === 'up' ? `${host}:${q(t.destDir.replace(/\/?$/, '/'))}` : t.destDir.replace(/\/?$/, '/');
-  // macOS ships openrsync, which lacks some GNU rsync flags; Homebrew rsync gets resumable transfers.
-  const args = ['-a', ...(rsyncIsGnu ? ['--partial'] : []), '--progress', '-e', ssh.rsyncSshCommand(), src, dst];
-  const { spawn } = require('child_process');
-  const child = spawn('rsync', args, { env: augmentedEnv() });
-  transfers.set(id, child);
-  let lastErr = '';
-  const onData = (d) => {
-    const s = String(d);
-    const m = s.match(/(\d+)%[^\n\r]*?([\d.]+[kMG]B\/s)?/g);
-    if (m) {
-      const last = m[m.length - 1];
-      const pct = Number(last.match(/(\d+)%/)[1]);
-      const rate = (last.match(/([\d.]+[kMG]B\/s)/) || [])[1] || '';
-      send('transfer:progress', { id, pct, rate });
+  const done = (code, error) => { transfers.delete(id); send('transfer:done', { id, code, error: code ? error : '' }); };
+  const pair = [t.from, t.to].sort().join('-');
+  if (pair === 'local-remote') {
+    const host = cfg.hpc.host, up = t.from === 'local';
+    const src = up ? t.src : `${host}:${q(t.src)}`;
+    const dst = up ? `${host}:${q(t.destDir.replace(/\/?$/, '/'))}` : t.destDir.replace(/\/?$/, '/');
+    // macOS ships openrsync, which lacks some GNU rsync flags; Homebrew rsync gets resumable transfers.
+    const args = ['-a', ...(rsyncIsGnu ? ['--partial'] : []), '--progress', '-e', ssh.rsyncSshCommand(), src, dst];
+    const { spawn } = require('child_process');
+    const child = spawn('rsync', args, { env: augmentedEnv() });
+    transfers.set(id, { kill: (sig) => child.kill(sig) });
+    let lastErr = '';
+    child.stdout.on('data', (d) => { const p = progressOf(String(d)); if (p) send('transfer:progress', { id, ...p }); });
+    child.stderr.on('data', (d) => { lastErr += d; });
+    child.on('close', (code) => done(code, lastErr.trim().split('\n').slice(-2).join(' ')));
+    child.on('error', (e) => done(-1, e.message));
+    return { id };
+  }
+  if (pair === 'local-storage') {
+    if (!sto()) return { error: 'Set up the storage in Settings first.' };
+    let batchFile;
+    try {
+      batchFile = path.join(cacheDir(), id + '.sftp');
+      fs.writeFileSync(batchFile, sftp.transferBatch(t.from === 'local' ? 'up' : 'down', t.src, t.destDir));
+    } catch (e) { return { error: e.message }; }
+    const args = sftp.transferArgs(sto(), batchFile);
+    let out = '';
+    const finish = (code) => { fs.rm(batchFile, { force: true }, () => {}); done(code, out.replace(/\r/g, '\n').split('\n').map((l) => l.trim()).filter((l) => l && !/^sftp>|%|^Progress meter/.test(l)).slice(-2).join(' ') || 'sftp exited with ' + code); };
+    const onData = (d) => { out = (out + d).slice(-4000); const p = progressOf(String(d)); if (p) send('transfer:progress', { id, ...p }); };
+    // sftp only draws its progress meter on a terminal.
+    if (pty) {
+      const p = pty.spawn('sftp', args, { name: 'xterm-256color', cols: 120, rows: 10, cwd: os.homedir(), env: augmentedEnv() });
+      transfers.set(id, { kill: () => { try { p.kill(); } catch {} } });
+      p.onData(onData);
+      p.onExit(({ exitCode }) => finish(exitCode));
+    } else {
+      const { spawn } = require('child_process');
+      const child = spawn('sftp', args, { env: augmentedEnv() });
+      transfers.set(id, { kill: (sig) => child.kill(sig) });
+      child.stdout.on('data', onData); child.stderr.on('data', onData);
+      child.on('close', finish);
+      child.on('error', (e) => done(-1, e.message));
     }
-  };
-  child.stdout.on('data', onData);
-  child.stderr.on('data', (d) => { lastErr += d; });
-  child.on('close', (code) => { transfers.delete(id); send('transfer:done', { id, code, error: code ? lastErr.trim().split('\n').slice(-2).join(' ') : '' }); });
-  child.on('error', (e) => { send('transfer:done', { id, code: -1, error: e.message }); });
-  return { id };
+    return { id };
+  }
+  return { error: 'Copies between the HPC and the storage run in an HPC terminal.' };
 });
 ipcMain.handle('transfer:cancel', (_e, id) => { const c = transfers.get(id); if (c) c.kill('SIGINT'); return true; });
 
@@ -500,10 +554,10 @@ function startUsage() {
 
 // ---------- environment detection ----------
 ipcMain.handle('env:detect', async () => {
-  const tools = ['git', 'gh', 'quarto', 'Rscript', 'python3', 'rsync', 'ssh', 'tmux'].concat(cfg.agents.map((a) => a.cmd.split(' ')[0]));
+  const tools = ['git', 'gh', 'quarto', 'R', 'Rscript', 'python3', 'rsync', 'ssh', 'sftp', 'tmux'].concat(cfg.agents.map((a) => a.cmd.split(' ')[0]));
   const out = {};
   await Promise.all(tools.map(async (t) => { out[t] = (await run(loginShell(), ['-l', '-c', `command -v ${t}`], { timeout: 8000 })).code === 0; }));
-  return { tools: out, ptyOk: !!pty, ptyError, platform: process.platform, home: os.homedir() };
+  return { tools: out, ptyOk: !!pty, ptyError, platform: process.platform, home: os.homedir(), tmp: path.join(os.tmpdir(), 'codeome') };
 });
 
 app.whenReady().then(() => {

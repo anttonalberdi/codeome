@@ -119,7 +119,7 @@
     b.classList.toggle('busy', n > 0 || s.working > 0);
     b.classList.toggle('needs', s.waiting > 0);
     b.classList.toggle('ready', !s.waiting && !s.working && !n && s.unread > 0);
-    b.title = 'Agent (⌘6)' + (s.waiting ? ` — ${s.waiting} waiting for you` : '') + (s.working ? ` — ${s.working} working` : '') + (n ? ` — ${n} job${n > 1 ? 's' : ''} running` : '') + (s.unread ? ` — ${s.unread} repl${s.unread > 1 ? 'ies' : 'y'} ready` : '');
+    b.title = 'Agent (⌘1)' + (s.waiting ? ` — ${s.waiting} waiting for you` : '') + (s.working ? ` — ${s.working} working` : '') + (n ? ` — ${n} job${n > 1 ? 's' : ''} running` : '') + (s.unread ? ` — ${s.unread} repl${s.unread > 1 ? 'ies' : 'y'} ready` : '');
   }
 
   // ---------- kit ----------
@@ -243,7 +243,7 @@
       { label: 'Show result', run: () => A.openJob(j) },
       { label: 'Copy job ID', run: () => navigator.clipboard.writeText(j.id) },
       j.session && j.engine === 'codex' ? { label: 'Copy Codex session ID', run: () => navigator.clipboard.writeText(j.session) } : null,
-      j.worktree ? { label: 'Show worktree in Files', run: () => { App.setView('files'); App.views.files.go('local', j.worktree); } } : null,
+      j.worktree ? { label: 'Show worktree in Files', run: () => App.views.files.show('local', j.worktree) } : null,
       j.transcript ? { label: 'Open transcript', run: () => App.views.editor.openFile(j.transcript.replace(/^~/, App.env.home || '~')) } : null,
       isLive(j) && j.engine === 'codex' ? '-' : null,
       isLive(j) && j.engine === 'codex' ? { label: 'Cancel job…', danger: true, run: () => A.cancel(j) } : null
