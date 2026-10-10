@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld('codeome', {
     start: invoke('vpn:start'), stop: invoke('vpn:stop'), state: invoke('vpn:state'), log: invoke('vpn:log'),
     answer: (id, value, save) => ipcRenderer.invoke('vpn:answer', { id, value, save }), onState: on('vpn:state')
   },
+  login: {
+    start: invoke('login:start'), stop: invoke('login:stop'), state: invoke('login:state'), log: invoke('login:log'),
+    answer: (target, id, value, save) => ipcRenderer.invoke('login:answer', { target, id, value, save }), onState: on('login:state')
+  },
   setup: { status: invoke('setup:status'), testLogin: invoke('setup:testLogin'), testVpn: invoke('setup:testVpn'), install: invoke('setup:install') },
   remote: {
     list: invoke('remote:list'), read: invoke('remote:read'),

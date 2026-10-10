@@ -31,11 +31,11 @@ function classifyPrompt(line) {
 
 const FAILED = /login failed|authentication failed|invalid (user|pass)|incorrect/i;
 
-// Why openconnect stopped, in one line from the end of its log.
-function reasonOf(log) {
+// Why openconnect (or ssh) stopped, in one line from the end of its log.
+function reasonOf(log, fallback = 'openconnect stopped.') {
   const lines = clean(log).split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
   const bad = lines.filter((l) => /fail|error|unable|denied|refused|not supported|unknown|invalid|cannot/i.test(l));
-  return (bad.length ? bad[bad.length - 1] : lines[lines.length - 1]) || 'openconnect stopped.';
+  return (bad.length ? bad[bad.length - 1] : lines[lines.length - 1]) || fallback;
 }
 
 // o: spawn() → { onData, onExit, write, kill }; portOpen() → Promise<bool>;
@@ -103,4 +103,4 @@ function start(o) {
   };
 }
 
-module.exports = { start, classifyPrompt, lastLine, reasonOf };
+module.exports = { start, classifyPrompt, clean, lastLine, reasonOf };

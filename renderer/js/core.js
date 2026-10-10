@@ -124,6 +124,16 @@ App.modal = ({ title, text, fields = [], ok = 'OK', cancel = 'Cancel', danger = 
   setTimeout(() => { const first = m.querySelector('input,textarea,select') || m.querySelector('footer .btn:last-child'); if (first) first.focus(); }, 0);
   if (closer) closer(() => { if (ov.contains(m)) close(undefined); });
 });
+// Sign-in dialogs (the VPN tunnel, the HPC login) show one at a time: a new one closes
+// the last, and App.closeSignIn(owner) closes the owner's from outside.
+let signIn = null;
+App.signIn = (owner, opts) => {
+  if (signIn && signIn.close) signIn.close();
+  const d = { owner };
+  signIn = d;
+  return App.modal({ ...opts, closer: (c) => { d.close = c; } }).then((v) => { if (signIn === d) signIn = null; return v; });
+};
+App.closeSignIn = (owner) => { const d = signIn; if (!d || d.owner !== owner) return; signIn = null; if (d.close) d.close(); };
 App.prompt = async (title, label, value = '', opts = {}) => {
   const r = await App.modal({ title, ok: opts.ok || 'OK', text: opts.text, fields: [{ key: 'v', label, value, placeholder: opts.placeholder }] });
   return r ? r.v.trim() : null;

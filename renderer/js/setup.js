@@ -54,19 +54,14 @@
   // ---------- VPN tunnel ----------
   // It signs in without a terminal (main/vpn.js): Codeome asks in dialogs for what
   // is not saved, then shows that a sign-in waits for approval on the MFA device.
-  let connectWhenUp = false, back = null, dialog = null, mfaTimer = null;
+  let connectWhenUp = false, back = null, mfaTimer = null;
   U.tun = { phase: 'stopped' };
   const server = () => App.cfg.hpc.vpn.server;
   U.vpnStarting = () => !U.vpnUp && ['starting', 'prompt', 'waiting'].includes(U.tun.phase);
 
   // One sign-in dialog at a time; a new one (or the tunnel coming up) closes the last.
-  function show(opts) {
-    closeDialog();
-    const d = {};
-    dialog = d;
-    return App.modal({ ...opts, closer: (c) => { d.close = c; } }).then((v) => { if (dialog === d) dialog = null; return v; });
-  }
-  function closeDialog() { const d = dialog; dialog = null; if (d && d.close) d.close(); }
+  const show = (opts) => App.signIn('vpn', opts);
+  const closeDialog = () => App.closeSignIn('vpn');
 
   // thenConnect: connect to the HPC once it is up; returnTo: run when it is (e.g. reopen Settings).
   U.startVpn = async ({ thenConnect = false, returnTo = null } = {}) => {

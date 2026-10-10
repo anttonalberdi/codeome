@@ -84,7 +84,7 @@
     App.listen('view', () => S.close());
     App.listen('project', () => { if (S.isOpen) renderAgents(); });
     // The HPC checklist follows the connection, the tunnel and setup steps as they happen.
-    for (const ev of ['setup', 'hpc', 'vpn', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
+    for (const ev of ['setup', 'hpc', 'vpn', 'login', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
     App.listen('env', () => { if (S.isOpen && current === 'mac') sections.mac.replaceWith(macSection()); });
   }
 
@@ -231,8 +231,8 @@
       card('Login',
         row('Login', text(() => App.cfg.hpc.host, (v) => { App.cfg.hpc.host = v.trim(); }, { placeholder: 'myhpc  or  user@login.cluster.example.org', apply: { host: true, setup: true }, label: 'HPC login' }),
           'A Host alias from ~/.ssh/config, or user@host.'),
-        row('Password', savedPassword('hpc:password', 'HPC password', 'Typed in the login terminal'),
-          'Optional. Kept in the macOS Keychain and typed at the login\'s password prompt; a one-time code, if asked, is still yours to type. An ssh key on the HPC needs no password.'),
+        row('Password', savedPassword('hpc:password', 'HPC password', 'Asked for when connecting'),
+          'Optional. Kept in the macOS Keychain and used when connecting; without it, Codeome asks. A one-time code, if the HPC wants one, is asked for too. An ssh key on the HPC needs no password.'),
         row('Start folder', text(() => App.cfg.hpc.remoteRoot, (v) => { App.cfg.hpc.remoteRoot = v.trim() || '~'; }, { placeholder: '~ or /projects/mygroup', label: 'Start folder' }))),
       setupHost,
       card('Sessions',
@@ -301,16 +301,20 @@
     else if (t.result === 'busy') keyRow = stepRow('busy', 'Key accepted by the HPC', 'Testing…');
     else if (t.result === 'ok') keyRow = stepRow('ok', 'Key accepted by the HPC', 'Signs in without a password.', test);
     else if (t.result === 'auth') keyRow = stepRow('warn', 'Key accepted by the HPC', "The HPC did not accept the key. Copy it there (you sign in with your password once). If the key has a passphrase, add it to the macOS keychain with: ssh-add --apple-use-keychain " + App.tildify(st.key.path), copy, test);
-    else if (t.result === 'hostkey') keyRow = stepRow('warn', 'Key accepted by the HPC', "The HPC's fingerprint is new or has changed. Connect once in a terminal to check and accept it.", btn('Connect', () => { S.close(); App.connectHpc(); }), test);
+    else if (t.result === 'hostkey') keyRow = stepRow('warn', 'Key accepted by the HPC', "The HPC's fingerprint is new or has changed. Connect once to check and accept it.", btn('Connect', () => App.connectHpc()), test);
     else if (t.result === 'network') keyRow = stepRow('warn', 'Key accepted by the HPC', (tunnel && !U.vpnUp ? `Could not reach ${c.hpc.host}: the VPN tunnel is not running.`
       : `Could not reach ${c.hpc.host}${tunnel ? ' through the tunnel' : '. Off campus, turn on the VPN first'}. ${t.detail || ''}`), tunnel && !U.vpnUp ? btn('Start VPN', () => U.startVpn({ returnTo: backHere })) : null, test);
     else keyRow = stepRow('warn', 'Key accepted by the HPC', t.detail || 'The test login failed.', copy, test);
     rows.push(keyRow);
 
+    const lg = App.login.state.hpc;
     rows.push(App.hpcConnected
       ? stepRow('ok', 'Connected', `Files, Slurm, terminals and the R console use this connection.`, btn('Disconnect', () => App.disconnectHpc()))
-      : stepRow(c.hpc.host ? 'todo' : 'off', 'Connected', c.hpc.host ? 'Opens one shared connection, in a terminal so any prompts work.' : 'Needs a login.',
-        c.hpc.host ? btn('Connect', () => { S.close(); App.connectHpc(); }, true) : null));
+      : App.login.busy('hpc') ? stepRow('busy', 'Connected', lg.phase === 'prompt' ? `${c.hpc.host} is asking for something.` : `Connecting to ${c.hpc.host}…`,
+        btn('Cancel', () => App.login.stop('hpc')), btn(lg.phase === 'prompt' ? 'Continue…' : 'Show', () => App.connectHpc()))
+      : lg.phase === 'failed' ? stepRow('warn', 'Connected', lg.reason, btn('Log', () => App.login.showLog('hpc')), btn('Connect again', () => App.connectHpc(), true))
+      : stepRow(c.hpc.host ? 'todo' : 'off', 'Connected', c.hpc.host ? 'Opens one shared connection in the background; Codeome asks for a password or code if the HPC wants one.' : 'Needs a login.',
+        c.hpc.host ? btn('Connect', () => App.connectHpc(), true) : null));
 
     setupHost.replaceChildren(h('div.sp-card',
       h('div.sp-card-h.row', h('span.grow', 'Setup'), h('button.btn.small.ghost', { onclick: () => App.setup.refresh() }, 'Check again')),

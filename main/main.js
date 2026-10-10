@@ -15,6 +15,7 @@ const chat = require('./chat');
 const rtools = require('./rtools');
 const setup = require('./setup');
 const vpn = require('./vpn');
+const login = require('./login');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -104,6 +105,7 @@ function ptySpec(spec) {
     case 'agent-local': return { file: sh, args: ['-l', '-c', `${spec.command}; exec ${sh} -l`], cwd };
     // A console (R) ends with its program, so a dead tab means a dead session.
     case 'console': return { file: sh, args: ['-l', '-c', spec.command], cwd };
+    // The logins in a terminal, offered when the background one (login.js) fails.
     case 'hpc-login': return { file: 'ssh', args: ssh.masterArgs(host), cwd: os.homedir() };
     case 'storage-login': return { file: 'ssh', args: ssh.masterArgs(cfg.storage.host), cwd: os.homedir() };
     case 'hpc-console': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '~'} 2>/dev/null; ${spec.command}`)}`), cwd: os.homedir() };
@@ -304,6 +306,43 @@ ipcMain.handle('vpn:answer', (_e, { id, value, save }) => {
 ipcMain.handle('vpn:stop', () => { if (tunnel) tunnel.stop(); return true; });
 ipcMain.handle('vpn:state', () => tunnelState);
 ipcMain.handle('vpn:log', () => (tunnel ? tunnel.log() : ''));
+
+// The shared HPC and storage connections open without a terminal too (see login.js).
+// A saved HPC password goes from the Keychain straight to ssh; one typed in a dialog
+// is saved only once the connection is up.
+const logins = {};
+const loginHost = (target) => (target === 'storage' ? cfg.storage.host : cfg.hpc.host);
+const loginSecret = (target) => (target === 'hpc' ? 'hpc:password' : '');
+ipcMain.handle('login:start', (_e, target) => {
+  if (target !== 'hpc' && target !== 'storage') return { error: 'Unknown connection ' + target };
+  const cur = logins[target];
+  if (cur && !cur.session.ended) return { ok: true, state: cur.session.state() };
+  if (!pty) return { error: 'Terminal backend failed to load: ' + ptyError };
+  const host = loginHost(target), secret = loginSecret(target);
+  if (!host) return { error: 'No host is set in Settings.' };
+  const l = { state: { phase: 'starting' }, pending: '' };
+  logins[target] = l;
+  l.session = login.start({
+    spawn: () => pty.spawn('ssh', ssh.masterArgs(host), { name: 'xterm-256color', cols: 200, rows: 30, cwd: os.homedir(), env: augmentedEnv({ TERM: 'xterm-256color' }) }),
+    verify: async () => (await ssh.check(host)).connected,
+    password: secret ? config.getSecret(secret) : '',
+    emit: (s) => { l.state = s; send('login:state', { target, ...s }); },
+    onUp: () => { if (secret && l.pending) config.setSecret(secret, l.pending); l.pending = ''; }
+  });
+  return { ok: true, state: l.session.state() };
+});
+ipcMain.handle('login:answer', (_e, { target, id, value, save }) => {
+  const l = logins[target];
+  if (!l) return false;
+  const kind = l.state.prompt && l.state.prompt.kind;
+  const ok = l.session.answer(id, value);
+  if (ok && kind === 'password') l.pending = save ? String(value) : '';
+  return ok;
+});
+ipcMain.handle('login:stop', (_e, target) => { const l = logins[target]; if (l) l.session.stop(); return true; });
+ipcMain.handle('login:state', (_e, target) => (logins[target] ? { target, ...logins[target].state } : { target, phase: 'stopped' }));
+ipcMain.handle('login:log', (_e, target) => (logins[target] ? logins[target].session.log() : ''));
+const stopLogins = () => { for (const l of Object.values(logins)) l.session.stop(); };
 
 ipcMain.handle('setup:status', () => setup.status(cfg, loginShell()));
 ipcMain.handle('setup:testVpn', () => setup.testVpn(cfg));
@@ -680,5 +719,5 @@ app.whenReady().then(() => {
   startUsage();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => { if (tunnel) tunnel.stop(); });
-app.on('window-all-closed', () => { if (tunnel) tunnel.stop(); for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { stopLogins(); if (tunnel) tunnel.stop(); });
+app.on('window-all-closed', () => { stopLogins(); if (tunnel) tunnel.stop(); for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });

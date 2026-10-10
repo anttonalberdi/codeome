@@ -1,7 +1,7 @@
 // Everything HPC-side goes through the system `ssh`, so ~/.ssh/config, keys,
 // ProxyJump and VPN routing behave exactly as in iTerm2. One master connection
-// is opened interactively (password/OTP prompts work in a terminal tab) and all
-// background commands reuse it via ControlMaster.
+// is opened in the background (login.js answers its prompts through dialogs) and
+// all other commands and terminals reuse it via ControlMaster.
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -20,9 +20,9 @@ function muxOpts(host) {
   return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=no', ...proxyOpts(host)];
 }
 
-// Arguments for the interactive login that creates the shared master.
+// Arguments for the login that creates the shared master (see login.js).
 function masterArgs(host) {
-  return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=yes', '-o', 'ControlPersist=12h',
+  return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=yes', '-o', 'ControlPersist=12h', '-o', 'ConnectTimeout=20',
     '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=4', ...proxyOpts(host), '-fN', host];
 }
 

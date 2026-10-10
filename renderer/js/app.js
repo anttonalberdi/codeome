@@ -22,40 +22,23 @@
   App.listen('project', () => renderWelcome());
 
   // ---------- HPC connection & cluster strip ----------
-  let connecting = false;
+  // The shared connection opens in the background (login.js); prompts come as dialogs.
   // direct: skip Codeome's VPN tunnel this once (on campus, or with Cisco Secure Client on).
   App.connectHpc = async ({ direct = false } = {}) => {
     if (!App.cfg.hpc.host) return App.views.settings.open('hpc');
-    if (App.hpcConnected || connecting) return;
-    if (!direct && App.setup.tunnelOn() && !App.setup.vpnUp) return App.setup.startVpn({ thenConnect: true });
-    connecting = true; paint();
-    // The login runs in a visible terminal so password / one-time-code prompts work.
-    App.views.terminals.open({
-      kind: 'hpc-login', title: 'Connect ' + App.cfg.hpc.host, badge: 'HPC',
-      onExit: async () => { connecting = false; await App.pollHpc(); if (App.hpcConnected) { App.toast('Connected to ' + App.cfg.hpc.host + '.'); const t = App.views.terminals.list.find((x) => x.spec.kind === 'hpc-login' && !x.alive); if (t) setTimeout(() => App.views.terminals.close(t.id), 600); } else paint(); }
-    });
+    if (App.hpcConnected) return;
+    if (!direct && !App.login.busy('hpc') && App.setup.tunnelOn() && !App.setup.vpnUp) return App.setup.startVpn({ thenConnect: true });
+    App.login.start('hpc');
   };
   App.disconnectHpc = async () => { await codeome.hpc.disconnect(); await App.pollHpc(); App.toast('Disconnected.'); };
 
   // ---------- long-term storage (SFTP) ----------
-  // Same pattern as the HPC: a visible login opens a shared connection the file browser reuses.
-  let storageConnecting = false;
+  // Same pattern as the HPC: a background login opens a shared connection the file browser reuses.
   App.storageConnected = false;
   App.connectStorage = () => {
     if (!App.cfg.storage.host) return App.views.settings.open('storage');
-    if (App.storageConnected || storageConnecting) return;
-    storageConnecting = true;
-    const name = App.views.files.title('storage');
-    App.views.terminals.open({
-      kind: 'storage-login', title: 'Connect ' + name, badge: 'SFTP',
-      onExit: async () => {
-        storageConnecting = false; await App.pollHpc();
-        if (!App.storageConnected) return;
-        App.toast('Connected to ' + name + '.');
-        const t = App.views.terminals.list.find((x) => x.spec.kind === 'storage-login' && !x.alive);
-        if (t) setTimeout(() => App.views.terminals.close(t.id), 600);
-      }
-    });
+    if (App.storageConnected) return;
+    App.login.start('storage');
   };
   App.disconnectStorage = async () => { await codeome.storage.disconnect(); await App.pollHpc(); App.toast('Disconnected from ' + App.views.files.title('storage') + '.'); };
   App.requireStorage = () => {
@@ -82,6 +65,7 @@
   };
   App.listen('jobs', (j) => { jobs = j; paint(); });
   App.listen('vpn', () => paint());
+  App.listen('login', () => paint());
 
   function paint() {
     const v = document.getElementById('c-vpn'), hp = document.getElementById('c-hpc'), jb = document.getElementById('c-jobs');
@@ -90,6 +74,7 @@
     v.title = vpn.tunnel
       ? (vpn.up ? "Codeome's VPN tunnel is running" : App.setup.vpnStarting() ? "Codeome's VPN tunnel is signing in" : "Codeome's VPN tunnel is not running")
       : (vpn.up ? 'VPN reachable' : 'VPN not reachable — the cluster may be unreachable');
+    const connecting = App.login.busy('hpc');
     hp.className = 'c-seg ' + (connecting ? 'busy' : App.hpcConnected ? 'ok' : (App.cfg.hpc.host ? 'bad' : ''));
     document.getElementById('c-hpc-label').textContent = !App.cfg.hpc.host ? 'Set up HPC' : (connecting ? 'Connecting…' : (App.hpcConnected ? App.cfg.hpc.host : 'Connect ' + App.cfg.hpc.host));
     jb.innerHTML = '';
@@ -110,6 +95,9 @@
         ...App.cfg.agents.map((a) => ({ label: a.name + ' on the HPC', run: () => App.views.terminals.agentHpc(a) })),
         '-',
         { label: 'Disconnect', run: () => App.disconnectHpc() }
+      ] : App.login.busy('hpc') ? [
+        { label: 'Connecting to ' + App.cfg.hpc.host + '…', run: () => App.connectHpc() },
+        { label: 'Cancel connecting', run: () => App.login.stop('hpc') }
       ] : [{ label: 'Connect to ' + App.cfg.hpc.host, run: () => App.connectHpc() }]),
       ...(tunnel ? [{ label: 'Stop the VPN tunnel', run: () => App.setup.stopVpn() }] : []),
       '-',
@@ -198,7 +186,7 @@
     await App.views.projects.restore();
     if (!App.project) App.views.files.go('local', App.cfg.localRoot || '~');
     await App.pollHpc();
-    setInterval(() => { if (!document.hidden && !connecting) App.pollHpc(); }, 15000);
+    setInterval(() => { if (!document.hidden && !App.login.busy('hpc')) App.pollHpc(); }, 15000);
     if (!App.cfg.hpc.host) setTimeout(() => App.toast('Set up your HPC connection, VPN included, in Settings.', { action: { label: 'Open Settings', run: () => App.views.settings.open('hpc') } }), 800);
   };
 })();
