@@ -8,6 +8,17 @@ const path = require('path');
 const KIND = { gdoc: 'document', gsheet: 'spreadsheets', gslides: 'presentation' };
 const PARTITION = 'persist:google';
 const views = new Map(); // tab id → WebContentsView
+const darkState = new Map(); // tab id → { on, key } : whether the document is shown with flipped colours
+
+// Google has no dark theme for the editors on the web, so the page is flipped as a whole: invert, then turn the hues
+// back so colours stay recognisable. Pictures and video are flipped again to look as they should. The flip leaves
+// pure black, so a layer of the app's dark background colour is blended over the page with `lighten`, which lifts the
+// black to that colour and leaves everything lighter as it is.
+const DARK_BG = '#1a1f26'; // --bg of the app's dark theme
+const DARK_CSS = `html{background:${DARK_BG}!important}`
+  + 'body{filter:invert(1) hue-rotate(180deg)!important}'
+  + 'img,video,picture{filter:invert(1) hue-rotate(180deg)!important}'
+  + `html::after{content:'';position:fixed;inset:0;background:${DARK_BG};mix-blend-mode:lighten;pointer-events:none;z-index:2147483647}`;
 
 // { docId, url, email } from a pointer file.
 function pointer(file) {
@@ -65,6 +76,25 @@ function googleSession() {
 
 const isGoogle = (url) => { try { return /(^|\.)google\.com$/.test(new URL(url).hostname); } catch { return false; } };
 
+// Applies the flipped colours to the page now showing. Only the editors are flipped, never Google's sign-in pages.
+function applyDark(id) {
+  const view = views.get(id), st = darkState.get(id);
+  if (!view || !st || view.webContents.isDestroyed()) return;
+  const wc = view.webContents;
+  if (st.key) { wc.removeInsertedCSS(st.key).catch(() => {}); st.key = null; }
+  let editor = false;
+  try { editor = new URL(wc.getURL()).hostname === 'docs.google.com'; } catch {}
+  view.setBackgroundColor(st.on ? DARK_BG : '#ffffff');
+  if (st.on && editor) wc.insertCSS(DARK_CSS).then((key) => { st.key = key; }).catch(() => {});
+}
+
+function setDark(id, on) {
+  const st = darkState.get(id);
+  if (!st) return;
+  st.on = !!on;
+  applyDark(id);
+}
+
 // send(channel, payload) reports 'gdoc:state' { id, url, title, loading, error? } as the page moves.
 function open(win, id, file, send) {
   const p = pointer(file);
@@ -72,6 +102,7 @@ function open(win, id, file, send) {
   view.setVisible(false);
   win.contentView.addChildView(view);
   views.set(id, view);
+  darkState.set(id, { on: false, key: null });
   const wc = view.webContents;
   // Google's own pop-ups (sign-in, account chooser) stay in the view; any other link opens in the default browser.
   wc.setWindowOpenHandler(({ url }) => { if (isGoogle(url)) wc.loadURL(url); else shell.openExternal(url); return { action: 'deny' }; });
@@ -86,6 +117,8 @@ function open(win, id, file, send) {
     .catch(() => {})
     .then(() => {
       if (wc.isDestroyed()) return;
+      wc.on('did-navigate', () => { const st = darkState.get(id); if (st) st.key = null; });
+      wc.on('dom-ready', () => applyDark(id));
       for (const ev of ['did-navigate', 'did-navigate-in-page', 'page-title-updated', 'did-start-loading', 'did-stop-loading']) wc.on(ev, () => report());
       wc.on('did-fail-load', (_e, code, desc, _url, isMain) => { if (isMain && code !== -3) report(desc || 'Could not load the document.'); });
       wc.loadURL(p.url).catch(() => {});
@@ -108,10 +141,11 @@ function close(id, win) {
   const view = views.get(id);
   if (!view) return;
   views.delete(id);
+  darkState.delete(id);
   if (win && !win.isDestroyed()) win.contentView.removeChildView(view);
   if (!view.webContents.isDestroyed()) view.webContents.close();
 }
 
 function closeAll(win) { for (const id of [...views.keys()]) close(id, win); }
 
-module.exports = { pointer, open, place, reload, close, closeAll, PARTITION };
+module.exports = { pointer, open, place, setDark, DARK_CSS, reload, close, closeAll, PARTITION };

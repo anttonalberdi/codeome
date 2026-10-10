@@ -274,6 +274,7 @@ ipcMain.handle('gdoc:open', async (_e, { id, path: file }) => {
 });
 ipcMain.handle('gdoc:reload', (_e, id) => gdoc.reload(id));
 ipcMain.on('gdoc:place', (_e, { id, bounds }) => gdoc.place(id, bounds));
+ipcMain.on('gdoc:dark', (_e, { id, on }) => gdoc.setDark(id, on));
 ipcMain.on('gdoc:close', (_e, { id }) => gdoc.close(id, win));
 
 // ---------- local files ----------

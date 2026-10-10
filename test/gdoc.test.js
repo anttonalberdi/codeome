@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { pointer } = require('../main/gdoc');
+const { pointer, DARK_CSS } = require('../main/gdoc');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-gdoc-'));
 const file = (name, content) => { const p = path.join(tmp, name); fs.writeFileSync(p, typeof content === 'string' ? content : JSON.stringify(content)); return p; };
@@ -25,4 +25,10 @@ test('pointer: refuses other files, unreadable ones and ids that are not ids', (
   assert.throws(() => pointer(path.join(tmp, 'Missing.gdoc')), /Could not read/);
   assert.throws(() => pointer(file('Empty.gdoc', {})), /no document id/);
   assert.throws(() => pointer(file('Odd.gdoc', { doc_id: 'a/../b' })), /no document id/);
+});
+
+test('dark colours: the page is flipped and its pictures flipped back', () => {
+  assert.match(DARK_CSS, /body\{filter:invert\(1\)/);
+  assert.match(DARK_CSS, /mix-blend-mode:lighten/);
+  assert.match(DARK_CSS, /img,video/);
 });

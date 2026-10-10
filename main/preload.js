@@ -107,6 +107,7 @@ contextBridge.exposeInMainWorld('codeome', {
   gdoc: {
     open: (id, path) => ipcRenderer.invoke('gdoc:open', { id, path }), reload: invoke('gdoc:reload'),
     place: (id, bounds) => ipcRenderer.send('gdoc:place', { id, bounds }),
+    dark: (id, on) => ipcRenderer.send('gdoc:dark', { id, on }),
     close: (id) => ipcRenderer.send('gdoc:close', { id }),
     onState: on('gdoc:state')
   },

@@ -50,6 +50,7 @@
     const t = document.documentElement.dataset.theme;
     const dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
     if (window.monaco) monaco.editor.setTheme(dark ? 'codeome-dark' : 'codeome-light');
+    for (const t of E.tabs) if (t.gdocDark) t.gdocDark();
   };
 
   E.cur = () => E.tabs.find((t) => t.id === E.active);
@@ -298,8 +299,19 @@
       render: (el, tab) => {
         const host = h('div', { style: { flex: 1, minHeight: 0 } });
         const status = h('span.hint');
-        let url = '';
-        el.append(h('div.toolbar', h('span.path', path), status,
+        let url = '', original = false;
+        // In dark mode the document is shown with flipped colours; the button switches this tab back to Google's own.
+        const flip = h('button.btn.small', { onclick: () => { original = !original; tab.gdocDark(); } });
+        tab.gdocDark = () => {
+          const t = document.documentElement.dataset.theme;
+          const dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+          flip.hidden = !dark;
+          flip.textContent = original ? 'Dark colours' : 'Original colours';
+          flip.title = original ? 'Show this document with flipped, dark colours' : 'Show this document in Google\u2019s own colours';
+          codeome.gdoc.dark(tab.id, dark && !original);
+        };
+        tab.gdocDark();
+        el.append(h('div.toolbar', h('span.path', path), status, flip,
           h('button.btn.small', { title: 'Ask the agent to read or edit this document', onclick: () => App.views.chat.ask(`In the Google document ${App.views.files.relRef(path)}: `) }, 'Ask the agent'),
           h('button.btn.small', { onclick: () => codeome.gdoc.reload(tab.id) }, 'Reload'),
           h('button.btn.small', { onclick: () => url && codeome.shell.open(url) }, 'Open in browser')), host);
@@ -323,7 +335,7 @@
         });
         tab.layout = place;
         tab.onClose = () => { ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', place); off(); codeome.gdoc.close(tab.id); };
-        codeome.gdoc.open(tab.id, path).then((r) => { if (r.error) status.textContent = r.error; else { url = r.url; place(); } });
+        codeome.gdoc.open(tab.id, path).then((r) => { if (r.error) status.textContent = r.error; else { url = r.url; place(); tab.gdocDark(); } });
       }
     });
   };
