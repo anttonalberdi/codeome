@@ -190,6 +190,8 @@ ipcMain.on('pty:kill', (_e, { id }) => { const p = ptys.get(id); if (p) { try { 
 
 // ---------- config & secrets ----------
 ipcMain.handle('config:get', () => cfg);
+// Codeome's own version. app.getVersion() gives Electron's when the app is started from another script.
+ipcMain.handle('app:version', () => require('../package.json').version);
 ipcMain.handle('config:set', (_e, c) => {
   for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = a.dir == null ? usage.folderFor(e, a.name) : usage.normDir(e, a.dir); // a new account gets its folder here
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
@@ -569,6 +571,7 @@ ipcMain.handle('pypi:hasToken', (_e, which) => config.hasSecret('pypi:' + which)
 // ---------- agent kit & jobs ----------
 ipcMain.handle('kit:status', (_e, project) => { try { return kit.status(project); } catch (e) { return { error: e.message }; } });
 ipcMain.handle('kit:install', (_e, { project, groups }) => { try { return kit.install(project, { groups }); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('skills:list', (_e, project) => { try { return { skills: kit.skillList(project) }; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('agents:list', (_e, project) => { try { return { agents: kit.agents(project) }; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('agents:set', (_e, { project, name, patch }) => { try { return { agent: kit.setAgent(project, name, patch) }; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('agents:models', () => {

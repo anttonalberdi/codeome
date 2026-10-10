@@ -32,6 +32,7 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **The team** — install the *agent kit* into a project (from the banner in the chat) and the agent gains a team:
 - 15 roles in four groups, chosen at install: core (planner, explorer, implementer, debugger, tester, reviewer), research computing (analyst, pipeline-engineer, hpc-operator, report-writer), web stack (backend, frontend, security-reviewer), release & docs (docs-writer, release-manager).
+- The release & docs group also brings playbooks for publishing to PyPI, Bioconda, conda-forge, CRAN and Bioconductor. The release-manager reads the one a task names, prepares and checks the package, and stops at the steps only you can do (a CRAN confirmation email, a public pull request).
 - Jobs are routed by type. Well-specified implementation and debugging go to Codex; planning, exploration, docs and anything that needs the network or the HPC go to Claude. Reviews run on whichever engine did *not* write the change.
 - The agent picks the level of each message itself. Larger tasks run the pipeline: size → plan → **you approve** → specialists implement, the orchestrator verifies each result → cross-review → **you approve** → commit. You can still type `/orchestrate <task>`, `/delegate` (one job) or `/cross-review` to choose yourself.
 - Codex jobs run in the background; the chat wakes up when one finishes. The chat's *Jobs* tab lists every job, Codex runs and Claude subagents alike.
@@ -100,6 +101,7 @@ Open **Settings** (`⌘,`). It is a full page with a section list on the left. C
 4. **Agents**
    - *Agent chat*: the orchestrator's Claude model (or the one in its command).
    - *Team in <project>*: every agent in the project's `.claude/agents/`, kit roles and your own. Each has an **AI** dropdown (Claude, Codex, or the other engine for reviewers) and a **Model** dropdown (Claude models for Claude, the models your Codex account offers for Codex, or *Other…* for any model ID). *Edit .md* opens the agent's instructions in the editor, and *+ New agent* creates one. The AI goes into `routing.md`, the Claude model into the agent file, and the Codex model into `.codeome/agents.json`. Kit updates keep these choices.
+   - *Skills in <project>*: every skill in `.claude/skills/`, kit skills and your own, marked as a **command** (typed in the chat) or a **playbook** (read when a task needs it). Each extra file of a skill, such as a registry playbook, has its own button, and *+ New skill* creates one.
    - *Command-line agents*: name and command for each agent offered as a terminal session. Defaults: `Claude Code = claude`, `Codex = codex`. Add variants like `Claude (Opus) = claude --model opus`.
 5. **Accounts & usage limits** — an account is an email address, and one card shows each with its sign-in and its usage. *Add a … account…* asks for the address and signs it in once through a terminal and your browser; the account is *confirmed* when the sign-in is for that address. Each account keeps its sign-in in its own folder (a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that Codeome chooses; `~/.claude` and `~/.codex` are the first account's), so every confirmed account stays signed in and work moves between them without asking again. *Sign in to the other N…* takes every account that is not signed in, one after the other. An account signed in with another address is not used until you sign in again or switch it to that address. Sign-ins already on the Mac (`~/.claude-lab`) are offered as cards to add. Accounts from before take the address they are signed in with. You can also set the stop threshold here.
 6. **Zenodo / PyPI tokens** if you publish from here.
@@ -116,6 +118,7 @@ Agent chat → **Install…** (in the banner, or the ⋯ menu) writes into the p
 |---|---|
 | `.claude/agents/<role>.md` | the roles; Claude uses them as subagents, Codex reads the same files |
 | `.claude/skills/{orchestrate,delegate,cross-review}/` | the slash commands |
+| `.claude/skills/release/` | registry playbooks, one file each (with the release & docs group) |
 | `.claude/skills/orchestrate/routing.md` | role → default engine; edit it to change routing for this project |
 | `.claude/settings.json` | hooks that record Claude subagent jobs, and permission to run the job runner (merged into your existing settings) |
 | `.codeome/bin/codeome-agent` | the job runner (Python 3, standard library only, so it also works on the HPC) |

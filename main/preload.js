@@ -6,6 +6,7 @@ const on = (ch) => (cb) => { const h = (_e, p) => cb(p); ipcRenderer.on(ch, h); 
 
 contextBridge.exposeInMainWorld('codeome', {
   platform: process.platform,
+  version: invoke('app:version'),
   pathForFile: (f) => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
   config: { get: invoke('config:get'), set: invoke('config:set') },
   secret: { set: (key, value) => ipcRenderer.invoke('secret:set', { key, value }), has: invoke('secret:has') },
@@ -72,6 +73,7 @@ contextBridge.exposeInMainWorld('codeome', {
   },
   rpkg: { list: invoke('rpkg:list') },
   kit: { status: invoke('kit:status'), install: (project, groups) => ipcRenderer.invoke('kit:install', { project, groups }) },
+  skills: { list: invoke('skills:list') },
   agents: {
     list: invoke('agents:list'), models: invoke('agents:models'),
     set: (project, name, patch) => ipcRenderer.invoke('agents:set', { project, name, patch })

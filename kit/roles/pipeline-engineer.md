@@ -1,6 +1,6 @@
 ---
 name: pipeline-engineer
-description: Builds and fixes workflow code that runs on the cluster — Snakemake/Nextflow rules, Slurm job scripts and profiles, conda/container environments, resource requests.
+description: Builds and fixes workflow code that runs on the cluster — Snakemake/Nextflow rules, Slurm job scripts and profiles, conda/container environments, resource requests. Not recipes for publishing a package on Bioconda or conda-forge: those are the release-manager's.
 group: research
 engine: codex
 tools: Read, Edit, Write, Bash, Grep, Glob

@@ -105,6 +105,8 @@ const steps = {
   'settings-storage': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('storage'); 0`],
   // SHOT_PROJECT: a folder with the agent kit installed. Opens the Agents section.
   'settings-agents': [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('agents'); }); 0`],
+  // The Skills card, below the team. Use a SHOT_PROJECT that has the kit installed.
+  'settings-skills': [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(async () => { if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } await App.views.settings.open('agents'); setTimeout(() => { const r = document.querySelector('.sk-row'); if (r) r.parentElement.parentElement.scrollIntoView(); }, 1200); }); 0`],
   // Four chat tabs in different states (made up; no agent sessions are started).
   chats: [`(async () => {
     const P = ${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))};

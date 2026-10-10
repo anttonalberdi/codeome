@@ -350,3 +350,35 @@ test('codeome-agent uses the Codex model chosen for the role unless --model is g
   runAgent(p, ['codex', '--role', 'tester'], 'x', { CODEOME_CODEX: codex });
   assert.ok(!readJson(path.join(p, 'call.json')).argv.includes('-m'));
 });
+
+test('skills follow the role groups, and list with their files and edits', () => {
+  const groups = Object.keys(kit.MANIFEST.groups);
+  for (const s of kit.skills()) {
+    assert.ok(s.description && s.files['SKILL.md'], s.name);
+    assert.ok(groups.includes(s.group), `${s.name}: unknown group ${s.group}`);
+    assert.doesNotMatch(s.files['SKILL.md'], /^group:/m);
+  }
+  const p = tmp();
+  kit.install(p, { groups: [] });
+  assert.ok(fs.existsSync(path.join(p, '.claude/skills/delegate/SKILL.md')));
+  assert.ok(!fs.existsSync(path.join(p, '.claude/skills/release')));
+  kit.install(p, { groups: ['release'] });
+  const agent = fs.readFileSync(path.join(p, '.claude/agents/release-manager.md'), 'utf8');
+  // Every playbook the role is told to read is installed with it.
+  for (const f of agent.match(/`(\w[\w-]*\.md)`/g).map((x) => x.slice(1, -1))) assert.ok(fs.existsSync(path.join(p, '.claude/skills/release', f)), f);
+  fs.mkdirSync(path.join(p, '.claude/skills/lab-report'), { recursive: true });
+  fs.writeFileSync(path.join(p, '.claude/skills/lab-report/SKILL.md'), '---\nname: lab-report\ndescription: Mine.\n---\n');
+  fs.appendFileSync(path.join(p, '.claude/skills/release/cran.md'), '\nOur maintainer is Ada.\n');
+  const list = kit.skillList(p);
+  assert.deepStrictEqual(list.map((s) => s.name), ['cross-review', 'delegate', 'lab-report', 'orchestrate', 'release']);
+  const by = Object.fromEntries(list.map((s) => [s.name, s]));
+  assert.deepStrictEqual([by.orchestrate.kit, by.orchestrate.group, by.orchestrate.command, by.orchestrate.edited], [true, 'core', true, false]);
+  assert.deepStrictEqual(by.orchestrate.files.map((f) => f.name), ['SKILL.md', 'routing.md']);
+  assert.deepStrictEqual([by.release.group, by.release.command, by.release.edited], ['release', false, true]);
+  assert.deepStrictEqual(by.release.files.filter((f) => f.edited).map((f) => f.name), ['cran.md']);
+  assert.deepStrictEqual([by['lab-report'].kit, by['lab-report'].command], [false, true]);
+  // Dropping the group removes the untouched playbooks and keeps the edited one.
+  const r = kit.install(p, { groups: [] });
+  assert.ok(r.removed.includes('.claude/skills/release/pypi.md'));
+  assert.ok(r.kept.includes('.claude/skills/release/cran.md'));
+});

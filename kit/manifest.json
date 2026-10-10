@@ -1,9 +1,9 @@
 {
-  "version": "0.4.2",
+  "version": "0.5.0",
   "groups": {
     "core": { "label": "Core dev loop", "description": "planner, explorer, implementer, debugger, tester, reviewer", "required": true },
     "research": { "label": "Research computing", "description": "analyst, pipeline-engineer, hpc-operator, report-writer" },
     "web": { "label": "Web stack", "description": "backend, frontend, security-reviewer" },
-    "release": { "label": "Release & docs", "description": "docs-writer, release-manager" }
+    "release": { "label": "Release & docs", "description": "docs-writer, release-manager, and playbooks for PyPI, Bioconda, conda-forge, CRAN and Bioconductor" }
   }
 }

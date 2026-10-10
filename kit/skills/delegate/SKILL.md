@@ -2,6 +2,7 @@
 name: delegate
 description: Send one job to one specialist — a Claude subagent or a Codex job — without the full planning pipeline. Use when the user types /delegate or says "have Codex do X" / "ask the debugger to look at Y".
 argument-hint: [role] [claude|codex] <job>
+group: core
 ---
 
 # Delegate one job

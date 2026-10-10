@@ -392,7 +392,7 @@
   function agentsSection(c) {
     const chatCmd = (c.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
     const fromCmd = (chatCmd.match(/--model(?:=|\s+)(\S+)/) || [])[1];
-    return section('agents', 'Agents', 'The agent chat, the specialists it hands work to, and the command-line agents offered as terminal sessions.',
+    return section('agents', 'Agents', 'The agent chat, the specialists it hands work to, the skills they follow, and the command-line agents offered as terminal sessions.',
       card('Agent chat (orchestrator)',
         row('AI', h('span.pill.ok', 'Claude Code'), `Runs "${chatCmd}" — the first Claude command below.`),
         row('Model', modelSelect([{ value: '', label: fromCmd ? `From the command (${fromCmd})` : 'Claude Code default' }, ...CLAUDE_MODELS], (App.cfg.chat || {}).model || '',
@@ -430,7 +430,7 @@
     const project = App.project;
     const host = agentsHost;
     if (!project) { host.replaceChildren(card('Team', h('div.sp-empty', 'Open a project to see its agents.'))); return; }
-    const [res, kit, models] = await Promise.all([codeome.agents.list(project), codeome.kit.status(project), codeome.agents.models()]);
+    const [res, kit, models, sk] = await Promise.all([codeome.agents.list(project), codeome.kit.status(project), codeome.agents.models(), codeome.skills.list(project)]);
     if (project !== App.project || host !== agentsHost) return;
     codexCatalog = models.codex || { models: [] };
     const list = res.agents || [];
@@ -456,7 +456,28 @@
         list.map((a) => agentRow(project, a))));
       body.push(h('div.sp-foot.hint', 'The AI is the default the chat routes each role to (routing.md); it can still override per task. Claude models and effort go in the agent file; Codex ones in .codeome/agents.json. Edits to the files are kept on kit updates.'));
     }
-    host.replaceChildren(h('div.sp-card', head, ...body));
+    host.replaceChildren(h('div.sp-card', head, ...body), skillsCard(project, sk));
+  }
+
+  // The project's skills: commands typed in the chat, and playbooks a role or the chat reads when a task calls for one.
+  function skillsCard(project, res) {
+    const list = res.skills || [];
+    const head = h('div.sp-card-h.row', h('span.grow', `Skills in ${App.basename(project)}`), h('button.btn.small', { onclick: newSkill }, '+ New skill'));
+    const body = [];
+    if (res.error) body.push(h('div.sp-empty', res.error));
+    else if (!list.length) body.push(h('div.sp-empty', 'No skills in .claude/skills/ yet.'));
+    else {
+      body.push(h('div', { role: 'list', 'aria-label': 'Skills' }, list.map((k) => h('div.sk-row', { role: 'listitem' },
+        h('div.ag-name',
+          h('div.row', h('b', (k.command ? '/' : '') + k.name), k.kit ? h('span.pill', k.group || 'kit') : h('span.pill.own', 'own'),
+            h('span.pill', { title: k.command ? 'Type it in the chat' + (k.hint ? `: /${k.name} ${k.hint}` : '') : 'Read by the chat or a role when a task calls for it' }, k.command ? 'command' : 'playbook'),
+            k.edited ? h('span.pill.warn', { title: 'Edited here; kit updates leave the edited files alone' }, 'edited') : null),
+          k.description ? h('div.ag-desc', { title: k.description }, k.description) : null),
+        h('div.sk-files', k.files.slice(1).map((f) => h('button.sk-file' + (f.edited ? '.edited' : ''), { title: `Edit .claude/skills/${k.name}/${f.name}` + (f.edited ? ' (edited here)' : ''), onclick: () => openFile(f.path) }, f.name.replace(/\.md$/, '')))),
+        h('div', h('button.btn.small', { title: `Edit .claude/skills/${k.name}/SKILL.md`, onclick: () => openFile(k.path) }, 'Edit .md'))))));
+      body.push(h('div.sp-foot.hint', 'Commands are typed in the chat; playbooks are read when a task needs them. Kit skills follow the role groups chosen above. Edits to the files are kept on kit updates.'));
+    }
+    return h('div.sp-card', head, ...body);
   }
 
   function agentRow(project, a) {
@@ -505,6 +526,22 @@
     if (!exists.error) return App.err(`${name} already exists.`);
     await codeome.local.mkdir(App.join(project, '.claude/agents'));
     const r = await codeome.local.write(p, `---\nname: ${name}\ndescription: What this agent does and when the orchestrator should use it.\ntools: Read, Grep, Glob, Bash\n---\n\nYou are the ${name}. Describe how to work and what to report.\n`);
+    if (r.error) return App.err(r.error);
+    App.emit('local-changed');
+    openFile(p);
+  }
+
+  async function newSkill() {
+    const project = App.project;
+    const name = await App.prompt('New skill', 'Name (lowercase, dashes)', '', { placeholder: 'e.g. lab-report', ok: 'Create' });
+    if (!name) return;
+    if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(name)) return App.err('Use lowercase letters, digits and dashes.');
+    const dir = App.join(project, `.claude/skills/${name}`);
+    const p = App.join(dir, 'SKILL.md');
+    const exists = await codeome.local.read(p);
+    if (!exists.error) return App.err(`${name} already exists.`);
+    await codeome.local.mkdir(dir);
+    const r = await codeome.local.write(p, `---\nname: ${name}\ndescription: What this skill does and when to use it. Say "Use when the user types /${name}" for a command.\n---\n\n# ${name}\n\nRequest: $ARGUMENTS\n\nDescribe the steps to follow.\n`);
     if (r.error) return App.err(r.error);
     App.emit('local-changed');
     openFile(p);

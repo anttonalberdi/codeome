@@ -3,7 +3,7 @@
 //
 // Installed layout in the project:
 //   .claude/agents/<role>.md           Claude subagents; Codex reads the same files
-//   .claude/skills/<skill>/SKILL.md    /orchestrate, /delegate, /cross-review
+//   .claude/skills/<skill>/SKILL.md    /orchestrate, /delegate, /cross-review, and the playbooks of the chosen groups
 //   .claude/skills/orchestrate/routing.md   generated role → engine table
 //   .claude/settings.json              hooks that record Claude subagent jobs (merged)
 //   .codeome/bin/codeome-agent         Codex wrapper, job records, hook entry point
@@ -81,13 +81,23 @@ function routingFile(list) {
   ].join('\n');
 }
 
-function skillFiles() {
-  const out = {};
+// Kit skills. Each SKILL.md names its group; that key is Codeome's, so it is dropped from the installed file.
+function skills() {
   const base = path.join(KIT, 'skills');
-  for (const skill of fs.readdirSync(base)) {
-    const dir = path.join(base, skill);
-    if (!fs.statSync(dir).isDirectory()) continue;
-    for (const f of fs.readdirSync(dir)) out[`.claude/skills/${skill}/${f}`] = fs.readFileSync(path.join(dir, f), 'utf8');
+  return fs.readdirSync(base).filter((d) => fs.statSync(path.join(base, d)).isDirectory()).sort().map((name) => {
+    const files = {};
+    for (const f of fs.readdirSync(path.join(base, name)).filter((f) => !f.startsWith('.')).sort()) files[f] = fs.readFileSync(path.join(base, name, f), 'utf8');
+    const { meta } = parseFrontmatter(files['SKILL.md']);
+    files['SKILL.md'] = setFrontmatter(files['SKILL.md'], 'group', '');
+    return { name, group: meta.group, description: meta.description || '', files };
+  });
+}
+
+function skillFiles(groups) {
+  const out = {};
+  for (const s of skills()) {
+    if (!groups.includes(s.group)) continue;
+    for (const [f, content] of Object.entries(s.files)) out[`.claude/skills/${s.name}/${f}`] = content;
   }
   return out;
 }
@@ -112,7 +122,7 @@ function applyOverride(r, o = {}) {
 // overrides: .codeome/agents.json roles; custom: the project's own agents with an engine set.
 function plan(groups, overrides = {}, custom = []) {
   const chosen = roles().filter((r) => groups.includes(r.group)).map((r) => applyOverride(r, overrides[r.name]));
-  const files = { ...skillFiles() };
+  const files = { ...skillFiles(groups) };
   for (const r of chosen) files[`.claude/agents/${r.name}.md`] = agentFile(r);
   files[ROUTING] = routingFile([...chosen, ...custom]);
   files['.codeome/bin/codeome-agent'] = fs.readFileSync(path.join(KIT, 'bin', 'codeome-agent'), 'utf8');
@@ -186,7 +196,7 @@ function install(project, opts = {}) {
     r.written.push(rel);
     record[rel] = sha(content);
   }
-  // Roles from groups that were deselected, or dropped from the kit.
+  // Roles and skills from groups that were deselected, or dropped from the kit.
   for (const [rel, h] of Object.entries(prev.files)) {
     if (rel in files) continue;
     const cur = read(path.join(project, rel));
@@ -335,4 +345,31 @@ function setAgent(project, name, patch = {}) {
   return agents(project).find((a) => a.name === name);
 }
 
-module.exports = { install, status, plan, roles, parseFrontmatter, agents, setAgent, parseRouting, setFrontmatter, MANIFEST, HOOK_CMD };
+// ---------- skills ----------
+// Every skill in .claude/skills/ (kit skills and the project's own) with its Markdown files, SKILL.md first.
+// A skill is a command unless its frontmatter says `user-invocable: false`; then it is reference a role or the chat reads.
+function skillList(project) {
+  const st = readState(project);
+  const known = (st && st.files) || {};
+  const kitSkills = new Map(skills().map((s) => [s.name, s]));
+  const base = path.join(project, '.claude', 'skills');
+  let names = [];
+  try { names = fs.readdirSync(base).filter((d) => /^[\w.-]+$/.test(d) && read(path.join(base, d, 'SKILL.md')) !== null); } catch {}
+  return names.sort().map((name) => {
+    const rel = `.claude/skills/${name}`;
+    const { meta } = parseFrontmatter(read(path.join(project, rel, 'SKILL.md')));
+    const k = kitSkills.get(name);
+    const fromKit = !!(k && `${rel}/SKILL.md` in known);
+    const files = fs.readdirSync(path.join(project, rel)).filter((f) => f.endsWith('.md')).sort((a, b) => (b === 'SKILL.md') - (a === 'SKILL.md') || a.localeCompare(b)).map((f) => {
+      const h = known[`${rel}/${f}`];
+      return { name: f, path: path.join(project, rel, f), edited: !!(fromKit && h && sha(read(path.join(project, rel, f)) || '') !== h) };
+    });
+    return {
+      name, path: path.join(project, rel, 'SKILL.md'), description: meta.description || '', hint: meta['argument-hint'] || '',
+      kit: fromKit, group: fromKit ? k.group : null, command: meta['user-invocable'] !== 'false',
+      files, edited: files.some((f) => f.edited)
+    };
+  });
+}
+
+module.exports = { install, status, plan, roles, skills, skillList, parseFrontmatter, agents, setAgent, parseRouting, setFrontmatter, MANIFEST, HOOK_CMD };

@@ -2,6 +2,7 @@
 name: cross-review
 description: Review the current changes with the engine that did not write them — Codex reviews Claude's work, Claude reviews Codex's — and add a security review when the diff warrants it. Use when the user types /cross-review or asks for a second-opinion review.
 argument-hint: [claude|codex] [base-ref]
+group: core
 ---
 
 # Cross-review

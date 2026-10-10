@@ -2,6 +2,7 @@
 name: orchestrate
 description: Run a development task through the Codeome team pipeline — plan, approval gate, delegate each task to a specialist Claude subagent or Codex job, cross-model review, approval gate, commit. Use when the user types /orchestrate or asks for a task to be planned and built "with the team" or "with Codex and Claude".
 argument-hint: <what to build, fix or change>
+group: core
 ---
 
 # Orchestrate

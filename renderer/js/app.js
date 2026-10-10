@@ -161,6 +161,7 @@
 
   App.start = async () => {
     App.cfg = await codeome.config.get();
+    codeome.version().then((v) => { document.getElementById('app-version').textContent = 'v' + v; });
     App.views.terminals.init();
     App.views.transfer.init(); App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.packages.init(); App.views.plots.init(); App.views.agents.init();
     App.views.projects.init();
