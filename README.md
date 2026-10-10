@@ -73,7 +73,7 @@ Both switches are off for a new secret and apply to what starts from then on. Th
 ## Install
 
 ### Option A — download the built app
-Every push to `main` builds the app on GitHub (Actions tab → latest *Build macOS app* run → *Codeome-mac* artifact). Pushing a tag like `v0.2.0` attaches the `.dmg` files to a release.
+Every push to `main` builds the app on GitHub (Actions tab → latest *Build macOS app* run → *Codeome-mac* artifact). Pushing a tag like `v0.2.0` (it must match the version in `package.json`) attaches the `.dmg` files to a release. The tests also run on every push and pull request (*CI* workflow).
 
 The app is not signed with an Apple Developer certificate, so the first time: right-click Codeome in Applications → **Open** → **Open**. (Or run `xattr -dr com.apple.quarantine /Applications/Codeome.app`.)
 
