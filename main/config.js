@@ -53,6 +53,8 @@ const DEFAULTS = {
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   projectColors: {},      // project → hue (0–359) of its card and title-bar tag; picked when first opened
+  projectGroups: [],      // groups of cards, in order: { id, name, collapsed }
+  projectGroup: {},       // project → id of its group; kept when the project is closed
   activeProject: null,
   // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight };
   // pkgPanes: the same for the Packages view (python / r), plus shown: true|false for R;

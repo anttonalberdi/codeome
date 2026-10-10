@@ -82,8 +82,24 @@ svg { width: 18px; height: 18px; display: block; }
 .ps-dirty { color: var(--pend); }
 .ps-wait { color: var(--pend); font-weight: 600; }
 .ps-done { color: var(--accent); }
+.pg { display: flex; flex-direction: column; gap: 3px; }
+.pg + .pg, .pg + .proj { margin-top: 5px; }
+.pg-head { display: flex; align-items: center; gap: 4px; min-width: 0; height: 24px; padding: 0 6px 0 3px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; text-align: left; }
+.pg-head:hover { background: var(--surface-2); color: var(--text); }
+.pg-head.active { color: var(--text); background: var(--surface-2); }
+.pg-head.drop-in { box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
+.pg-chev { display: grid; flex: none; }
+.pg-chev svg { width: 12px; height: 12px; }
+.pg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-count { flex: none; font-weight: 500; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.pg-head i { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.pg-head .m-jobs { background: var(--run); animation: pulse 1.2s ease-in-out infinite; }
+.pg-head .m-dirty, .pg-head .m-wait { background: var(--pend); }
+.pg-head .m-wait { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--pend); }
+.pg-head .m-done { background: var(--accent); }
+.pg-empty { padding: 4px 8px 6px 19px; font-size: 11px; color: var(--muted); }
 .proj-foot { display: flex; gap: 4px; padding: 6px; border-top: 1px solid var(--line); }
-.proj-add { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 28px; border: 1px dashed var(--line-strong); background: transparent; border-radius: 7px; color: var(--muted); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.proj-add { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 28px; border: 1px dashed var(--line-strong); background: transparent; border-radius: 7px; color: var(--muted); cursor: pointer; font-size: 12px; white-space: nowrap; }
 .proj-add:hover { color: var(--text); border-color: var(--accent); }
 .proj-add svg, .proj-fold svg { width: 14px; height: 14px; }
 .proj-fold { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border: 0; background: transparent; color: var(--muted); border-radius: 7px; cursor: pointer; }
@@ -93,7 +109,9 @@ svg { width: 18px; height: 18px; display: block; }
 .proj-collapsed .pmono i { display: block; }
 .proj-collapsed .proj-foot { flex-direction: column; align-items: center; }
 .proj-collapsed .proj-add { flex: none; width: 32px; }
-@media (prefers-reduced-motion: reduce) { .pmono .m-jobs, .ps-jobs i { animation: none; } }
+.proj-collapsed .pg-head { justify-content: center; padding: 0; gap: 3px; }
+.proj-collapsed .pg-name, .proj-collapsed .pg-empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .pmono .m-jobs, .ps-jobs i, .pg-head .m-jobs { animation: none; } }
 
 /* ---------- usage meters ---------- */
 .usage { display: flex; gap: 6px; margin-right: 6px; }

@@ -2,6 +2,8 @@
 // terminal and agent sessions (which keep running while another project is shown)
 // and its place in the HPC file browser. Each project has a color (a hue) shared by its
 // card and the tag in the title bar; it is picked when the project is first opened.
+// Cards can be put in named groups, which fold to their header. The groups come first,
+// in their own order, and the projects in no group follow.
 (function () {
   const h = App.h;
   const P = { list: [], state: {} }; // state[dir] = { remoteDir, jobs }
@@ -12,6 +14,9 @@
     el = document.getElementById('projects');
     P.list = (App.cfg.openProjects || []).filter(Boolean);
     App.cfg.projectColors = App.cfg.projectColors || {};
+    App.cfg.projectGroups = (App.cfg.projectGroups || []).filter((g) => g && g.id);
+    App.cfg.projectGroup = App.cfg.projectGroup || {};
+    P.list = shown();
     P.list.forEach(colorOf);
     const tag = document.getElementById('project-btn');
     tag.onclick = () => (App.project ? App.menuAt(tag, tagMenu()) : P.open());
@@ -32,10 +37,13 @@
     pollJobs();
   };
 
-  P.open = async (dir) => {
+  // group: the group the project goes into; without one it returns to the group it was last in.
+  P.open = async (dir, group) => {
     dir = dir || await codeome.dialog.folder({ defaultPath: App.project || App.cfg.localRoot });
     if (!dir) return;
     if (!P.list.includes(dir)) P.list.push(dir);
+    if (group) { setGroup(dir, group); group.collapsed = false; }
+    P.list = shown();
     colorOf(dir);
     await P.switchTo(dir);
   };
@@ -80,8 +88,115 @@
   P.cycle = (step) => {
     if (P.list.length < 2) return;
     const i = P.list.indexOf(App.project);
-    P.switchTo(P.list[(i + step + P.list.length) % P.list.length]);
+    const next = P.list[(i + step + P.list.length) % P.list.length], g = groupOf(next);
+    if (g) g.collapsed = false;
+    P.switchTo(next);
   };
+
+  // ---------- groups ----------
+  // cfg.projectGroups = [{ id, name, collapsed }] in the order shown; cfg.projectGroup maps
+  // a project to its group's id, and is kept when the project is closed.
+  const groupOf = (dir) => App.cfg.projectGroups.find((g) => g.id === App.cfg.projectGroup[dir]) || null;
+  const members = (g) => P.list.filter((d) => groupOf(d) === g); // g = null: the projects in no group
+  const shown = () => [...App.cfg.projectGroups.flatMap(members), ...members(null)];
+  function setGroup(dir, g) { if (g) App.cfg.projectGroup[dir] = g.id; else delete App.cfg.projectGroup[dir]; }
+
+  function saveOrder() {
+    P.list = shown();
+    App.cfg.openProjects = P.list.slice(); App.saveConfig();
+    render();
+  }
+
+  // Put a project last in a group, or last among the ungrouped ones.
+  function moveTo(dir, g) {
+    setGroup(dir, g);
+    P.list.splice(P.list.indexOf(dir), 1); P.list.push(dir);
+    saveOrder();
+  }
+
+  P.addGroup = async () => {
+    const name = await App.prompt('New group', 'Name', '', { placeholder: 'e.g. Thesis', ok: 'Create' });
+    if (!name) return null;
+    const g = { id: 'g' + Date.now().toString(36), name, collapsed: false };
+    App.cfg.projectGroups.push(g);
+    saveOrder();
+    return g;
+  };
+
+  async function renameGroup(g) {
+    const name = await App.prompt('Rename group', 'Name', g.name, { ok: 'Rename' });
+    if (!name) return;
+    g.name = name;
+    saveOrder();
+  }
+
+  // Its projects stay open and join the ungrouped ones.
+  function removeGroup(g) {
+    for (const [dir, id] of Object.entries(App.cfg.projectGroup)) if (id === g.id) delete App.cfg.projectGroup[dir];
+    App.cfg.projectGroups.splice(App.cfg.projectGroups.indexOf(g), 1);
+    saveOrder();
+  }
+
+  function moveGroup(g, step) {
+    const all = App.cfg.projectGroups, i = all.indexOf(g), j = i + step;
+    if (j < 0 || j >= all.length) return;
+    [all[i], all[j]] = [all[j], all[i]];
+    saveOrder();
+  }
+
+  function toggleGroup(g) { g.collapsed = !g.collapsed; App.saveConfig(); render(); }
+
+  // The most pressing state among a folded group's projects, as the class of its dot.
+  function mark(dirs) {
+    const of = (dir) => {
+      const cs = App.views.chat.stats(dir);
+      if (cs.waiting) return 'm-wait';
+      if (cs.working || state(dir).jobs) return 'm-jobs';
+      if (cs.unread) return 'm-done';
+      return App.views.editor.tabs.some((t) => t.project === dir && t.dirty) ? 'm-dirty' : null;
+    };
+    const marks = dirs.map(of);
+    return ['m-wait', 'm-jobs', 'm-done', 'm-dirty'].find((m) => marks.includes(m)) || null;
+  }
+
+  function groupMenu(g) {
+    const all = App.cfg.projectGroups, i = all.indexOf(g), n = members(g).length;
+    return [
+      { label: g.collapsed ? 'Expand' : 'Collapse', run: () => toggleGroup(g) },
+      { label: 'Rename…', run: () => renameGroup(g) },
+      { label: 'Open a project here…', run: () => P.open(null, g) },
+      '-',
+      { label: 'Move up', disabled: i <= 0, run: () => moveGroup(g, -1) },
+      { label: 'Move down', disabled: i >= all.length - 1, run: () => moveGroup(g, 1) },
+      '-',
+      { label: n ? 'Ungroup projects' : 'Delete group', run: () => removeGroup(g) }
+    ];
+  }
+
+  function groupBlock(g) {
+    const dirs = members(g), n = dirs.length;
+    const dot = g.collapsed ? mark(dirs) : null;
+    const head = h('button.pg-head' + (g.collapsed && dirs.includes(App.project) ? '.active' : ''), {
+      'data-g': g.id, 'aria-expanded': String(!g.collapsed),
+      title: `${g.name} · ${n} project${n === 1 ? '' : 's'}`,
+      onclick: () => toggleGroup(g),
+      oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, groupMenu(g)); },
+      ondragover: (e) => { if (!dragging) return; e.preventDefault(); head.classList.add('drop-in'); },
+      ondragleave: () => head.classList.remove('drop-in'),
+      ondrop: (e) => {
+        e.preventDefault();
+        if (!dragging) return;
+        const dir = dragging; dragging = null;
+        moveTo(dir, g);
+      }
+    },
+    h('span.pg-chev', { html: `<svg viewBox="0 0 16 16"><path d="${g.collapsed ? 'm6 4 4 4-4 4' : 'm4 6 4 4 4-4'}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` }),
+    h('span.pg-name', g.name),
+    dot ? h('i.' + dot) : null,
+    h('span.pg-count', String(n)));
+    return h('div.pg', { role: 'group', 'aria-label': g.name }, head,
+      g.collapsed ? null : n ? dirs.map(card) : h('div.pg-empty', 'Drag a project here'));
+  }
 
   const state = (dir) => (P.state[dir] = P.state[dir] || {});
 
@@ -180,17 +295,30 @@
 
   function render() {
     if (!el) return;
-    const focused = el.contains(document.activeElement);
+    const focused = el.contains(document.activeElement), fg = focused && document.activeElement.dataset.g;
     el.innerHTML = '';
-    const list = h('div.proj-list', { role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Projects' });
-    P.list.forEach((dir) => list.append(card(dir)));
+    // Dropping a card on the empty part of the list takes it out of its group.
+    const list = h('div.proj-list', {
+      role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Projects',
+      ondragover: (e) => { if (dragging && groupOf(dragging) && !e.target.closest('.pg')) e.preventDefault(); },
+      ondrop: (e) => {
+        if (!dragging || e.target.closest('.pg, .proj')) return;
+        e.preventDefault();
+        const dir = dragging; dragging = null;
+        moveTo(dir, null);
+      }
+    });
+    App.cfg.projectGroups.forEach((g) => list.append(groupBlock(g)));
+    members(null).forEach((dir) => list.append(card(dir)));
     const collapsed = !!App.cfg.ui.projectsCollapsed;
     el.append(list, h('div.proj-foot',
-      h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Open project')),
+      h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Project')),
+      h('button.proj-add', { title: 'New group of projects', 'aria-label': 'New group of projects', onclick: () => P.addGroup() }, h('span', { html: collapsed ? GROUP_ICON : App.icons.plus }), collapsed ? null : h('span', 'Group')),
       h('button.proj-fold', { title: collapsed ? 'Show project names' : 'Hide project names', 'aria-label': collapsed ? 'Expand project column' : 'Collapse project column', onclick: toggleCollapsed },
         h('span', { html: `<svg viewBox="0 0 16 16"><path d="${collapsed ? 'm6 4 4 4-4 4' : 'm10 4-4 4 4 4'}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` }))));
-    if (focused) { const a = el.querySelector('.proj.active') || el.querySelector('.proj-add'); if (a) a.focus(); }
+    if (focused) { const a = (fg && el.querySelector(`.pg-head[data-g="${fg}"]`)) || el.querySelector('.proj.active') || el.querySelector('.proj-add'); if (a) a.focus(); }
   }
+  const GROUP_ICON = '<svg viewBox="0 0 16 16"><path d="M2.5 3.5h11v3.5h-11zM2.5 9h11v3.5h-11z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
 
   function card(dir) {
     const name = App.basename(dir);
@@ -217,10 +345,10 @@
       onauxclick: (e) => { if (e.button === 1) P.close(dir); },
       oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, menu(dir, c)); },
       onkeydown: (e) => {
-        const i = P.list.indexOf(dir);
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault();
-          const next = el.querySelectorAll('.proj')[(i + (e.key === 'ArrowDown' ? 1 : -1) + P.list.length) % P.list.length];
+          const cards = [...el.querySelectorAll('.proj')];
+          const next = cards[(cards.indexOf(c) + (e.key === 'ArrowDown' ? 1 : -1) + cards.length) % cards.length];
           if (next) next.focus();
         } else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); P.switchTo(dir); }
       },
@@ -237,11 +365,11 @@
         e.preventDefault();
         if (!dragging || dragging === dir) return;
         const after = c.classList.contains('drop-after');
+        setGroup(dragging, groupOf(dir));
         P.list.splice(P.list.indexOf(dragging), 1);
         P.list.splice(P.list.indexOf(dir) + (after ? 1 : 0), 0, dragging);
         dragging = null;
-        App.cfg.openProjects = P.list.slice(); App.saveConfig();
-        render();
+        saveOrder();
       }
     },
     h('span.pmono', initials(name), cs.waiting ? h('i.m-wait') : jobs || working ? h('i.m-jobs') : cs.unread ? h('i.m-done') : (unsaved ? h('i.m-dirty') : null)),
@@ -253,7 +381,7 @@
   }
 
   function menu(dir, card) {
-    const i = P.list.indexOf(dir);
+    const g = groupOf(dir), near = members(g), i = near.indexOf(dir);
     return [
       dir !== App.project ? { label: 'Switch to project', run: () => P.switchTo(dir) } : null,
       { label: 'Project color…', run: () => pickColor(dir, card) },
@@ -261,18 +389,23 @@
       { label: 'Copy path', run: () => navigator.clipboard.writeText(dir) },
       '-',
       { label: 'Move up', disabled: i <= 0, run: () => move(dir, -1) },
-      { label: 'Move down', disabled: i >= P.list.length - 1, run: () => move(dir, 1) },
+      { label: 'Move down', disabled: i >= near.length - 1, run: () => move(dir, 1) },
+      '-',
+      ...App.cfg.projectGroups.filter((x) => x !== g).map((x) => ({ label: `Move to ${x.name}`, run: () => moveTo(dir, x) })),
+      { label: 'Move to a new group…', run: async () => { const x = await P.addGroup(); if (x) moveTo(dir, x); } },
+      g ? { label: `Remove from ${g.name}`, run: () => moveTo(dir, null) } : null,
       '-',
       { label: 'Close project', key: '⇧⌘W', danger: true, run: () => P.close(dir) }
     ];
   }
 
   function move(dir, step) {
-    const i = P.list.indexOf(dir), j = i + step;
-    if (j < 0 || j >= P.list.length) return;
+    // Within its group: the neighbours there are neighbours in P.list too.
+    const near = members(groupOf(dir)), other = near[near.indexOf(dir) + step];
+    if (!other) return;
+    const i = P.list.indexOf(dir), j = P.list.indexOf(other);
     [P.list[i], P.list[j]] = [P.list[j], P.list[i]];
-    App.cfg.openProjects = P.list.slice(); App.saveConfig();
-    render();
+    saveOrder();
   }
 
   function applyCollapsed() {

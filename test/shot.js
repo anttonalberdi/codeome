@@ -213,6 +213,18 @@ const steps = {
     // SHOT_COLOR: open the color picker from the title-bar tag (a swatch number also picks that swatch).
     const pick = ${JSON.stringify(process.env.SHOT_COLOR || '')};
     if (pick) setTimeout(() => { document.getElementById('project-btn').click(); document.querySelector('#menu-pop button').click(); if (+pick) document.querySelectorAll('.swatch')[+pick].click(); }, 2000);
+  })(); 0`],
+  // Five project cards in two groups, the second folded, and one card in no group.
+  // SHOT_NARROW: also collapse the column to monograms.
+  groups: [`(async () => {
+    const root = ${JSON.stringify(path.resolve(__dirname, '..'))}, dirs = ['kit', 'main', 'renderer', 'test'].map((d) => root + '/' + d);
+    for (const d of [...dirs, root]) await App.openProject(d);
+    App.cfg.projectGroups = [{ id: 'a', name: 'Thesis', collapsed: false }, { id: 'b', name: 'Teaching', collapsed: true }, { id: 'c', name: 'Side projects', collapsed: false }];
+    App.cfg.projectGroup = { [dirs[0]]: 'a', [root]: 'a', [dirs[1]]: 'b', [dirs[2]]: 'b' };
+    App.views.projects.state[dirs[1]] = { jobs: 1 };
+    App.views.projects.render();
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    if (${JSON.stringify(process.env.SHOT_NARROW || '')}) document.querySelector('.proj-fold').click();
   })(); 0`]
 };
 
