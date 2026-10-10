@@ -2,14 +2,17 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 0.3.3
 
 ### Added
+- **Uncommitted-changes marker**: the *Git & GitHub* button in the left rail shows an amber dot when the project has uncommitted changes, next to the dots for agents working and replies ready. It is kept current while the view is closed, so edits made by the agents show up, and the tooltip gives the count.
+- **Update check from the title bar**: clicking the version next to CODEOME looks up the latest release on GitHub right away.
 - **Install Claude Code and Codex from Codeome**: when the `claude` or `codex` command is not on this Mac, adding or signing in to an account, and starting a chat, offer to install it with the vendor's own installer (`curl -fsSL https://claude.ai/install.sh | bash`, `curl -fsSL https://chatgpt.com/codex/install.sh | sh`) after asking, in a visible terminal, then carry on. *Settings → This Mac* lists both with an *Install…* button, and the start-up notice has an *Install* action.
 - **Weekly update suggestions**: Codeome looks up the latest Codeome (its GitHub releases; *View release* opens the page to download it), Claude Code and Codex versions about once a week and, when yours is older, suggests updating (each way of installing is updated its own way: the vendor script, Homebrew or npm). *Settings → This Mac* shows the versions with a *Check for updates* button.
 
 ### Changed
-- **Agent kit 0.6.0**: the team now knows what the app does for it.
+- Agent chat messages are spaced further apart, and each agent reply is separated from its timestamp by a rule.
+- **Agent kit 0.6.0**: projects with an older kit are offered the update. The team now knows what the app does for it.
   - The chat and the `hpc-operator` are told about the HPC connection Codeome keeps open and use it, instead of reporting that there is no connection. The agent chat's instructions give the exact command; the `analyst`, `report-writer` and `pipeline-engineer` hand cluster commands to the orchestrator in their notes.
   - Codex specialists can write to the folders of connected projects: Codeome tells the job runner which they are, and it passes them to Codex as writable. The orchestrator is told to name those folders in briefs.
   - Google Docs, Sheets and Slides are edited by the orchestrator or a `general-purpose` subagent. Named roles have fixed tool lists without the Google connectors, so they could not do it before.
