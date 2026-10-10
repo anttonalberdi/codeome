@@ -305,6 +305,19 @@ test('setting an agent\'s engine and models updates routing, frontmatter and age
   assert.match(tester, /\nmodel: haiku\n---/);
   assert.match(tester, /House rules/);
   assert.ok(kit.status(p).modified.includes('.claude/agents/tester.md'));
+  // Effort: Claude's in the frontmatter beside the model, Codex's in agents.json.
+  a = kit.setAgent(p, 'tester', { claudeModel: 'opus', claudeEffort: 'high', codexEffort: 'xhigh' });
+  assert.strictEqual(a.claudeEffort, 'high');
+  assert.strictEqual(a.codexEffort, 'xhigh');
+  assert.match(fs.readFileSync(path.join(p, '.claude/agents/tester.md'), 'utf8'), /\nmodel: opus\neffort: high\n---/);
+  assert.strictEqual(readJson(path.join(p, '.codeome/agents.json')).roles.tester.codexEffort, 'xhigh');
+  kit.setAgent(p, 'planner', { claudeEffort: 'max' });
+  assert.deepStrictEqual(kit.install(p).written, []);
+  assert.match(fs.readFileSync(path.join(p, '.claude/agents/planner.md'), 'utf8'), /^effort: max$/m);
+  kit.setAgent(p, 'planner', { claudeEffort: '' });
+  assert.doesNotMatch(fs.readFileSync(path.join(p, '.claude/agents/planner.md'), 'utf8'), /^effort:/m);
+  assert.strictEqual(readJson(path.join(p, '.codeome/agents.json')).roles.planner, undefined);
+  assert.throws(() => kit.setAgent(p, 'tester', { claudeEffort: 'minimal' }), /Unknown effort/);
   assert.throws(() => kit.setAgent(p, 'tester', { engine: 'gemini' }), /Unknown engine/);
   assert.throws(() => kit.setAgent(p, 'tester', { codexModel: 'x; rm -rf /' }), /Not a model/);
   assert.throws(() => kit.setAgent(p, '../x', {}), /Bad agent/);

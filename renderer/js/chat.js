@@ -256,8 +256,9 @@
     if (chat.busy && !(await App.confirm('Move this chat to a terminal?', 'The agent is still working. It will be stopped here and the conversation reopened in a terminal.', 'Move', true))) return;
     if (chat.running) { chat.stopping = true; await codeome.chat.stop(chat.id); }
     let cmd = (App.cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
-    const model = (App.cfg.chat || {}).model;
+    const { model, effort } = App.cfg.chat || {};
     if (model) cmd = cmd.replace(/\s--model(=|\s+)\S+/, '') + ' --model ' + model;
+    if (effort) cmd = cmd.replace(/\s--effort(=|\s+)\S+/, '') + ' --effort ' + effort;
     App.views.terminals.open({ kind: 'agent-local', title: 'Agent chat', command: cmd + ' --resume ' + chat.id, cwd: chat.project, badge: 'Mac', engine: 'claude', account: chat.accountName || 'auto' });
     note(chat, 'Continued in a terminal. Messages sent there are not shown here, but the agent remembers them.', 'info');
     save(chat);

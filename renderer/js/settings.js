@@ -22,6 +22,10 @@
     { value: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
     { value: 'claude-haiku-5-5', label: 'Haiku 5.5' }
   ];
+  const EFFORT_LABEL = { minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+  const efforts = (...levels) => [{ value: '', label: 'Default' }, ...levels.map((v) => ({ value: v, label: EFFORT_LABEL[v] }))];
+  const CLAUDE_EFFORTS = efforts('low', 'medium', 'high', 'xhigh', 'max');
+  const CODEX_EFFORTS = efforts('minimal', 'low', 'medium', 'high', 'xhigh');
   const ENGINES = [
     { value: 'claude', label: 'Claude' },
     { value: 'codex', label: 'Codex' },
@@ -392,8 +396,10 @@
       card('Agent chat (orchestrator)',
         row('AI', h('span.pill.ok', 'Claude Code'), `Runs "${chatCmd}" — the first Claude command below.`),
         row('Model', modelSelect([{ value: '', label: fromCmd ? `From the command (${fromCmd})` : 'Claude Code default' }, ...CLAUDE_MODELS], (App.cfg.chat || {}).model || '',
-          (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), model: v }; commit(); }, 'Chat model'),
+          (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), model: v, modelPicked: true }; commit(); }, 'Chat model'),
           'For chats started from now on. Chats already open keep their model until they restart.'),
+        row('Effort', select(CLAUDE_EFFORTS, (App.cfg.chat || {}).effort || '', (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), effort: v }; commit(); }, 'Chat effort'),
+          'How much the model thinks before it answers. Higher is slower and uses more of the limits. Default leaves it to the model.'),
         row('Suggest a new chat at', h('div.row', text(() => (App.cfg.chat || {}).contextWarnAt ?? 70, (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), contextWarnAt: Math.min(95, Math.max(20, Number(v) || 70)) }; }, { type: 'number', label: 'Percent' }), h('span.hint', '% of the context window')),
           'Each chat shows how full its context window is. Past this mark the meter turns amber and the chat says so once.')),
       agentsHost = h('div'),
@@ -417,7 +423,7 @@
     return box;
   }
 
-  // The project's agents: kit roles and its own, each with an engine and a model.
+  // The project's agents: kit roles and its own, each with an engine, a model and an effort level.
   let codexCatalog = null;
   async function renderAgents() {
     if (!agentsHost) return;
@@ -446,9 +452,9 @@
     if (!list.length && !res.error) body.push(h('div.sp-empty', 'No agents in .claude/agents/ yet.'));
     else if (list.length) {
       body.push(h('div.ag-table', { role: 'table', 'aria-label': 'Agents' },
-        h('div.ag-row.ag-headrow', { role: 'row' }, ['Agent', 'AI', 'Model', 'Access', ''].map((x) => h('span', { role: 'columnheader' }, x))),
+        h('div.ag-row.ag-headrow', { role: 'row' }, ['Agent', 'AI', 'Model', 'Effort', 'Access', ''].map((x) => h('span', { role: 'columnheader' }, x))),
         list.map((a) => agentRow(project, a))));
-      body.push(h('div.sp-foot.hint', 'The AI is the default the chat routes each role to (routing.md); it can still override per task. Claude models go in the agent file; Codex models in .codeome/agents.json. Edits to the files are kept on kit updates.'));
+      body.push(h('div.sp-foot.hint', 'The AI is the default the chat routes each role to (routing.md); it can still override per task. Claude models and effort go in the agent file; Codex ones in .codeome/agents.json. Edits to the files are kept on kit updates.'));
     }
     host.replaceChildren(h('div.sp-card', head, ...body));
   }
@@ -466,6 +472,9 @@
     const claude = (label) => modelSelect([{ value: '', label: 'Same as the chat' }, ...CLAUDE_MODELS], a.claudeModel, (v) => save({ claudeModel: v }), label || `Claude model for ${a.name}`);
     const codexOpts = [{ value: '', label: codexCatalog.default ? `Codex default (${codexCatalog.default})` : 'Codex default' }, ...codexCatalog.models.map((m) => ({ value: m.id, label: m.label }))];
     const codex = (label) => modelSelect(codexOpts, a.codexModel, (v) => save({ codexModel: v }), label || `Codex model for ${a.name}`);
+    const claudeEffort = () => select(CLAUDE_EFFORTS, a.claudeEffort, (v) => save({ claudeEffort: v }), `Claude effort for ${a.name}`);
+    const codexEffort = () => select(CODEX_EFFORTS, a.codexEffort, (v) => save({ codexEffort: v }), `Codex effort for ${a.name}`);
+    const effort = a.engine === 'codex' ? codexEffort() : a.engine === 'cross' ? h('div.ag-two', claudeEffort(), codexEffort()) : claudeEffort();
     let model;
     if (a.engine === 'codex') model = codex();
     else if (a.engine === 'cross') model = h('div.ag-two', h('label', h('span', 'Claude'), claude(`Claude model for ${a.name}`)), h('label', h('span', 'Codex'), codex(`Codex model for ${a.name}`)));
@@ -478,6 +487,7 @@
       h('div', { role: 'cell' }, select(ENGINES, a.engine, (v) => save({ engine: v }), `AI for ${a.name}`),
         changed ? h('div.ag-def', `kit default: ${ENGINE_NAME[a.defaultEngine]}`) : null),
       h('div', { role: 'cell' }, model),
+      h('div', { role: 'cell' }, effort),
       h('div', { role: 'cell' }, h('span.ag-access.' + (a.access === 'writes' ? 'w' : 'r'), a.access)),
       h('div', { role: 'cell' }, h('button.btn.small', { title: `Edit ${a.file}`, onclick: () => openFile(a.path) }, 'Edit .md')));
     return el;

@@ -796,7 +796,7 @@ button.cs:hover { text-decoration-color: currentColor; }
 .cli-row { display: grid; grid-template-columns: minmax(120px, 200px) 1fr 24px; gap: 8px; align-items: center; }
 input.mono { font-family: var(--mono); font-size: 12px; }
 .ag-table { display: flex; flex-direction: column; }
-.ag-row { display: grid; grid-template-columns: minmax(180px, 1fr) 150px minmax(170px, 230px) 70px 72px; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
+.ag-row { display: grid; grid-template-columns: minmax(180px, 1fr) 150px minmax(170px, 230px) 100px 70px 72px; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
 .ag-headrow { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding-top: 7px; padding-bottom: 5px; border-top: 0; }
 .ag-name { min-width: 0; }
 .ag-name .row { gap: 6px; }
@@ -810,7 +810,6 @@ input.mono { font-family: var(--mono); font-size: 12px; }
 .ag-access.r { color: var(--muted); }
 .pill.own { background: var(--sel); color: var(--text); }
 @media (max-width: 1180px) {
-  .ag-row { grid-template-columns: 1fr 130px 180px 72px; }
-  .ag-row > :nth-child(4) { display: none; }
-  .ag-headrow > :nth-child(4) { display: none; }
+  .ag-row { grid-template-columns: 1fr 130px 180px 96px 72px; }
+  .ag-row > :nth-child(5) { display: none; }
 }

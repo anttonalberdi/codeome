@@ -45,10 +45,11 @@ const DEFAULTS = {
   },
   // Agent jobs are held back once the 5-hour or weekly limit passes this percentage.
   usage: { stopAt: 90, codexRefreshSeconds: 180 },
-  // model: the orchestrator's Claude model; '' uses the command's own.
+  // model: the orchestrator's Claude model; '' uses the command's own. modelPicked: chosen in Settings.
+  // effort: its effort level (low … max); '' leaves it to the model.
   // quick: messages sent often, listed under the button beside the message box.
   // contextWarnAt: a chat suggests starting a new one once its context window is this full (%).
-  chat: { model: '', quick: ['Commit, push and deploy'], contextWarnAt: 70 },
+  chat: { model: 'sonnet', modelPicked: false, effort: '', quick: ['Commit, push and deploy'], contextWarnAt: 70 },
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   projectColors: {},      // project → hue (0–359) of its card and title-bar tag; picked when first opened
@@ -70,7 +71,12 @@ function deepMerge(base, over) {
 }
 
 function load() {
-  try { return deepMerge(DEFAULTS, JSON.parse(fs.readFileSync(file('config.json'), 'utf8'))); }
+  try {
+    const saved = JSON.parse(fs.readFileSync(file('config.json'), 'utf8'));
+    // An empty model saved before Sonnet became the default was never a choice.
+    if (saved.chat && saved.chat.model === '' && !saved.chat.modelPicked) delete saved.chat.model;
+    return deepMerge(DEFAULTS, saved);
+  }
   catch { return JSON.parse(JSON.stringify(DEFAULTS)); }
 }
 

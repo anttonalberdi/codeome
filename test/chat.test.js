@@ -41,6 +41,13 @@ test('the model chosen in Settings replaces a --model in the command', () => {
   assert.deepStrictEqual(a.slice(0, 3), ['--model', 'haiku', '-p']);
 });
 
+test('the effort chosen in Settings is passed on, replacing one in the command', () => {
+  const a = chat.buildArgs({ id: ID, extra: ['--effort', 'low'], model: 'sonnet', effort: 'high' });
+  assert.deepStrictEqual(a.slice(0, 5), ['--model', 'sonnet', '--effort', 'high', '-p']);
+  assert.ok(!chat.buildArgs({ id: ID, effort: '' }).includes('--effort'));
+  assert.ok(!chat.buildArgs({ id: ID, effort: 'bogus' }).includes('--effort'));
+});
+
 test('rate limit events become status-line readings that usage reads back', () => {
   const ev = { type: 'rate_limit_event', rate_limit_info: { unifiedWindows: { five_hour: { utilization: 0.335, resetsAt: 2e9 }, seven_day: { utilization: 0.11, resetsAt: 2e9 + 1 } } } };
   const rl = chat.rateLimits(ev);

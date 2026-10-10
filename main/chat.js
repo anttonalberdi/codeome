@@ -32,22 +32,24 @@ function systemPrompt(kitInstalled, text = fs.readFileSync(PROMPT, 'utf8')) {
     .replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
-// The configured command's extra words with the model chosen in Settings, which wins
-// over a --model in the command. '' keeps the command as it is.
-function withModel(extra, model) {
-  if (!model) return extra;
+// The configured command's extra words with a value chosen in Settings, which wins
+// over the same flag in the command. '' keeps the command as it is.
+function withFlag(extra, flag, value) {
+  if (!value) return extra;
   const out = [];
   for (let i = 0; i < extra.length; i++) {
-    if (extra[i] === '--model') { i++; continue; }
-    if (extra[i].startsWith('--model=')) continue;
+    if (extra[i] === flag) { i++; continue; }
+    if (extra[i].startsWith(flag + '=')) continue;
     out.push(extra[i]);
   }
-  return [...out, '--model', model];
+  return [...out, flag, value];
 }
+const withModel = (extra, model) => withFlag(extra, '--model', model);
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '' }) {
-  const args = [...withModel(extra, model), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '' }) {
+  const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', systemPrompt(kitInstalled)];
   args.push(resume ? '--resume' : '--session-id', id);
   if (mode && mode !== 'default' && MODES.includes(mode)) args.push('--permission-mode', mode);
@@ -215,4 +217,4 @@ function deleteChat(project, id) {
   return { ok: true };
 }
 
-module.exports = { Session, systemPrompt, buildArgs, withModel, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, MODES };
+module.exports = { Session, systemPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, MODES };

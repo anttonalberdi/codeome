@@ -152,15 +152,23 @@ def read_role(role):
     return body.strip(), read_only
 
 
-def configured_model(role):
-    """The Codex model chosen for this role in Codeome's Settings (.codeome/agents.json)."""
+def configured(role, key, pattern):
+    """A choice made for this role in Codeome's Settings (.codeome/agents.json)."""
     try:
         with open(os.path.join(ROOT, '.codeome', 'agents.json'), encoding='utf-8') as f:
             r = (json.load(f).get('roles') or {}).get(role)
     except (OSError, ValueError, AttributeError):
         return None
-    m = r.get('codexModel') if isinstance(r, dict) else None
-    return m if isinstance(m, str) and re.match(r'^[\w.:/\[\]-]{1,80}$', m) else None
+    m = r.get(key) if isinstance(r, dict) else None
+    return m if isinstance(m, str) and re.match(pattern, m) else None
+
+
+def configured_model(role):
+    return configured(role, 'codexModel', r'^[\w.:/\[\]-]{1,80}$')
+
+
+def configured_effort(role):
+    return configured(role, 'codexEffort', r'^(minimal|low|medium|high|xhigh)$')
 
 
 PREAMBLE = """You are the "{role}" specialist in a development team. An orchestrator (Claude Code) planned the work and sent you one job; it will verify your result and decide what happens next. You have no other context than what is below.
@@ -366,6 +374,9 @@ def cmd_codex(a):
     model = a.model or configured_model(role)
     if model:
         argv += ['-m', model]
+    effort = configured_effort(role)
+    if effort:
+        argv += ['-c', 'model_reasoning_effort="%s"' % effort]
     if not in_git:
         argv.append('--skip-git-repo-check')
     argv.append('-')

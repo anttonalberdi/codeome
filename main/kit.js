@@ -24,6 +24,7 @@ const ENGINES = Object.keys(ENGINE_LABEL);
 const ROUTING = '.claude/skills/orchestrate/routing.md';
 const AGENTS_JSON = '.codeome/agents.json';
 const MODEL_RE = /^[\w.:/[\]-]{0,80}$/;
+const EFFORTS = { claudeEffort: ['low', 'medium', 'high', 'xhigh', 'max'], codexEffort: ['minimal', 'low', 'medium', 'high', 'xhigh'] };
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
@@ -53,6 +54,7 @@ function agentFile(r) {
   const fm = ['---', `name: ${r.name}`, `description: ${r.description}`];
   if (r.tools) fm.push(`tools: ${r.tools}`);
   if (r.model) fm.push(`model: ${r.model}`);
+  if (r.effort) fm.push(`effort: ${r.effort}`);
   return fm.join('\n') + '\n---\n\n' + r.body;
 }
 
@@ -97,11 +99,12 @@ function normalizeGroups(groups) {
   return valid.filter((g) => want.has(g));
 }
 
-// A role with the engine and Claude model chosen for it in Settings.
+// A role with the engine, Claude model and Claude effort chosen for it in Settings.
 function applyOverride(r, o = {}) {
   const out = { ...r };
   if (o.engine) out.engine = o.engine;
   if ('claudeModel' in o) { if (o.claudeModel) out.model = o.claudeModel; else delete out.model; }
+  if ('claudeEffort' in o) { if (o.claudeEffort) out.effort = o.claudeEffort; else delete out.effort; }
   return out;
 }
 
@@ -199,11 +202,11 @@ function install(project, opts = {}) {
   return r;
 }
 
-// ---------- agents: engine and model per agent ----------
+// ---------- agents: engine, model and effort per agent ----------
 // Every agent in .claude/agents/ (kit roles and the project's own). The engine lives in
-// routing.md, which the orchestrator reads; the Claude model in the agent file's
-// frontmatter, which Claude Code reads; the Codex model in .codeome/agents.json, which
-// codeome-agent reads. agents.json also keeps the choices across kit updates.
+// routing.md, which the orchestrator reads; the Claude model and effort in the agent file's
+// frontmatter, which Claude Code reads; the Codex model and effort in .codeome/agents.json,
+// which codeome-agent reads. agents.json also keeps the choices across kit updates.
 function readOverrides(project) {
   try { const j = JSON.parse(fs.readFileSync(path.join(project, AGENTS_JSON), 'utf8')); return j && typeof j.roles === 'object' && j.roles ? j.roles : {}; } catch { return {}; }
 }
@@ -286,13 +289,13 @@ function agents(project) {
       kit: fromKit, group: fromKit ? k.group : null,
       engine: routed[name] || o.engine || (fromKit ? k.engine : 'claude'), defaultEngine: fromKit ? k.engine : 'claude',
       claudeModel: meta.model || '', defaultClaudeModel: fromKit ? k.model || '' : '',
-      codexModel: o.codexModel || '', access: accessOf(meta.tools),
+      claudeEffort: meta.effort || '', codexModel: o.codexModel || '', codexEffort: o.codexEffort || '', access: accessOf(meta.tools),
       edited: !!(fromKit && sha(text) !== st.files[rel])
     };
   });
 }
 
-// patch: { engine?, claudeModel?, codexModel? }. Files the kit wrote and the user has not
+// patch: { engine?, claudeModel?, claudeEffort?, codexModel?, codexEffort? }. Files the kit wrote and the user has not
 // edited stay "unedited" (their recorded hash follows), so kit updates still apply to them.
 function setAgent(project, name, patch = {}) {
   if (!/^[\w.-]+$/.test(name || '')) throw new Error('Bad agent name');
@@ -301,13 +304,16 @@ function setAgent(project, name, patch = {}) {
   if (text === null) throw new Error('No agent ' + name + ' in .claude/agents/');
   if ('engine' in patch && !ENGINES.includes(patch.engine)) throw new Error('Unknown engine ' + patch.engine);
   for (const k of ['claudeModel', 'codexModel']) if (k in patch && !MODEL_RE.test(String(patch[k] || '').trim())) throw new Error('Not a model name: ' + patch[k]);
+  for (const k of Object.keys(EFFORTS)) if (k in patch && patch[k] && !EFFORTS[k].includes(patch[k])) throw new Error('Unknown effort ' + patch[k]);
   const st = readState(project);
   const k = roles().find((r) => r.name === name && st && st.files && `.claude/agents/${name}.md` in st.files);
   const ov = readOverrides(project);
   const o = { ...(ov[name] || {}) };
   if ('engine' in patch) { if (k && patch.engine === k.engine) delete o.engine; else o.engine = patch.engine; }
   if ('claudeModel' in patch) { const v = String(patch.claudeModel || '').trim(); if (k && v === (k.model || '')) delete o.claudeModel; else o.claudeModel = v; }
+  if ('claudeEffort' in patch) { const v = patch.claudeEffort || ''; if (k && v === (k.effort || '')) delete o.claudeEffort; else o.claudeEffort = v; }
   if ('codexModel' in patch) { const v = String(patch.codexModel || '').trim(); if (v) o.codexModel = v; else delete o.codexModel; }
+  if ('codexEffort' in patch) { if (patch.codexEffort) o.codexEffort = patch.codexEffort; else delete o.codexEffort; }
   if (Object.keys(o).length) ov[name] = o; else delete ov[name];
   writeOverrides(project, ov);
 
@@ -317,7 +323,10 @@ function setAgent(project, name, patch = {}) {
     if (st && st.files && st.files[rel] && sha(before) === st.files[rel]) st.files[rel] = sha(after);
   };
   const { meta } = parseFrontmatter(text);
-  if ('claudeModel' in patch) write(`.claude/agents/${name}.md`, text, setFrontmatter(text, 'model', String(patch.claudeModel || '').trim()));
+  let next = text;
+  if ('claudeModel' in patch) next = setFrontmatter(next, 'model', String(patch.claudeModel || '').trim());
+  if ('claudeEffort' in patch) next = setFrontmatter(next, 'effort', patch.claudeEffort || '');
+  write(`.claude/agents/${name}.md`, text, next);
   if ('engine' in patch) {
     const cur = read(path.join(project, ROUTING));
     if (cur !== null) write(ROUTING, cur, setRoutingEngine(cur, { name, engine: patch.engine, tools: meta.tools || '', description: meta.description || '' }));
