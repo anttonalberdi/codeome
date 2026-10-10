@@ -99,4 +99,16 @@ function copyKeyArgs(host, pub) {
   return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=no', ...proxyOpts(host), host, remote];
 }
 
-module.exports = { CONTROL_PATH, setProxy, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, disconnect, exec, list, parseListing, readFile, writeFile, rsyncSshCommand };
+// Types the saved HPC password at ssh's first password prompt ("user@host's password:"
+// or "(user@host) Password:"), once: a wrong one is not sent again (the terminal asks),
+// and later prompts such as a one-time code are left to the person.
+function passwordFiller(password, write) {
+  let tail = '', done = !password;
+  return (data) => {
+    if (done) return;
+    tail = (tail + data).slice(-300);
+    if (/(?:^|[\r\n])[^\r\n]*password:\s*$/i.test(tail)) { done = true; write(password + '\r'); }
+  };
+}
+
+module.exports = { CONTROL_PATH, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, disconnect, exec, list, parseListing, readFile, writeFile, rsyncSshCommand };

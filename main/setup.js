@@ -36,8 +36,10 @@ const tunnelCommand = (v) => 'exec ' + ['openconnect', ...tunnelArgs(v)].map(q).
 
 // ssh's ProxyCommand for the HPC host: through the tunnel while it runs, otherwise
 // direct (on campus, or with Cisco Secure Client on), so one setting works everywhere.
+// It ignores SIGHUP: the login's ssh -f leaves it in the login terminal's process group,
+// and the hangup when that tab ends would otherwise take the shared connection with it.
 function proxyCommand(port) {
-  return `/bin/sh -c 'if nc -z -G 2 127.0.0.1 ${port} 2>/dev/null; then exec nc -X 5 -x 127.0.0.1:${port} "$0" "$1"; else exec nc "$0" "$1"; fi' %h %p`;
+  return `/bin/sh -c 'trap "" HUP; if nc -z -G 2 127.0.0.1 ${port} 2>/dev/null; then exec nc -X 5 -x 127.0.0.1:${port} "$0" "$1"; else exec nc "$0" "$1"; fi' %h %p`;
 }
 
 function portOpen(port, timeout = 1500) {

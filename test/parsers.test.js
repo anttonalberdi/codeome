@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseListing } = require('../main/ssh');
+const { parseListing, passwordFiller } = require('../main/ssh');
 const { parsePipe, SQ_FIELDS, SACCT_FIELDS } = require('../main/slurm');
 const { q } = require('../main/util');
 
@@ -65,4 +65,27 @@ test('sftp batch paths quote backslashes and double quotes only', () => {
   assert.strictEqual(sq('/a/b "c"\\d *.txt'), '"/a/b \\"c\\"\\\\d *.txt"');
   assert.throws(() => sq('a\nb'));
   assert.strictEqual(transferBatch('up', '/x/data', '/arch'), 'progress\nput -R "/x/data" "/arch/"\n');
+});
+
+test('the saved HPC password is typed once, at the first ssh password prompt only', () => {
+  const sent = [];
+  const feed = passwordFiller('s3cret', (s) => sent.push(s));
+  feed('** WARNING: connection is not using a post-quantum key exchange algorithm.\r\n');
+  feed("abc123@login.cluster.example.org's pass");
+  assert.deepStrictEqual(sent, []);
+  feed('word: ');
+  assert.deepStrictEqual(sent, ['s3cret\r']);
+  feed("\r\nPermission denied, please try again.\r\nabc123@login.cluster.example.org's password: ");
+  assert.deepStrictEqual(sent, ['s3cret\r']);
+  const kbd = [];
+  passwordFiller('s3cret', (s) => kbd.push(s))('(abc123@login) Password: ');
+  assert.deepStrictEqual(kbd, ['s3cret\r']);
+  const other = [];
+  const f2 = passwordFiller('s3cret', (s) => other.push(s));
+  f2("Enter passphrase for key '/Users/me/.ssh/id_ed25519': ");
+  f2('Verification code: ');
+  assert.deepStrictEqual(other, []);
+  const none = [];
+  passwordFiller('', (s) => none.push(s))('password: ');
+  assert.deepStrictEqual(none, []);
 });

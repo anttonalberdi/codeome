@@ -177,11 +177,11 @@
 
   // ---------- HPC ----------
   const vpn = () => App.cfg.hpc.vpn;
-  // The VPN password goes straight to the Keychain; the page only knows whether one is saved.
-  function vpnPassword() {
-    const KEY = 'vpn:password', SAVED = 'Saved — type a new one to replace';
+  // Passwords go straight to the Keychain; the page only knows whether one is saved.
+  function savedPassword(KEY, label, ask) {
+    const SAVED = 'Saved — type a new one to replace';
     const status = h('span.pill', '…');
-    const input = h('input', { type: 'password', placeholder: 'Asked for when the tunnel starts', autocomplete: 'off', 'aria-label': 'VPN password' });
+    const input = h('input', { type: 'password', placeholder: ask, autocomplete: 'off', 'aria-label': label });
     const clear = h('button.btn.small', { hidden: true, onclick: async () => { await codeome.secret.set(KEY, ''); paint(false); flash('Password removed'); } }, 'Remove');
     const save = h('button.btn.small', { onclick: async () => {
       if (!input.value) return;
@@ -192,7 +192,7 @@
     function paint(has) {
       status.className = 'pill' + (has ? ' ok' : '');
       status.textContent = has ? 'saved' : 'not saved';
-      input.placeholder = has ? SAVED : 'Asked for when the tunnel starts';
+      input.placeholder = has ? SAVED : ask;
       clear.hidden = !has;
     }
     codeome.secret.has(KEY).then(paint);
@@ -218,7 +218,7 @@
           'The server Cisco Secure Client connects to.'),
           row('Username', text(() => vpn().user, (v) => { vpn().user = v.trim(); }, { placeholder: 'Asked for when the tunnel starts', label: 'VPN username' }),
             'Optional. Without it, Codeome asks when the tunnel starts.'),
-          row('Password', vpnPassword(),
+          row('Password', savedPassword('vpn:password', 'VPN password', 'Asked for when the tunnel starts'),
             'Optional. Kept in the macOS Keychain and used when the tunnel signs in; without it, Codeome asks. Then approve the sign-in on your MFA device.'),
           row('Local port', text(() => vpn().port, (v) => { const n = Math.round(Number(v)); vpn().port = n > 1023 && n < 65536 ? n : 11080; }, { type: 'number', apply: { host: true, setup: true }, label: 'Local port' }),
             'Where the tunnel listens on this Mac (127.0.0.1 only). Change it only if 11080 is taken.'),
@@ -231,6 +231,8 @@
       card('Login',
         row('Login', text(() => App.cfg.hpc.host, (v) => { App.cfg.hpc.host = v.trim(); }, { placeholder: 'myhpc  or  user@login.cluster.example.org', apply: { host: true, setup: true }, label: 'HPC login' }),
           'A Host alias from ~/.ssh/config, or user@host.'),
+        row('Password', savedPassword('hpc:password', 'HPC password', 'Typed in the login terminal'),
+          'Optional. Kept in the macOS Keychain and typed at the login\'s password prompt; a one-time code, if asked, is still yours to type. An ssh key on the HPC needs no password.'),
         row('Start folder', text(() => App.cfg.hpc.remoteRoot, (v) => { App.cfg.hpc.remoteRoot = v.trim() || '~'; }, { placeholder: '~ or /projects/mygroup', label: 'Start folder' }))),
       setupHost,
       card('Sessions',

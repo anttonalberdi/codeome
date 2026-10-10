@@ -29,6 +29,7 @@ test('the tunnel command survives the shell intact', () => {
 
 test('the proxy command uses the tunnel when it listens and goes direct otherwise', () => {
   const p = setup.proxyCommand(11080);
+  assert.match(p, /^\/bin\/sh -c 'trap "" HUP; /);
   assert.match(p, /nc -z -G 2 127\.0\.0\.1 11080/);
   assert.match(p, /exec nc -X 5 -x 127\.0\.0\.1:11080 "\$0" "\$1"/);
   assert.match(p, /else exec nc "\$0" "\$1"/);
