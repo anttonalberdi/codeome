@@ -18,7 +18,8 @@ const DEFAULTS = {
   },
   // Long-term storage reached over SFTP, e.g. ERDA (io.erda.dk); it needs no shell.
   storage: {
-    host: '',              // an alias from ~/.ssh/config, or user@io.erda.dk
+    host: '',              // an alias from ~/.ssh/config, a host name, or user@io.erda.dk
+    user: '',              // the username, e.g. you@example.org; '' uses the login or ~/.ssh/config
     root: '',              // starting folder; '' is the login folder
     hpcHost: ''            // how the HPC reaches it for direct copies; '' uses host
   },

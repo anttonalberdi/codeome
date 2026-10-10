@@ -1,6 +1,6 @@
 // Long-term storage over SFTP (e.g. ERDA). Archive servers often give no shell,
 // so everything is an `sftp` batch. Like the HPC, one master connection is opened
-// interactively (password prompts work in a terminal tab) and batches reuse it.
+// in the background (login.js asks for a password in a dialog) and batches reuse it.
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -8,6 +8,13 @@ const { run, q } = require('./util');
 const { CONTROL_PATH } = require('./ssh');
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// The ssh destination: the login, with the username from Settings in front when one
+// is set. ssh splits at the last @, so a username like you@example.org works.
+function target(host, user) {
+  const h = String(host || '').trim(), u = String(user || '').trim();
+  return h && u ? u + '@' + h.slice(h.lastIndexOf('@') + 1) : h;
+}
 
 function muxOpts() { return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=no']; }
 
@@ -144,4 +151,4 @@ function hpcCommand(host, direction, src, destDir) {
   return `printf '%s\\n' ${q(line)} | sftp ${q(host)}`;
 }
 
-module.exports = { sq, isHome, parseSftpListing, list, fetch, readFile, writeFile, mkdir, rename, remove, transferBatch, transferArgs, hpcCommand, errorOf };
+module.exports = { target, sq, isHome, parseSftpListing, list, fetch, readFile, writeFile, mkdir, rename, remove, transferBatch, transferArgs, hpcCommand, errorOf };

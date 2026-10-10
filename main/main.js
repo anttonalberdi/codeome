@@ -107,7 +107,7 @@ function ptySpec(spec) {
     case 'console': return { file: sh, args: ['-l', '-c', spec.command], cwd };
     // The logins in a terminal, offered when the background one (login.js) fails.
     case 'hpc-login': return { file: 'ssh', args: ssh.masterArgs(host), cwd: os.homedir() };
-    case 'storage-login': return { file: 'ssh', args: ssh.masterArgs(cfg.storage.host), cwd: os.homedir() };
+    case 'storage-login': return { file: 'ssh', args: ssh.masterArgs(sto()), cwd: os.homedir() };
     case 'hpc-console': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '~'} 2>/dev/null; ${spec.command}`)}`), cwd: os.homedir() };
     case 'hpc-shell': {
       const dir = spec.cwd && spec.cwd !== '~' ? `cd ${q(spec.cwd)} && exec $SHELL -l` : '';
@@ -173,8 +173,9 @@ ipcMain.handle('pty:spawn', (_e, spec) => {
     const p = pty.spawn(s.file, s.args, { name: 'xterm-256color', cols: spec.cols || 100, rows: spec.rows || 30, cwd: fs.existsSync(s.cwd) ? s.cwd : os.homedir(), env });
     ptys.set(spec.id, p);
     p.onData((d) => send('pty:data', { id: spec.id, data: d }));
-    // The HPC password goes from the Keychain into ssh's prompt; the UI never sees it.
+    // The saved password goes from the Keychain into ssh's prompt; the UI never sees it.
     if (spec.kind === 'hpc-login' || spec.kind === 'hpc-copy-key') p.onData(ssh.passwordFiller(config.getSecret('hpc:password'), (s) => p.write(s)));
+    if (spec.kind === 'storage-login') p.onData(ssh.passwordFiller(config.getSecret('storage:password'), (s) => p.write(s)));
     p.onExit(({ exitCode }) => { ptys.delete(spec.id); send('pty:exit', { id: spec.id, code: exitCode }); });
     return { ok: true, pid: p.pid, account: acct && acct.info };
   } catch (e) { return { error: String(e.message || e) }; }
@@ -308,11 +309,11 @@ ipcMain.handle('vpn:state', () => tunnelState);
 ipcMain.handle('vpn:log', () => (tunnel ? tunnel.log() : ''));
 
 // The shared HPC and storage connections open without a terminal too (see login.js).
-// A saved HPC password goes from the Keychain straight to ssh; one typed in a dialog
+// A saved password goes from the Keychain straight to ssh; one typed in a dialog
 // is saved only once the connection is up.
 const logins = {};
-const loginHost = (target) => (target === 'storage' ? cfg.storage.host : cfg.hpc.host);
-const loginSecret = (target) => (target === 'hpc' ? 'hpc:password' : '');
+const loginHost = (target) => (target === 'storage' ? sto() : cfg.hpc.host);
+const loginSecret = (target) => target + ':password';
 ipcMain.handle('login:start', (_e, target) => {
   if (target !== 'hpc' && target !== 'storage') return { error: 'Unknown connection ' + target };
   const cur = logins[target];
@@ -354,7 +355,7 @@ ipcMain.handle('setup:testLogin', async () => {
 ipcMain.handle('setup:install', (_e, tools) => { const ic = setup.installCommand(tools || []); return ic && { ...ic, brewInstall: setup.BREW_INSTALL }; });
 
 // ---------- long-term storage (SFTP) ----------
-const sto = () => cfg.storage.host;
+const sto = () => sftp.target(cfg.storage.host, cfg.storage.user);
 ipcMain.handle('storage:status', () => ssh.check(sto()));
 ipcMain.handle('storage:disconnect', () => ssh.disconnect(sto()));
 ipcMain.handle('storage:list', (_e, dir) => sftp.list(sto(), dir));

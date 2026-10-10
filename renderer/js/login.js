@@ -24,8 +24,8 @@
     const title = 'Connect to ' + name(t);
     let r, value, save = false;
     if (pr.kind === 'password') {
-      const fields = [{ key: 'v', label: 'Password', type: 'password' }];
-      if (t === 'hpc') fields.push({ key: 'save', type: 'check', label: pr.saved ? 'Replace the saved password once it works' : 'Save in the Keychain once it works', value: true });
+      const fields = [{ key: 'v', label: 'Password', type: 'password' },
+        { key: 'save', type: 'check', label: pr.saved ? 'Replace the saved password once it works' : 'Save in the Keychain once it works', value: true }];
       r = await App.signIn(owner(t), { title, text: pr.error || `Your password on ${name(t)}.`, ok: 'Connect', fields });
       value = r && r.v; save = !!(r && r.save);
     } else if (pr.kind === 'passphrase') {

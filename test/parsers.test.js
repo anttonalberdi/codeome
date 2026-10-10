@@ -89,3 +89,11 @@ test('the saved HPC password is typed once, at the first ssh password prompt onl
   passwordFiller('', (s) => none.push(s))('password: ');
   assert.deepStrictEqual(none, []);
 });
+
+test('the storage username goes in front of the host, replacing one already there', () => {
+  const { target } = require('../main/sftp');
+  assert.strictEqual(target('io.erda.dk', 'you@example.org'), 'you@example.org@io.erda.dk');
+  assert.strictEqual(target('old@example.org@io.erda.dk', 'you@example.org'), 'you@example.org@io.erda.dk');
+  assert.strictEqual(target('erda', ''), 'erda');
+  assert.strictEqual(target('', 'you@example.org'), '');
+});

@@ -6,7 +6,7 @@
   const h = App.h;
   const S = { isOpen: false };
   App.views.settings = S;
-  let page, nav, main, savedEl, agentsHost, setupHost, serverList;
+  let page, nav, main, savedEl, agentsHost, setupHost, serverList, storageHost;
   let sections = {};
   let current = 'hpc'; // the section shown; reopening Settings returns to it
 
@@ -85,6 +85,7 @@
     App.listen('project', () => { if (S.isOpen) renderAgents(); });
     // The HPC checklist follows the connection, the tunnel and setup steps as they happen.
     for (const ev of ['setup', 'hpc', 'vpn', 'login', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
+    for (const ev of ['storage', 'login', 'config']) App.listen(ev, () => { if (S.isOpen) renderStorage(); });
     App.listen('env', () => { if (S.isOpen && current === 'mac') sections.mac.replaceWith(macSection()); });
   }
 
@@ -165,7 +166,7 @@
   async function show(id) {
     current = id;
     markNav(id);
-    agentsHost = setupHost = serverList = null;
+    agentsHost = setupHost = serverList = storageHost = null;
     sections = {};
     const el = await BUILD[id](App.cfg);
     if (id !== current) return; // another section was picked while this one loaded
@@ -173,6 +174,7 @@
     main.scrollTop = 0;
     if (id === 'agents') renderAgents();
     if (id === 'hpc') { renderSetup(); App.setup.refresh(); }
+    if (id === 'storage') renderStorage();
   }
 
   // ---------- HPC ----------
@@ -307,18 +309,23 @@
     else keyRow = stepRow('warn', 'Key accepted by the HPC', t.detail || 'The test login failed.', copy, test);
     rows.push(keyRow);
 
-    const lg = App.login.state.hpc;
-    rows.push(App.hpcConnected
-      ? stepRow('ok', 'Connected', `Files, Slurm, terminals and the R console use this connection.`, btn('Disconnect', () => App.disconnectHpc()))
-      : App.login.busy('hpc') ? stepRow('busy', 'Connected', lg.phase === 'prompt' ? `${c.hpc.host} is asking for something.` : `Connecting to ${c.hpc.host}…`,
-        btn('Cancel', () => App.login.stop('hpc')), btn(lg.phase === 'prompt' ? 'Continue…' : 'Show', () => App.connectHpc()))
-      : lg.phase === 'failed' ? stepRow('warn', 'Connected', lg.reason, btn('Log', () => App.login.showLog('hpc')), btn('Connect again', () => App.connectHpc(), true))
-      : stepRow(c.hpc.host ? 'todo' : 'off', 'Connected', c.hpc.host ? 'Opens one shared connection in the background; Codeome asks for a password or code if the HPC wants one.' : 'Needs a login.',
-        c.hpc.host ? btn('Connect', () => App.connectHpc(), true) : null));
+    rows.push(connectionRow({ target: 'hpc', host: c.hpc.host, connected: App.hpcConnected, connect: App.connectHpc, disconnect: App.disconnectHpc,
+      uses: 'Files, Slurm, terminals and the R console use this connection.', asks: 'a password or code if the HPC wants one' }));
 
     setupHost.replaceChildren(h('div.sp-card',
       h('div.sp-card-h.row', h('span.grow', 'Setup'), h('button.btn.small.ghost', { onclick: () => App.setup.refresh() }, 'Check again')),
       h('div.su-list', rows)));
+  }
+
+  // The shared connection's step: connected, connecting (in the background, see login.js), failed, or not yet.
+  function connectionRow({ target, host, connected, connect, disconnect, uses, asks }) {
+    const lg = App.login.state[target];
+    if (connected) return stepRow('ok', 'Connected', uses, btn('Disconnect', () => disconnect()));
+    if (App.login.busy(target)) return stepRow('busy', 'Connected', lg.phase === 'prompt' ? `${host} is asking for something.` : `Connecting to ${host}…`,
+      btn('Cancel', () => App.login.stop(target)), btn(lg.phase === 'prompt' ? 'Continue…' : 'Show', () => connect()));
+    if (lg.phase === 'failed') return stepRow('warn', 'Connected', lg.reason, btn('Log', () => App.login.showLog(target)), btn('Connect again', () => connect(), true));
+    return stepRow(host ? 'todo' : 'off', 'Connected', host ? `Opens one shared connection in the background; Codeome asks for ${asks}.` : 'Needs a host.',
+      host ? btn('Connect', () => connect(), true) : null);
   }
 
   // Whether the HPC network answers: from this Mac (campus, Cisco Secure Client) or through the tunnel.
@@ -351,11 +358,24 @@
       card(null,
         row('Name', text(() => files.title('storage'), (v) => { const p = App.cfg.ui.panes.storage = App.cfg.ui.panes.storage || {}; if (v.trim() && v.trim() !== 'ERDA') p.title = v.trim().slice(0, 40); else delete p.title; }, { placeholder: 'ERDA', label: 'Storage name' }),
           'How the section is labelled. You can also right-click a section header in Files to rename it.'),
-        row('Login', text(() => App.cfg.storage.host, (v) => { App.cfg.storage.host = v.trim(); }, { placeholder: 'erda  or  you@example.org@io.erda.dk', apply: { storage: true }, label: 'Storage login' }),
-          h('span', 'A Host alias from ~/.ssh/config is easiest, e.g.', h('pre.sp-code', 'Host erda\n  HostName io.erda.dk\n  User you@example.org'), 'For ERDA, set an SFTP password or key first under Setup → SFTP on erda.dk.')),
+        row('Host', text(() => App.cfg.storage.host, (v) => { App.cfg.storage.host = v.trim(); }, { placeholder: 'io.erda.dk  or  a Host alias', apply: { storage: true }, label: 'Storage host' }),
+          'The SFTP server, or a Host alias from ~/.ssh/config. For ERDA, set an SFTP password or key first under Setup → SFTP on erda.dk.'),
+        row('Username', text(() => App.cfg.storage.user, (v) => { App.cfg.storage.user = v.trim(); }, { placeholder: 'e.g. you@example.org', apply: { storage: true }, label: 'Storage username' }),
+          'For ERDA, the email address you sign in to erda.dk with. Empty: the one in the host or ~/.ssh/config.'),
+        row('Password', savedPassword('storage:password', 'Storage password', 'Asked for when connecting'),
+          'Optional. Kept in the macOS Keychain and used when connecting; without it, Codeome asks. For ERDA, the SFTP password set on erda.dk, not your KU password. A key needs no password.'),
         row('Start folder', text(() => App.cfg.storage.root, (v) => { App.cfg.storage.root = v.trim(); }, { placeholder: 'Login folder', label: 'Storage start folder' })),
         row('From the HPC', text(() => App.cfg.storage.hpcHost, (v) => { App.cfg.storage.hpcHost = v.trim(); }, { placeholder: 'Same as the login', label: 'Storage login from the HPC' }),
-          'Copies between the HPC and the storage run sftp on the HPC, in a terminal there. Set this if the HPC knows the storage by another name.')));
+          'Copies between the HPC and the storage run sftp on the HPC, in a terminal there. Set this if the HPC knows the storage by another name.')),
+      storageHost = h('div'));
+  }
+  function renderStorage() {
+    if (!storageHost) return;
+    const c = App.cfg.storage;
+    const host = c.host ? (c.user ? `${c.user}@${c.host.slice(c.host.lastIndexOf('@') + 1)}` : c.host) : '';
+    storageHost.replaceChildren(h('div.sp-card', h('div.sp-card-h', 'Connection'), h('div.su-list',
+      connectionRow({ target: 'storage', host, connected: App.storageConnected, connect: App.connectStorage, disconnect: App.disconnectStorage,
+        uses: `Files and copies to and from ${App.views.files.title('storage')} use this connection.`, asks: 'a password if the server wants one' }))));
   }
 
   function rSection(c) {
