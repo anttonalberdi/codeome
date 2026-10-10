@@ -67,4 +67,44 @@ async function partitions(host) {
   return { partitions: parsePipe(r.stdout, ['name', 'avail', 'timelimit', 'nodes', 'cpus']) };
 }
 
-module.exports = { queue, history, details, tail, cancel, submit, partitions, parsePipe, SQ_FIELDS, SACCT_FIELDS };
+// Nodes that can't take work: their CPUs don't count as available.
+const OFFLINE = /DOWN|DRAIN|FAIL|NOT_RESPONDING|MAINT|FUTURE|POWER|INVAL|UNKNOWN|\*/;
+
+// Per-partition totals from `scontrol show node -o` (one line per node), plus the cluster
+// as a whole (a node in two partitions counts once there). Memory is in MB.
+function parseNodes(stdout) {
+  const blank = (name) => ({ name, nodes: 0, offline: 0, cpus: 0, cpusUsed: 0, mem: 0, memUsed: 0, gpus: 0, gpusUsed: 0, pendingJobs: 0, pendingCpus: 0 });
+  const parts = new Map(), total = blank('');
+  for (const line of stdout.split('\n')) {
+    if (!line.startsWith('NodeName=')) continue;
+    const get = (k) => { const m = line.match(new RegExp(`\\b${k}=(\\S+)`)); return m ? m[1] : ''; };
+    const num = (k) => Number(get(k)) || 0;
+    const gpu = (k) => { const m = get(k).match(/gres\/gpu=(\d+)/); return m ? Number(m[1]) : 0; };
+    const off = OFFLINE.test(get('State'));
+    const names = get('Partitions').split(',').filter(Boolean);
+    for (const o of [total, ...names.map((n) => parts.get(n) || parts.set(n, blank(n)).get(n))]) {
+      o.nodes++;
+      if (off) { o.offline++; continue; }
+      o.cpus += num('CPUTot'); o.cpusUsed += num('CPUAlloc');
+      o.mem += num('RealMemory'); o.memUsed += num('AllocMem');
+      o.gpus += gpu('CfgTRES'); o.gpusUsed += gpu('AllocTRES');
+    }
+  }
+  return { partitions: [...parts.values()], total };
+}
+
+// What the cluster has and what is taken, with the jobs waiting on each partition.
+async function resources(host) {
+  const r = await ssh.exec(host, `scontrol show node -o; echo @@pending; squeue --noheader -r -t PD -o '%P|%C'`);
+  const [nodes, pending = ''] = r.stdout.split('@@pending');
+  const res = parseNodes(nodes);
+  if (!res.total.nodes) return { error: r.stderr.trim() || 'scontrol failed' };
+  const by = Object.fromEntries(res.partitions.map((p) => [p.name, p]));
+  for (const row of parsePipe(pending, ['partition', 'cpus'])) {
+    // A job waiting on several partitions counts on each of them.
+    for (const name of row.partition.split(',')) if (by[name]) { by[name].pendingJobs++; by[name].pendingCpus += Number(row.cpus) || 0; }
+  }
+  return res;
+}
+
+module.exports = { resources, parseNodes, queue, history, details, tail, cancel, submit, partitions, parsePipe, SQ_FIELDS, SACCT_FIELDS };

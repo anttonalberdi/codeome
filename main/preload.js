@@ -52,7 +52,7 @@ contextBridge.exposeInMainWorld('codeome', {
   slurm: {
     queue: invoke('slurm:queue'), history: invoke('slurm:history'), details: invoke('slurm:details'),
     tail: (file, lines) => ipcRenderer.invoke('slurm:tail', { file, lines }),
-    cancel: invoke('slurm:cancel'), submit: invoke('slurm:submit'), partitions: invoke('slurm:partitions')
+    cancel: invoke('slurm:cancel'), submit: invoke('slurm:submit'), partitions: invoke('slurm:partitions'), resources: invoke('slurm:resources')
   },
   preview: { render: invoke('preview:render'), fetchRemote: invoke('preview:fetchRemote'), onLog: on('preview:log') },
   git: {

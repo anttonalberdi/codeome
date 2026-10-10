@@ -46,11 +46,11 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 - Every copy is a row in the **queue**: waiting, running with its progress and speed, done, failed with the reason, or cancelled. The queue runs two transfers at a time (1 to 4, your choice); *Pause* starts no new ones. A row can be cancelled, tried again or removed, and *Clear finished* tidies up. Copies started in the Files sidebar join the same queue, and the sidebar shows the ones in progress.
 - A copy between the HPC and the storage runs in a terminal on the HPC, as before, and its row follows how it ends. Copying within the storage is not possible, as SFTP has no copy.
 
-**Slurm** — live `squeue`, recent `sacct` history with exit codes and memory, a log viewer that follows `stdout`/`stderr`, cancel, submit (`sbatch`) from the editor, and a job-script template.
+**Slurm** — running, waiting and finished jobs in three sections that collapse and resize like the ones in Files: live `squeue`, and recent `sacct` history with exit codes and memory, where jobs that failed, timed out or ran out of memory are marked in red. A fourth section at the bottom shows what the cluster has free and in use (CPUs, memory, GPUs and the jobs waiting, for the whole cluster and per partition). Click a job for its log viewer, which follows `stdout`/`stderr`; a job that hasn't finished opens on its details instead. Also cancel, submit (`sbatch`) from the editor, and a job-script template.
 
 **Reports** — `⇧⌘V` renders `.qmd` (Quarto), `.Rmd` (rmarkdown) and `.ipynb`, and previews HTML, images and PDFs. Re-renders on save. Remote plots and reports are fetched and shown in place.
 
-**Git & GitHub** — status, diff, stage, commit, pull, push, history; with the GitHub CLI: publish a repo, open pull requests, create releases.
+**Git & GitHub** — status, diff, stage, commit, pull, push, history; with the GitHub CLI: publish a repo, open pull requests, create releases. Changes, history and GitHub are three sections that collapse and resize like the ones in Files, with GitHub in the lower third.
 
 **Zenodo** — create drafts, edit metadata, upload files, publish and create new versions (sandbox supported). Tip: link a GitHub repo in Zenodo's GitHub settings and every GitHub release from Codeome gets a DOI.
 

@@ -55,7 +55,7 @@ const DEFAULTS = {
   // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight };
   // pkgPanes: the same for the Packages view (python / r), plus shown: true|false for R;
   // transfer: the Transfer view → { left, right: { host, dirs }, queueH, parallel }.
-  ui: { projectsCollapsed: false, panes: {}, pkgPanes: {}, transfer: {} },
+  ui: { projectsCollapsed: false, panes: {}, pkgPanes: {}, slurmPanes: {}, gitPanes: {}, transfer: {} },
   recentFolders: []
 };
 

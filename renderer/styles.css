@@ -387,6 +387,22 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 
 /* ---------- Slurm ---------- */
 .jobs { overflow: auto; }
+.pane-scroll { flex: 1; min-height: 0; overflow: auto; }
+.pane-count { flex: none; margin-left: auto; padding-left: 8px; font-size: 11px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; gap: 6px; }
+.pane-count .bad { color: var(--fail); font-weight: 600; }
+.job.failed { box-shadow: inset 3px 0 var(--fail); }
+.job.failed .state { background: color-mix(in srgb, var(--fail) 14%, transparent); padding: 0 6px; border-radius: 8px; }
+.res-part { padding: 7px 12px 8px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
+.res-name { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.res-name b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-name span, .res-note { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.res-note { white-space: normal; }
+.res-meter { display: grid; grid-template-columns: 30px minmax(40px, 1fr) auto; gap: 8px; align-items: center; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.res-meter .k { color: var(--muted); }
+.res-meter .v { white-space: nowrap; }
+.res-meter .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.res-meter .bar i { display: block; height: 100%; background: var(--run); }
+.res-meter .bar.full i { background: var(--pend); }
 .job { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; }
 .job:hover { background: var(--surface-2); }
 .job.sel { background: var(--sel); }
@@ -396,7 +412,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .job .meta span { white-space: nowrap; }
 .state { font-size: 11px; font-weight: 600; }
 .state.RUNNING { color: var(--run); } .state.PENDING { color: var(--pend); }
-.state.FAILED, .state.TIMEOUT, .state.OUT_OF_MEMORY, .state.NODE_FAIL, .state.CANCELLED { color: var(--fail); }
+.state.FAILED, .state.TIMEOUT, .state.OUT_OF_MEMORY, .state.NODE_FAIL, .state.CANCELLED, .state.BOOT_FAIL, .state.DEADLINE, .state.PREEMPTED { color: var(--fail); }
 .state.COMPLETED { color: var(--done); }
 .state.running { color: var(--run); } .state.done { color: var(--done); }
 .state.failed, .state.lost, .state.cancelled { color: var(--fail); } .state.stale { color: var(--pend); }
@@ -557,8 +573,6 @@ button.cs:hover { text-decoration-color: currentColor; }
 .group-label { padding: 10px 12px 4px; font-size: 12px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
 
 /* ---------- Git ---------- */
-/* Sections keep their height and the view scrolls, instead of squeezing them over each other. */
-.view[data-view="git"] > * { flex: none; }
 .gitfile { display: grid; grid-template-columns: 18px 1fr auto; gap: 6px; align-items: center; padding: 2px 12px; cursor: pointer; }
 .gitfile:hover { background: var(--surface-2); }
 .gitfile .st { font-family: var(--mono); font-size: 11px; font-weight: 600; text-align: center; }

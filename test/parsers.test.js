@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { parseListing, passwordFiller } = require('../main/ssh');
-const { parsePipe, SQ_FIELDS, SACCT_FIELDS } = require('../main/slurm');
+const { parsePipe, parseNodes, SQ_FIELDS, SACCT_FIELDS } = require('../main/slurm');
 const { q } = require('../main/util');
 
 test('remote listing parses find -printf output and sorts folders first', () => {
@@ -27,6 +27,22 @@ test('sacct fields cover the requested columns', () => {
   const rows = parsePipe('99|assemble|FAILED|00:10:00|1:0|2026-10-09T09:00:00|2026-10-09T09:10:00|standard||16|/w\n99.batch|batch|FAILED|00:10:00|1:0|||||16|\n', SACCT_FIELDS);
   assert.strictEqual(rows[0].exitcode, '1:0');
   assert.strictEqual(rows[1].id, '99.batch');
+});
+
+test('scontrol nodes add up per partition, leaving out nodes that are down', () => {
+  const out = [
+    'NodeName=n1 Arch=x86_64 CPUAlloc=12 CPUTot=32 Gres=(null) RealMemory=512000 AllocMem=128000 State=MIXED Partitions=cpu,long CfgTRES=cpu=32,mem=512000M AllocTRES=cpu=12,mem=128000M',
+    'NodeName=n2 CPUAlloc=0 CPUTot=32 RealMemory=512000 AllocMem=0 State=IDLE+DRAIN Partitions=cpu CfgTRES=cpu=32,mem=512000M AllocTRES=',
+    'NodeName=g1 CPUAlloc=8 CPUTot=64 Gres=gpu:a100:4 RealMemory=1000000 AllocMem=64000 State=MIXED Partitions=gpu CfgTRES=cpu=64,mem=1000000M,gres/gpu=4,gres/gpu:a100=4 AllocTRES=cpu=8,mem=64000M,gres/gpu=1,gres/gpu:a100=1',
+    'NodeName=n3 CPUAlloc=0 CPUTot=32 RealMemory=512000 AllocMem=0 State=DOWN* Partitions=long', ''
+  ].join('\n');
+  const r = parseNodes(out);
+  const by = Object.fromEntries(r.partitions.map((p) => [p.name, p]));
+  assert.deepStrictEqual(Object.keys(by), ['cpu', 'long', 'gpu']);
+  assert.deepStrictEqual([by.cpu.nodes, by.cpu.offline, by.cpu.cpus, by.cpu.cpusUsed], [2, 1, 32, 12]);
+  assert.deepStrictEqual([by.long.nodes, by.long.offline, by.long.cpus, by.long.memUsed], [2, 1, 32, 128000]);
+  assert.deepStrictEqual([by.gpu.gpus, by.gpu.gpusUsed], [4, 1]);
+  assert.deepStrictEqual([r.total.nodes, r.total.offline, r.total.cpus, r.total.cpusUsed], [4, 2, 96, 20]);
 });
 
 test('shell quoting survives single quotes', () => {

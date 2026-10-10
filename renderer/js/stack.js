@@ -8,13 +8,15 @@
   const CHEVRON = '<svg viewBox="0 0 16 16"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
 
   // sections: [{ id, title, tools: [nodes], dot: node, menu: () => items (the ⋯ button),
-  //   items: () => extra items for the header's context menu, body: node, onExpand }]
+  //   items: () => extra items for the header's context menu, body: node, onExpand,
+  //   weight: share of the height until the user drags a handle (default 1) }]
   App.stack = function ({ key, sections }) {
     const ids = sections.map((s) => s.id);
     const def = Object.fromEntries(sections.map((s) => [s.id, s]));
     const S = { panes: {}, hidden: new Set(), el: h('div.pane-stack') };
     const cfgOf = (id) => { const u = App.cfg.ui; const p = (u[key] = u[key] || {}); return (p[id] = p[id] || {}); };
     const open = (id) => !S.hidden.has(id) && !cfgOf(id).collapsed;
+    const weightOf = (id) => cfgOf(id).weight || def[id].weight || 1;
     S.cfg = cfgOf;
     S.title = (id) => cfgOf(id).title || def[id].title;
     S.isOpen = open;
@@ -44,7 +46,7 @@
         if (!a || !b) return;
         e.preventDefault();
         const ha = S.panes[a].el.getBoundingClientRect().height, hb = S.panes[b].el.getBoundingClientRect().height;
-        const w = (cfgOf(a).weight || 1) + (cfgOf(b).weight || 1), total = ha + hb, min = 64, y0 = e.clientY;
+        const w = weightOf(a) + weightOf(b), total = ha + hb, min = 64, y0 = e.clientY;
         document.body.classList.add('row-resizing');
         const move = (ev) => {
           const na = Math.max(min, Math.min(total - min, ha + ev.clientY - y0));
@@ -65,7 +67,7 @@
         p.el.classList.toggle('collapsed', !!c.collapsed);
         p.body.hidden = p.tools.hidden = !!c.collapsed;
         p.toggle.setAttribute('aria-expanded', String(!c.collapsed));
-        p.el.style.flex = c.collapsed ? '0 0 auto' : `${c.weight || 1} 1 0px`;
+        p.el.style.flex = c.collapsed ? '0 0 auto' : `${weightOf(id)} 1 0px`;
       }
       // A handle shows between two shown sections, and works with an open one on both sides.
       S.el.querySelectorAll(':scope > .pane-resizer').forEach((rz) => {

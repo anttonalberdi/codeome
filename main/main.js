@@ -456,6 +456,7 @@ ipcMain.handle('slurm:tail', (_e, { file, lines }) => slurm.tail(cfg.hpc.host, f
 ipcMain.handle('slurm:cancel', (_e, id) => slurm.cancel(cfg.hpc.host, id));
 ipcMain.handle('slurm:submit', (_e, p) => slurm.submit(cfg.hpc.host, p));
 ipcMain.handle('slurm:partitions', () => slurm.partitions(cfg.hpc.host));
+ipcMain.handle('slurm:resources', () => slurm.resources(cfg.hpc.host));
 
 // ---------- Preview / rendering ----------
 const cacheDir = () => { const d = path.join(app.getPath('userData'), 'preview-cache'); fs.mkdirSync(d, { recursive: true }); return d; };

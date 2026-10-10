@@ -1,13 +1,23 @@
-// Git & GitHub view for the open project folder.
+// Git & GitHub view for the open project folder: the changes to commit, the history and
+// GitHub in stacked sections (see stack.js).
 (function () {
   const h = App.h;
   const G = { st: null };
   App.views.git = G;
-  let root;
+  let root, msg;
+  // GitHub takes the lower third; the changes get more of the rest than the history.
+  const SECTIONS = [{ id: 'changes', title: 'Changes', weight: 1.3 }, { id: 'history', title: 'History', weight: 0.7 }, { id: 'github', title: 'GitHub', weight: 1 }];
+  const body = (id) => SECTIONS.find((s) => s.id === id).body;
 
   G.init = () => {
     root = document.querySelector('.view[data-view="git"]');
-    App.listen('project', () => G.refresh());
+    root.classList.add('files-view');
+    for (const s of SECTIONS) { s.dot = h('span.pane-count'); s.body = h('div.pane-scroll'); }
+    G.stack = App.stack({ key: 'gitPanes', sections: SECTIONS });
+    // Kept across refreshes, so a half-written message survives them.
+    msg = h('textarea', { rows: 3, placeholder: 'Describe the change', 'aria-label': 'Commit message' });
+    msg.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) commit(); });
+    App.listen('project', () => { msg.value = ''; G.refresh(); });
     App.listen('saved', (t) => { if (!t.remote && App.currentView === 'git') G.refresh(); });
     App.listen('view', (v) => { if (v === 'git') G.refresh(); });
   };
@@ -37,6 +47,7 @@
   }
 
   function render() {
+    for (const s of SECTIONS) s.top = s.body.scrollTop;
     root.innerHTML = '';
     root.append(head());
     const st = G.st;
@@ -50,26 +61,24 @@
 
     const staged = st.files.filter((f) => f.x !== ' ' && f.x !== '?');
     const unstaged = st.files.filter((f) => f.y !== ' ' || f.x === '?');
-    const msg = h('textarea', { rows: 3, placeholder: 'Describe the change', 'aria-label': 'Commit message' });
-    msg.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) commit(); });
-    async function commit() {
-      if (!msg.value.trim()) return App.toast('Write a commit message first.');
-      if (!staged.length) { if (!(await git(['add', '-A']))) return; }
-      if (await git(['commit', '-m', msg.value.trim()], 'Committed.')) msg.value = '';
-    }
     const ahead = /ahead (\d+)/.exec(st.head), behind = /behind (\d+)/.exec(st.head);
-    root.append(h('div.side-section', h('div.pad.form', msg,
+    for (const s of SECTIONS) s.body.innerHTML = '';
+    const [changes, history, ghSec] = SECTIONS.map((s) => s.body);
+    SECTIONS[0].dot.textContent = st.files.length ? String(st.files.length) : '';
+    SECTIONS[1].dot.textContent = st.log.length ? String(st.log.length) : '';
+    changes.append(h('div.pad.form', msg,
       h('div.row.wrap',
         h('button.btn.primary.small', { onclick: commit, title: '⌘↩' }, staged.length ? `Commit ${staged.length} staged` : (unstaged.length ? 'Commit all changes' : 'Commit')),
         h('button.btn.small', { onclick: () => git(['pull', '--rebase', '--autostash'], 'Pulled.') }, 'Pull' + (behind ? ' ' + behind[1] : '')),
-        h('button.btn.small', { onclick: () => git(track ? ['push'] : ['push', '-u', 'origin', branch], 'Pushed.') , disabled: !st.remote }, 'Push' + (ahead ? ' ' + ahead[1] : ''))))));
+        h('button.btn.small', { onclick: () => git(track ? ['push'] : ['push', '-u', 'origin', branch], 'Pushed.') , disabled: !st.remote }, 'Push' + (ahead ? ' ' + ahead[1] : '')))));
 
     if (staged.length) fileGroup('Staged', staged, true);
     if (unstaged.length) fileGroup('Changes', unstaged, false);
-    if (!st.files.length) root.append(h('div.empty', 'No changes since the last commit.'));
+    if (!st.files.length) changes.append(h('div.empty', 'No changes since the last commit.'));
 
-    // GitHub
-    const ghSec = h('div.side-section', h('div.side-head', h('h2', 'GitHub')));
+    if (!st.log.length) history.append(h('div.empty', 'No commits yet.'));
+    for (const c of st.log) history.append(h('div.commit', { title: c.author }, h('span.h', c.hash), h('span.s', c.subject), h('span.w', c.when + ' · ' + c.author)));
+
     if (!App.env.tools.gh) ghSec.append(h('div.empty', 'Install the GitHub CLI (brew install gh) and run "gh auth login" to create repositories, pull requests and releases from here.'));
     else if (!st.gh) ghSec.append(h('div.empty', 'GitHub CLI is not signed in.', h('br'), h('button.btn.small', { onclick: () => App.views.terminals.task('gh login', 'gh auth login', st.root) }, 'Sign in')));
     else if (!st.remote) ghSec.append(h('div.pad.form', h('div.hint', 'This repository is not on GitHub yet.'),
@@ -81,17 +90,20 @@
         h('button.btn.small', { onclick: createPR, disabled: branch === 'main' || branch === 'master' }, 'Pull request…'),
         h('button.btn.small', { onclick: createRelease }, 'Release…')),
       h('div.hint', 'If the repository is linked in Zenodo’s GitHub settings, each release gets a DOI automatically.')));
-    root.append(ghSec);
+    root.append(G.stack.el);
+    for (const s of SECTIONS) s.body.scrollTop = s.top;
+  }
 
-    if (st.log.length) {
-      const logSec = h('div.side-section', h('div.side-head', h('h2', 'History')));
-      for (const c of st.log) logSec.append(h('div.commit', { title: c.author }, h('span.h', c.hash), h('span.s', c.subject), h('span.w', c.when + ' · ' + c.author)));
-      root.append(logSec);
-    }
+  async function commit() {
+    const st = G.st;
+    if (!st || !st.repo) return;
+    if (!msg.value.trim()) return App.toast('Write a commit message first.');
+    if (!st.files.some((f) => f.x !== ' ' && f.x !== '?')) { if (!(await git(['add', '-A']))) return; }
+    if (await git(['commit', '-m', msg.value.trim()], 'Committed.')) msg.value = '';
   }
 
   function fileGroup(label, files, staged) {
-    const sec = h('div.side-section');
+    const sec = h('div.git-group');
     sec.append(h('div.group-label', h('span', label), h('span', h('button.btn.ghost.small', { onclick: () => git(staged ? ['reset', '-q'] : ['add', '-A']) }, staged ? 'Unstage all' : 'Stage all'))));
     for (const f of files) {
       const code = staged ? f.x : (f.x === '?' ? 'U' : f.y);
@@ -106,7 +118,7 @@
       }, h('span.st.' + code, code), h('span.p', f.path),
       h('button.icon-btn.small', { title: staged ? 'Unstage' : 'Stage', 'aria-label': staged ? 'Unstage' : 'Stage', html: staged ? '<svg viewBox="0 0 16 16"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5"/></svg>' : App.icons.plus, onclick: (e) => { e.stopPropagation(); git(staged ? ['reset', '-q', '--', f.path] : ['add', '--', f.path]); } })));
     }
-    root.append(sec);
+    body('changes').append(sec);
   }
 
   async function openDiff(f, staged) {
