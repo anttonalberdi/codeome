@@ -182,6 +182,7 @@
   // Started from Settings, it returns there afterwards (stay: the caller does that).
   U.signIn = async (engine, a, { stay = false } = {}) => {
     App.closePopover();
+    if (!(await App.setup.ensureCli(engine))) return -1;
     const back = App.views.settings.isOpen && !stay;
     App.views.settings.close();
     const T = App.views.terminals;
@@ -207,6 +208,7 @@
   // the browser page looks the same for all of them.
   U.signInAll = async (todo) => {
     const back = App.views.settings.isOpen;
+    for (const engine of new Set(todo.map((x) => x.engine))) if (!(await App.setup.ensureCli(engine))) return;
     for (const [i, { engine, a }] of todo.entries()) {
       const ok = await App.modal({
         title: `Sign in to ${NAME[engine]}${U.isEmail(a.name) ? ' as ' + a.name : ''}`,
@@ -224,6 +226,7 @@
   U.addAccount = async (engine, found) => {
     App.closePopover();
     const label = NAME[engine];
+    if (!(await App.setup.ensureCli(engine))) return;
     let email = found && found.email;
     if (!email) {
       email = await App.prompt(`Add a ${label} account`, 'Email address', '', { placeholder: 'you@university.org', ok: 'Add and sign in',

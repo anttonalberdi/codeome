@@ -186,8 +186,13 @@
       App.views.projects.render(); renderWelcome();
       if (!env.ptyOk) App.err('Terminals need a one-time rebuild. In the Codeome folder run: npm run rebuild\n\n' + env.ptyError.split('\n')[0]);
       const missing = App.cfg.agents.filter((a) => env.tools[a.cmd.split(' ')[0]] === false).map((a) => a.name);
-      if (missing.length) App.toast(`${missing.join(' and ')} not found on this Mac's PATH. Install it or adjust the command in Settings.`);
+      const getable = ['claude', 'codex'].filter((t) => env.installable.includes(t));
+      if (missing.length) App.toast(`${missing.join(' and ')} not found on this Mac's PATH. Install it or adjust the command in Settings.`,
+        getable.length ? { action: { label: 'Install', run: () => App.setup.install(getable) } } : undefined);
       App.setup.check(env);
+      // Newer agent CLIs are suggested about once a week (the lookup itself is rate-limited in main).
+      setTimeout(() => App.setup.checkClis({ suggest: true }), 8000);
+      setInterval(() => App.setup.checkClis({ suggest: true }), 6 * 3600 * 1000);
     });
     await App.views.projects.restore();
     if (!App.project) App.views.files.go('local', App.cfg.localRoot || '~');

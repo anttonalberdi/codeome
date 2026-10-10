@@ -821,8 +821,23 @@
     const installable = App.env.installable || [];
     const recipes = App.env.recipes || {};
     const install = async (list) => { if (await App.setup.install(list)) S.open('mac'); };
+    const versions = h('div.su-list');
+    const showVersions = (r) => {
+      if (!r) return versions.replaceChildren(h('span.hint', 'Could not check for new versions.'));
+      const rows = ['codeome', 'claude', 'codex'].filter((e) => r.installed[e] !== undefined).map((e) => {
+        const label = { codeome: 'Codeome', codex: 'Codex', claude: 'Claude Code' }[e];
+        const up = r.updates.find((u) => u.engine === e);
+        return up ? stepRow('todo', label, `${up.installed} installed; ${up.latest} is available.`,
+          up.url ? btn('View release', () => codeome.shell.open(up.url)) : btn('Update…', () => App.setup.updateClis([up]).then((ok) => ok && S.open('mac'))))
+          : stepRow('ok', label, r.installed[e] ? `${r.installed[e]}${r.error ? '' : ', up to date'}` : 'Installed');
+      });
+      versions.replaceChildren(...rows, r.error ? h('span.hint', 'Lookup failed: ' + r.error) : null);
+    };
+    App.setup.checkClis().then(showVersions);
     return section('mac', 'This Mac', 'Command-line tools Codeome looked for on your login shell\'s PATH.',
-      card(null, h('div.sp-tools', tools.length ? tools.map(([t, ok]) => h('span.pill' + (ok ? '.ok' : '.warn'), (ok ? '' : 'missing: ') + t)) : h('span.hint', 'Still checking…')),
+      card(null, versions, h('div.sp-foot.row', h('span.grow.hint', 'Codeome, Claude Code and Codex are looked up for new versions about once a week.'),
+        btn('Check for updates', async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = 'Checking…'; showVersions(await App.setup.checkClis({ force: true })); b.disabled = false; b.textContent = 'Check for updates'; })),
+        h('div.sp-tools', tools.length ? tools.map(([t, ok]) => h('span.pill' + (ok ? '.ok' : '.warn'), (ok ? '' : 'missing: ') + t)) : h('span.hint', 'Still checking…')),
         installable.length ? h('div.su-list', installable.map((t) => stepRow('todo', recipes[t].label, `Not installed. Used for: ${recipes[t].why}.`, btn('Install…', () => install([t])))),
           installable.length > 1 ? h('div.sp-foot.row', h('span.grow.hint', 'Installs with Homebrew, after asking.'), btn('Install all…', () => install(installable))) : null) : null));
   }

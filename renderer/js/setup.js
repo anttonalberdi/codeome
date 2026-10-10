@@ -51,6 +51,45 @@
     return code === 0;
   };
 
+  // The Claude Code or Codex CLI, which setting up an AI account or starting a chat needs:
+  // offered for installing when this Mac does not have it. True once it is there.
+  U.ensureCli = async (engine) => {
+    if (!App.env.tools || App.env.tools[engine] !== false) return true;
+    const label = engine === 'codex' ? 'Codex' : 'Claude Code';
+    return U.install([engine], `${label} is not installed on this Mac, and Codeome needs it for this.`);
+  };
+
+  // Update Claude Code and/or Codex in a terminal, each the way it was installed.
+  U.updateClis = async (list) => {
+    const names = and(list.map((u) => u.label));
+    const ok = await App.modal({
+      title: `Update ${names}?`,
+      text: list.map((u) => `${u.label} ${u.installed} → ${u.latest}`).join('\n') + '\n\nCodeome runs this in a terminal:',
+      body: h('pre.sp-code', list.map((u) => u.command).join('\n')),
+      ok: 'Update'
+    });
+    if (!ok) return false;
+    const code = await step({ kind: 'update', engines: list.map((u) => u.engine), title: 'Update ' + names });
+    await redetect();
+    if (code === 0) App.toast(`${names} updated.`); else App.err(`Updating ${names} failed. The terminal shows why.`);
+    return code === 0;
+  };
+
+  // Newer versions of Codeome and of the agent CLIs. Looked up at most once a week unless forced; with
+  // suggest, only what was not suggested already this week is returned (and offered).
+  U.checkClis = async ({ force = false, suggest = false } = {}) => {
+    let r;
+    try { r = await codeome.tools.updates({ force, suggest }); } catch { return null; }
+    if (suggest) {
+      const clis = r.updates.filter((u) => u.command), me = r.updates.find((u) => u.engine === 'codeome');
+      if (me) App.toast(`Codeome ${me.latest} is available. You have ${me.installed}.`,
+        { ms: 20000, action: { label: 'View release', run: () => codeome.shell.open(me.url) } });
+      if (clis.length) App.toast(`${and(clis.map((u) => `${u.label} ${u.latest}`))} ${clis.length > 1 ? 'are' : 'is'} available. You have ${and(clis.map((u) => u.installed))}.`,
+        { ms: 20000, action: { label: 'Update…', run: () => U.updateClis(clis) } });
+    }
+    return r;
+  };
+
   // ---------- VPN tunnel ----------
   // It signs in without a terminal (main/vpn.js): Codeome asks in dialogs for what
   // is not saved, then shows that a sign-in waits for approval on the MFA device.

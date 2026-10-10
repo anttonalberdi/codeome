@@ -133,6 +133,7 @@ async function locate(tool, shell) {
 }
 
 // How to install what Codeome looks for. Most come from Homebrew; git comes with Apple's command-line tools.
+const { INSTALL: INSTALL_CLI } = require('./updates');
 const RECIPES = {
   openconnect: { formula: 'openconnect', label: 'OpenConnect', why: "Codeome's VPN tunnel" },
   ocproxy: { formula: 'ocproxy', label: 'ocproxy', why: "Codeome's VPN tunnel" },
@@ -143,6 +144,8 @@ const RECIPES = {
   quarto: { cask: 'quarto', label: 'Quarto', why: 'Rendering reports' },
   R: { cask: 'r', label: 'R', why: 'The R console' },
   Rscript: { cask: 'r', label: 'R', why: 'Rendering R Markdown' },
+  claude: { command: INSTALL_CLI.claude, label: 'Claude Code', why: 'Claude chats, subagents and sign-in' },
+  codex: { command: INSTALL_CLI.codex, label: 'Codex', why: 'Codex chats, jobs and sign-in' },
   git: { command: 'xcode-select --install', label: 'Git', why: 'Version control' },
   ssh: { command: 'xcode-select --install', label: 'OpenSSH', why: 'Every HPC connection' }
 };

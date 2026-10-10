@@ -267,6 +267,7 @@
   };
 
   async function start(chat) {
+    if (!(await App.setup.ensureCli(engineOf(chat)))) { note(chat, `${ENGINE[engineOf(chat)]} is not installed on this Mac, so this chat cannot start.`, 'error'); return false; }
     // A conversation lives in its account's config folder, so it resumes there.
     const r = await codeome.chat.start({ id: chat.id, project: chat.project, engine: engineOf(chat), account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
       meter: chat.usage ? { context: chat.usage.context, run: chat.usage.run } : null });

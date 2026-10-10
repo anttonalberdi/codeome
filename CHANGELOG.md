@@ -2,6 +2,12 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Install Claude Code and Codex from Codeome**: when the `claude` or `codex` command is not on this Mac, adding or signing in to an account, and starting a chat, offer to install it with the vendor's own installer (`curl -fsSL https://claude.ai/install.sh | bash`, `curl -fsSL https://chatgpt.com/codex/install.sh | sh`) after asking, in a visible terminal, then carry on. *Settings → This Mac* lists both with an *Install…* button, and the start-up notice has an *Install* action.
+- **Weekly update suggestions**: Codeome looks up the latest Codeome (its GitHub releases; *View release* opens the page to download it), Claude Code and Codex versions about once a week and, when yours is older, suggests updating (each way of installing is updated its own way: the vendor script, Homebrew or npm). *Settings → This Mac* shows the versions with a *Check for updates* button.
+
 ## 0.3.2
 
 ### Added

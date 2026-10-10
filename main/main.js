@@ -16,6 +16,7 @@ const { CodexSession } = require('./codexchat');
 const chat = require('./chat');
 const rtools = require('./rtools');
 const setup = require('./setup');
+const updates = require('./updates');
 const vpn = require('./vpn');
 const login = require('./login');
 const gdoc = require('./gdoc');
@@ -137,6 +138,13 @@ function ptySpec(spec) {
       if (!ic) throw new Error('Codeome does not know how to install ' + (spec.tools || []).join(', '));
       return { file: sh, args: ['-l', '-c', finished(ic.command)], cwd: os.homedir() };
     }
+    // Updating Claude Code or Codex the way that copy was installed.
+    case 'update': {
+      const engines = (spec.engines || []).filter((e) => e === 'claude' || e === 'codex');
+      if (!engines.length) throw new Error('Nothing to update.');
+      const cmds = engines.map((e) => updates.updateCommand(e, updates.installedVia(whichSync(cliCmd(e)))));
+      return { file: sh, args: ['-l', '-c', finished(cmds.join(' && '))], cwd: os.homedir() };
+    }
     case 'keygen': {
       const p = keyTarget(spec.key);
       return { file: sh, args: ['-l', '-c', finished(`ssh-keygen -t ed25519 -f ${q(p)} -C ${q(os.userInfo().username + '@codeome')}`)], cwd: os.homedir() };
@@ -148,6 +156,10 @@ function ptySpec(spec) {
     }
     default: throw new Error('Unknown terminal kind ' + spec.kind);
   }
+}
+
+function whichSync(tool) {
+  try { return require('child_process').execFileSync(loginShell(), ['-l', '-c', `command -v ${q(tool)}`], { encoding: 'utf8', timeout: 8000 }).trim().split('\n').pop(); } catch { return ''; }
 }
 
 // A one-off command that ends by saying how it went, keeping its exit status.
@@ -852,9 +864,25 @@ function startUsage() {
   setInterval(() => refreshIdentities().then(publishUsage), 15 * 60000);
 }
 
+// ---------- Claude Code and Codex versions ----------
+const updatesFile = () => path.join(app.getPath('userData'), 'updates.json');
+// opts: { force, suggest } — see updates.check.
+ipcMain.handle('tools:updates', async (_e, opts = {}) => {
+  const engines = { codeome: { path: '', version: require('../package.json').version } };
+  await Promise.all(['claude', 'codex'].map(async (e) => {
+    const bin = await setup.locate(cliCmd(e), loginShell());
+    if (!bin) return;
+    const r = await run(bin, ['--version'], { timeout: 10000, env: augmentedEnv() });
+    const v = updates.semver(r.stdout + ' ' + r.stderr);
+    engines[e] = { path: bin, version: v ? v.join('.') : '' };
+  }));
+  const res = await updates.check({ file: updatesFile(), engines, force: !!opts.force, suggest: !!opts.suggest });
+  return { ...res, installed: Object.fromEntries(Object.entries(engines).map(([e, i]) => [e, i.version])) };
+});
+
 // ---------- environment detection ----------
 ipcMain.handle('env:detect', async () => {
-  const tools = ['git', 'gh', 'quarto', 'R', 'Rscript', 'python3', 'rsync', 'ssh', 'sftp', 'tmux'].concat(cfg.agents.map((a) => a.cmd.split(' ')[0]));
+  const tools = ['git', 'gh', 'quarto', 'R', 'Rscript', 'python3', 'rsync', 'ssh', 'sftp', 'tmux', 'claude', 'codex'].concat(cfg.agents.map((a) => a.cmd.split(' ')[0]));
   const out = {};
   await Promise.all(tools.map(async (t) => { out[t] = (await run(loginShell(), ['-l', '-c', `command -v ${t}`], { timeout: 8000 })).code === 0; }));
   const installable = Object.keys(out).filter((t) => !out[t] && setup.RECIPES[t]);

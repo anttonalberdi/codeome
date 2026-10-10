@@ -112,5 +112,6 @@ contextBridge.exposeInMainWorld('codeome', {
     onState: on('gdoc:state')
   },
   env: { detect: invoke('env:detect') },
+  tools: { updates: invoke('tools:updates') },
   onMenu: on('menu')
 });
