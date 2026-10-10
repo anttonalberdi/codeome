@@ -496,6 +496,10 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 
 .msg.user { align-self: flex-end; max-width: 88%; background: var(--accent-soft); border-radius: 12px 12px 3px 12px; padding: 6px 10px; white-space: pre-wrap; }
 .msg.md { line-height: 1.5; }
+.msg .stamp { float: right; margin: 1px 0 0 10px; font-size: 10.5px; line-height: 1.4; color: var(--muted); font-variant-numeric: tabular-nums; user-select: none; }
+.thinking { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; padding: 2px 0; }
+.thinking .spinner { width: 10px; height: 10px; border-width: 1.5px; }
+.thinking .think-t { font-variant-numeric: tabular-nums; }
 .msg.md > :first-child { margin-top: 0; }
 .msg.md > :last-child { margin-bottom: 0; }
 .msg.md p, .msg.md ul, .msg.md ol, .msg.md pre, .msg.md blockquote, .msg.md .md-table { margin: 0 0 8px; }

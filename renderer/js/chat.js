@@ -258,7 +258,7 @@
     push(chat, files.length ? { t: 'user', text, files } : { t: 'user', text });
     App.emit('chat');
     if (!chat.running && !(await start(chat))) return;
-    chat.busy = true; paintState();
+    chat.busy = true; chat.busySince = Date.now(); paintState();
     const r = await codeome.chat.send(chat.id, withFiles(text, files));
     if (r.error) { note(chat, r.error, 'error'); chat.busy = false; paintState(); }
     chat.started = true;
@@ -344,7 +344,7 @@
   codeome.chat.onExit(({ id, code, signal, stderr }) => {
     const chat = C.byId[id];
     if (!chat) return;
-    chat.running = false; chat.busy = false; chat.stream = {};
+    chat.running = false; chat.busy = false; chat.busySince = 0; chat.stream = {};
     for (const it of chat.items) if (it.t === 'text' && it.live) { it.live = false; update(chat, it); }
     expire(chat);
     if (!chat.stopping && (code || signal)) {
@@ -358,7 +358,7 @@
   function handle(chat, m) {
     switch (m.type) {
       case 'system':
-        if (m.subtype === 'init') { chat.busy = true; chat.model = m.model; paintState(); }
+        if (m.subtype === 'init') { chat.busy = true; chat.busySince ||= Date.now(); chat.model = m.model; paintState(); }
         else if (m.subtype === 'task_notification') taskEnded(chat, m.tool_use_id, m.status);
         else if (m.subtype === 'compact_boundary') note(chat, 'Earlier messages were summarised to free up context.', 'info');
         break;
@@ -374,7 +374,7 @@
         break;
       }
       case 'result': {
-        chat.busy = false; chat.stream = {};
+        chat.busy = false; chat.busySince = 0; chat.stream = {};
         for (const it of chat.items) if (it.t === 'text' && it.live) { it.live = false; update(chat, it); }
         const failed = (m.subtype && m.subtype !== 'success') || (m.is_error && m.result);
         if (m.subtype && m.subtype !== 'success') note(chat, m.subtype === 'error_max_turns' ? 'The agent stopped: it reached its turn limit.' : 'The agent stopped with an error' + (m.result ? ': ' + m.result : '.'), 'error');
@@ -479,7 +479,7 @@
   }
 
   function assistant(chat, m) {
-    chat.busy = true;
+    chat.busy = true; chat.busySince ||= Date.now();
     const parent = m.parent_tool_use_id;
     const msg = m.message || {};
     for (const b of msg.content || []) {
@@ -660,9 +660,30 @@
 
   // ---------- items ----------
   function push(chat, it) {
+    if (!it.at) it.at = Date.now();
     chat.items.push(it);
-    if (chat === cur() && logEl) { const stick = atBottom(); logEl.querySelector('.chat-empty')?.remove(); logEl.append(render(chat, it)); if (stick) scrollEnd(); }
+    if (chat === cur() && logEl) { const stick = atBottom(); logEl.querySelector('.chat-empty')?.remove(); logEl.append(render(chat, it)); paintThinking(); if (stick) scrollEnd(); }
   }
+
+  // ---------- "is thinking" line ----------
+  // Shown at the end of the log from the moment a message is sent until the turn ends, so a
+  // quiet agent is never mistaken for a stuck one. The timer counts the whole turn.
+  let thinkEl = null;
+  const clock = (s) => (s < 3600 ? Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : Math.floor(s / 3600) + ':' + String(Math.floor(s % 3600 / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'));
+  function paintThinking() {
+    if (!logEl) return;
+    const chat = cur();
+    const on = chat && chat.busy && !Object.keys(chat.requests).length && !chat.items.some((x) => x.t === 'text' && x.live);
+    if (!on) { if (thinkEl) thinkEl.remove(); return; }
+    if (!chat.busySince) chat.busySince = Date.now();
+    const secs = Math.max(0, Math.floor((Date.now() - chat.busySince) / 1000));
+    if (!thinkEl) thinkEl = h('div.thinking', { role: 'status' });
+    const stick = atBottom();
+    thinkEl.innerHTML = '';
+    thinkEl.append(h('span.spinner'), h('span', ` ${ENGINE[engineOf(chat)]} is thinking…`), h('span.think-t', clock(secs)));
+    if (logEl.lastChild !== thinkEl) { logEl.append(thinkEl); if (stick) scrollEnd(); }
+  }
+  const stamp = (at) => (at ? h('span.stamp', { title: new Date(at).toLocaleString() }, new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null);
   function note(chat, text, kind) { push(chat, { t: 'note', text, kind }); }
   function remove(chat, it) { chat.items = chat.items.filter((x) => x !== it); const el = dom.get(it); if (el) el.remove(); }
 
@@ -741,6 +762,7 @@
       case 'ask': el = askCard(chat, it); break;
       default: el = h('div');
     }
+    if ((it.t === 'user' || it.t === 'text') && it.at) el.prepend(stamp(it.at));
     dom.set(it, el);
     return el;
   }
@@ -856,6 +878,7 @@
     let pinned = true;
     logEl.addEventListener('scroll', () => { pinned = atBottom(); });
     new ResizeObserver(() => { if (!host.clientWidth) return; autosize(); if (pinned) scrollEnd(); }).observe(host);
+    setInterval(paintThinking, 1000);
     setInterval(() => { const c = cur(); if (c && logEl.isConnected) for (const it of c.items) if (it.t === 'job' && it.status === 'running') update(c, it); }, 5000);
     paint();
   };
@@ -996,6 +1019,7 @@
     }
     paintNotice();
     stateEl.innerHTML = '';
+    paintThinking();
     const waiting = chat && Object.keys(chat.requests).length;
     if (chat && chat.busy) stateEl.append(waiting ? h('span.hint', 'Waiting for you') : h('span.hint', h('span.spinner'), ' Working…'));
     stopBtn.hidden = !(chat && chat.busy);
