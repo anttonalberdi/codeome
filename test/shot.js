@@ -136,6 +136,24 @@ const steps = {
     document.documentElement.style.setProperty('--side-w', '380px');
     App.setView('packages');
   })(); 0`],
+  // Settings → Accounts & limits with five made-up accounts: signed in, signed out, and one doubled sign-in.
+  'settings-accounts': [`(async () => {
+    const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });
+    const fake = { version: 1, stopAt: 90,
+      claude: { active: 'Personal', accounts: [
+        { name: 'Personal', dir: '', email: 'me@example.org', plan: 'max', signedIn: true, windows: w(93, 61), asOf: now - 90 },
+        { name: 'Lab', dir: '~/.claude-lab', email: 'lab@example.org', plan: 'pro', signedIn: true, windows: w(12, 34), asOf: now - 600 },
+        { name: 'Teaching', dir: '~/.claude-teaching', signedIn: false, signedOut: true, windows: {} }] },
+      codex: { active: 'Default', accounts: [
+        { name: 'Default', dir: '', email: 'me@example.org', plan: 'plus', signedIn: true, windows: w(41, 77), asOf: now - 120 },
+        { name: 'Lab', dir: '~/.codex-lab', email: 'me@example.org', plan: 'plus', signedIn: true, windows: w(41, 77), asOf: now - 120 }] } };
+    for (const e of ['claude', 'codex']) App.cfg.accounts[e] = { active: fake[e].active, list: fake[e].accounts.map((a) => ({ name: a.name, dir: a.dir })) };
+    const U = App.views.usage;
+    const put = () => { U.snap = fake; U.paint(); };
+    put(); setInterval(() => { if (U.snap !== fake) { put(); App.emit('usage', fake); } }, 150);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    await App.views.settings.open('accounts');
+  })(); 0`],
   // Two project cards, a file in each, and usage bars from made-up readings.
   projects: [`(async () => {
     const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });

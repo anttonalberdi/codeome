@@ -42,6 +42,11 @@ test('pick keeps the preferred account until it nears the limit, then moves to t
   assert.strictEqual(p.from.name, 'main');
   // Accounts with no reading are tried before giving up.
   assert.strictEqual(usage.pick([acct('main', 95, 0), { name: 'new', windows: {} }], 'main', 90, now).account.name, 'new');
+  // Accounts that are not signed in are skipped, also as the preferred one.
+  assert.strictEqual(usage.pick([acct('main', 95, 0), { name: 'new', windows: {}, signedOut: true }, acct('work', 40, 40)], 'main', 90, now).account.name, 'work');
+  assert.strictEqual(usage.pick([{ name: 'main', windows: {}, signedOut: true }, acct('work', 40, 40)], 'main', 90, now).account.name, 'work');
+  assert.strictEqual(usage.pick([{ name: 'main', windows: {}, signedOut: true }], 'main', 90, now).account.name, 'main');
+  assert.strictEqual(usage.pick([acct('main', 95, 0), { name: 'new', windows: {}, signedOut: true }], 'main', 90, now).blocked, true);
   const blocked = usage.pick([acct('main', 95, 0), acct('work', 10, 91)], 'main', 90, now);
   assert.strictEqual(blocked.blocked, true);
   assert.strictEqual(blocked.account, null);

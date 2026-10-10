@@ -74,15 +74,19 @@ function level(acct, now = nowS()) {
 
 // The account new work should use: the preferred one while it has headroom, otherwise
 // the known account with the most headroom, otherwise one we know nothing about.
+// Accounts that are not signed in are never moved to.
 function pick(accounts, preferred, stopAt, now = nowS()) {
   if (!accounts.length) return { account: null };
   const pref = accounts.find((a) => a.name === preferred) || accounts[0];
   const lv = (a) => level(a, now);
-  if (lv(pref) == null || lv(pref) < stopAt) return { account: pref };
-  const open = accounts.filter((a) => a !== pref && lv(a) != null && lv(a) < stopAt).sort((a, b) => lv(a) - lv(b));
+  if (!pref.signedOut && (lv(pref) == null || lv(pref) < stopAt)) return { account: pref };
+  const others = accounts.filter((a) => a !== pref && !a.signedOut);
+  const open = others.filter((a) => lv(a) != null && lv(a) < stopAt).sort((a, b) => lv(a) - lv(b));
   if (open.length) return { account: open[0], switched: true, from: pref };
-  const unknown = accounts.find((a) => a !== pref && lv(a) == null);
+  const unknown = others.find((a) => lv(a) == null);
   if (unknown) return { account: unknown, switched: true, from: pref };
+  // Nothing else to use: a signed-out account with headroom still starts, and the CLI asks to sign in.
+  if (lv(pref) == null || lv(pref) < stopAt) return { account: pref };
   return { account: null, blocked: true, from: pref };
 }
 

@@ -191,7 +191,9 @@ ipcMain.handle('config:set', (_e, c) => {
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
   cfg = config.save(c);
   applyProxy();
-  if (accountsChanged) refreshUsage(true); else publishUsage();
+  // The new list shows at once; who is signed in and the Codex limits follow.
+  publishUsage();
+  if (accountsChanged) refreshUsage(true);
   return cfg;
 });
 ipcMain.handle('secret:set', (_e, { key, value }) => { config.setSecret(key, value); return true; });
@@ -612,8 +614,10 @@ function accountsOf(engine) {
   return cfg.accounts[engine].list.map((a) => {
     const r = readings[engine][a.name] || {};
     const id = engine === 'claude' ? identities.claude[a.name] || {} : r.account || {};
+    // true / false once the CLI has answered, null while nothing is known yet.
+    const signedIn = engine === 'claude' ? (identities.claude[a.name] ? !id.signedOut : null) : (r.account === undefined ? null : !!r.account);
     return { name: a.name, dir: a.dir, key: usage.accountKey(a.dir), email: id.email || null, plan: id.plan || (r.limits && r.limits.plan) || null,
-      signedOut: !!id.signedOut, windows: r.windows || {}, reached: !!r.reached, asOf: r.asOf || null, error: r.error || null,
+      signedIn, signedOut: signedIn === false, windows: r.windows || {}, reached: !!r.reached, asOf: r.asOf || null, error: r.error || null,
       level: usage.level({ windows: r.windows || {}, reached: r.reached, asOf: r.asOf }, now) };
   });
 }
@@ -647,7 +651,7 @@ function refreshCodex() {
     const prev = readings.codex[a.name] || {};
     readings.codex[a.name] = r.limits
       ? { windows: r.limits.windows, reached: r.limits.reached, limits: r.limits, account: r.account, asOf: Date.now() / 1000 }
-      : { ...prev, account: r.account || prev.account, error: r.error };
+      : { ...prev, account: r.account !== undefined ? r.account : prev.account, error: r.error };
   })).finally(() => { codexBusy = null; });
   return codexBusy;
 }

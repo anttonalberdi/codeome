@@ -6,20 +6,11 @@
   const h = App.h;
   const S = { isOpen: false };
   App.views.settings = S;
-  let page, nav, main, savedEl, agentsHost, setupHost, serverList, storageHost;
+  let page, nav, main, savedEl, agentsHost, setupHost, serverList, storageHost, accountsHost;
   let sections = {};
   let current = 'hpc'; // the section shown; reopening Settings returns to it
 
   const DEFAULT_DIR = { claude: '~/.claude', codex: '~/.codex' };
-  const accountsText = (c, engine) => c.accounts[engine].list.map((a) => `${a.name} = ${a.dir || DEFAULT_DIR[engine]}`).join('\n');
-  // "Name = folder" per line; the CLI's default folder is stored as ''.
-  function parseAccounts(engine, text) {
-    const seen = new Set();
-    return text.split('\n').map((l) => l.split('=')).filter((p) => p[0].trim()).map(([n, ...d]) => {
-      const dir = d.join('=').trim().replace(/\/+$/, '');
-      return { name: n.trim(), dir: !dir || dir === DEFAULT_DIR[engine] || dir === (App.env.home || '~') + DEFAULT_DIR[engine].slice(1) ? '' : dir };
-    }).filter((a) => !seen.has(a.name) && seen.add(a.name));
-  }
 
   // Claude Code takes an alias (latest of that family) or a full model ID.
   const CLAUDE_MODELS = [
@@ -86,6 +77,7 @@
     // The HPC checklist follows the connection, the tunnel and setup steps as they happen.
     for (const ev of ['setup', 'hpc', 'vpn', 'login', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
     for (const ev of ['storage', 'login', 'config']) App.listen(ev, () => { if (S.isOpen) renderStorage(); });
+    for (const ev of ['usage', 'config']) App.listen(ev, () => { if (S.isOpen) renderAccounts(); });
     App.listen('env', () => { if (S.isOpen && current === 'mac') sections.mac.replaceWith(macSection()); });
   }
 
@@ -166,7 +158,7 @@
   async function show(id) {
     current = id;
     markNav(id);
-    agentsHost = setupHost = serverList = storageHost = null;
+    agentsHost = setupHost = serverList = storageHost = accountsHost = null;
     sections = {};
     const el = await BUILD[id](App.cfg);
     if (id !== current) return; // another section was picked while this one loaded
@@ -175,6 +167,7 @@
     if (id === 'agents') renderAgents();
     if (id === 'hpc') { renderSetup(); App.setup.refresh(); }
     if (id === 'storage') renderStorage();
+    if (id === 'accounts') { renderAccounts(); findFolders(); }
   }
 
   // ---------- HPC ----------
@@ -506,22 +499,105 @@
   }
 
   // ---------- accounts ----------
-  function accountsSection(c) {
-    const area = (engine) => h('textarea', { rows: Math.max(2, c.accounts[engine].list.length + 1), spellcheck: 'false', 'aria-label': `${engine} accounts`,
-      onchange: (e) => {
-        const list = parseAccounts(engine, e.target.value);
-        if (!list.length) { e.target.value = accountsText(App.cfg, engine); return; }
-        const cur = App.cfg.accounts[engine];
-        App.cfg.accounts[engine] = { active: list.some((a) => a.name === cur.active) ? cur.active : list[0].name, list };
-        commit();
-      } }, accountsText(c, engine));
-    const add = (engine, label) => h('button.btn.small.ghost', { onclick: () => App.views.usage.addAccount(engine) }, `Add a ${label} account and sign in…`);
-    return section('accounts', 'Accounts & limits', 'Each account is a config folder. Agent jobs and new chats move to an account with headroom.',
-      card(null,
-        row('Claude accounts', h('div', area('claude'), add('claude', 'Claude')), 'One per line: Name = config folder (CLAUDE_CONFIG_DIR). ~/.claude is the default sign-in.'),
-        row('Codex accounts', h('div', area('codex'), add('codex', 'Codex')), 'One per line: Name = folder (CODEX_HOME). ~/.codex is the default.'),
+  // One card per account: who is signed in, its usage, and what can be done with it.
+  const ACCT_ENGINES = [['claude', 'Claude', 'CLAUDE_CONFIG_DIR'], ['codex', 'Codex', 'CODEX_HOME']];
+  // A config folder holds one of these once its CLI has run there.
+  const FOLDER_MARK = { claude: ['.claude.json', '.credentials.json', 'settings.json'], codex: ['auth.json', 'config.toml'] };
+  let foundFolders = { claude: [], codex: [] };
+
+  function accountsSection() {
+    accountsHost = h('div');
+    return section('accounts', 'Accounts & limits', 'Each account is its own sign-in, kept in its own folder. Codex jobs and new chats start on the active account and move to another signed-in one when it nears its limit.',
+      accountsHost,
+      card('Limits',
         row('Hold back new jobs at', h('div.row', text(() => App.cfg.usage.stopAt, (v) => { App.cfg.usage.stopAt = Math.min(100, Math.max(50, Number(v) || 90)); }, { type: 'number', label: 'Percent' }), h('span.hint', '% of the 5-hour or weekly limit')),
           'Codex jobs move to an account with headroom; Claude subagents pause; new chats start on the Claude account with the most headroom.')));
+  }
+
+  // The configured accounts with what is known about each (the readings can lag the list).
+  function accountsOf(engine) {
+    const snap = App.views.usage.accounts(engine);
+    return App.cfg.accounts[engine].list.map((a) => snap.find((x) => x.name === a.name && (x.dir || '') === (a.dir || '')) || { name: a.name, dir: a.dir, signedIn: null, windows: {} });
+  }
+
+  function renderAccounts() {
+    if (!accountsHost) return;
+    const U = App.views.usage;
+    const all = ACCT_ENGINES.flatMap(([engine]) => accountsOf(engine).map((a) => ({ engine, a })));
+    const out = all.filter((x) => x.a.signedIn === false);
+    const signed = all.filter((x) => x.a.signedIn).length;
+    const kids = [];
+    if (all.length > 2 || out.length) kids.push(h('div.sp-banner.acct-banner',
+      h('span.grow', signed === all.length ? `All ${all.length} accounts are signed in.` : out.length ? `${signed} of ${all.length} accounts are signed in.` : 'Asking who is signed in…'),
+      out.length ? btn(out.length > 1 ? `Sign in to the other ${out.length}…` : 'Sign in…', () => U.signInAll(out), true) : null,
+      btn('Check again', async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = 'Checking…'; await codeome.usage.refresh(); renderAccounts(); })));
+    for (const [engine, label, envVar] of ACCT_ENGINES) {
+      const list = accountsOf(engine);
+      const active = App.cfg.accounts[engine].active;
+      kids.push(h('div.acct-head', h('h3', `${label} accounts`), h('span.hint', `${list.length} · each a ${envVar} folder`)),
+        h('div.acct-grid',
+          list.map((a) => accountCard(engine, label, a, list, a.name === active)),
+          foundFolders[engine].filter((d) => !list.some((a) => App.tildify(a.dir) === d)).map((d) => h('button.acct-add', { onclick: () => U.addAccount(engine, { name: d.replace(/^~\/\.(claude|codex)-?/, ''), dir: d }) },
+            h('b', 'Add ' + d), h('span', `A ${label} folder found on this Mac`))),
+          h('button.acct-add', { onclick: () => U.addAccount(engine) }, h('b', `Add a ${label} account…`), h('span', 'A new folder with its own sign-in'))));
+    }
+    accountsHost.replaceChildren(...kids);
+  }
+
+  function accountCard(engine, label, a, list, isActive) {
+    const U = App.views.usage;
+    const who = [a.email, a.plan].filter(Boolean).join(' · ');
+    const twin = a.email ? list.find((x) => x !== a && x.email === a.email) : null;
+    const state = a.signedIn === false ? h('span.pill.warn', 'not signed in') : a.signedIn ? h('span.pill.ok', 'signed in') : h('span.pill', 'checking…');
+    return h('div.acct-card' + (isActive ? '.active' : '') + (a.signedIn === false ? '.out' : ''), { role: 'group', 'aria-label': `${label} account ${a.name}` },
+      h('div.acct-top', h('b.grow', { title: a.name }, a.name), isActive ? h('span.pill.own', { title: 'New work starts here while it has headroom' }, 'active') : null, state),
+      h('div.acct-who', who || (a.signedIn === false ? `Sign in to use this account.` : a.signedIn ? 'Signed in' : (a.error || 'Asking who is signed in…'))),
+      twin ? h('div.acct-warn', `Same sign-in as ${twin.name}, so they share one limit. Sign in again with another ${label} login.`) : null,
+      a.signedIn === false ? null : U.lines(engine, a),
+      h('div.acct-dir', { title: `${ACCT_ENGINES.find((e) => e[0] === engine)[2]} for this account` }, App.tildify(a.dir) || DEFAULT_DIR[engine]),
+      h('div.acct-acts',
+        a.signedIn === false ? btn('Sign in…', () => U.signInAll([{ engine, a }]), true) : null,
+        isActive || a.signedIn === false ? null : btn('Make active', () => codeome.usage.setActive(engine, a.name).then((r) => { if (r && !r.error) { App.cfg.accounts[engine].active = a.name; renderAccounts(); flash(); } })),
+        a.signedIn === false ? null : h('button.btn.small.ghost', { onclick: () => U.signInAll([{ engine, a }]) }, a.signedIn ? 'Sign in again…' : 'Sign in…'),
+        h('span.grow'),
+        h('button.btn.small.ghost', { onclick: () => renameAccount(engine, label, a) }, 'Rename'),
+        list.length > 1 ? h('button.btn.small.ghost.danger', { onclick: () => removeAccount(engine, label, a) }, 'Remove') : null));
+  }
+
+  async function renameAccount(engine, label, a) {
+    const name = await App.prompt(`Rename ${label} account`, 'Name', a.name);
+    if (!name || name === a.name) return;
+    const accts = App.cfg.accounts[engine];
+    if (accts.list.some((x) => x.name === name)) return App.err(`There is already a ${label} account called ${name}.`);
+    const entry = accts.list.find((x) => x.name === a.name);
+    if (!entry) return;
+    entry.name = name;
+    if (accts.active === a.name) accts.active = name;
+    await App.saveConfig(); flash();
+  }
+
+  async function removeAccount(engine, label, a) {
+    const dir = App.tildify(a.dir) || DEFAULT_DIR[engine];
+    if (!await App.confirm(`Remove ${label} account ${a.name}?`, `Codeome stops using it. The folder ${dir} and its sign-in stay on this Mac, so it can be added again. Chats started on it can no longer continue there.`, 'Remove', true)) return;
+    const accts = App.cfg.accounts[engine];
+    accts.list = accts.list.filter((x) => x.name !== a.name);
+    if (accts.active === a.name) accts.active = accts.list[0].name;
+    await App.saveConfig(); flash();
+  }
+
+  // Config folders in the home folder that are not accounts yet (~/.claude-lab, ~/.codex-work).
+  async function findFolders() {
+    const home = await codeome.local.list('~');
+    const found = { claude: [], codex: [] };
+    for (const [engine] of ACCT_ENGINES) {
+      const names = (home.entries || []).filter((e) => e.dir && e.name.startsWith(`.${engine}-`)).map((e) => e.name);
+      for (const n of names) {
+        const inside = await codeome.local.list('~/' + n);
+        if ((inside.entries || []).some((e) => FOLDER_MARK[engine].includes(e.name))) found[engine].push('~/' + n);
+      }
+    }
+    foundFolders = found;
+    renderAccounts();
   }
 
   function pythonSection(c) {

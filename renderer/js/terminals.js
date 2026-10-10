@@ -85,6 +85,8 @@
     const t = T.get(id); if (!t) return;
     codeome.pty.kill(id); t.term.dispose(); t.el.remove();
     T.list = T.list.filter((x) => x !== t);
+    // Closing a running tab ends what waits for it: its exit is no longer reported.
+    if (t.alive && t.spec.onExit) { t.alive = false; t.spec.onExit(-1); }
     if (T.lastActive[t.project] === id) delete T.lastActive[t.project];
     if (T.active === id) { const last = T.visible().pop(); if (last) T.activate(last.id); else { T.active = null; renderTabs(); showEmpty(); } }
     else renderTabs();

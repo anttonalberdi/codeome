@@ -215,13 +215,18 @@ def pick_account(accounts, preferred, stop_at, now):
         return None, False
     pref = next((a for a in accounts if a.get('name') == preferred), accounts[0])
     lv = lambda a: level(a, now)
-    if lv(pref) is None or lv(pref) < stop_at:
+    headroom = lv(pref) is None or lv(pref) < stop_at
+    if headroom and not pref.get('signedOut'):
         return pref, False
-    open_ = sorted((a for a in accounts if a is not pref and lv(a) is not None and lv(a) < stop_at), key=lv)
+    # Accounts that are not signed in are never moved to.
+    others = [a for a in accounts if a is not pref and not a.get('signedOut')]
+    open_ = sorted((a for a in others if lv(a) is not None and lv(a) < stop_at), key=lv)
     if open_:
         return open_[0], False
-    unknown = next((a for a in accounts if a is not pref and lv(a) is None), None)
-    return (unknown, False) if unknown else (None, True)
+    unknown = next((a for a in others if lv(a) is None), None)
+    if unknown:
+        return unknown, False
+    return (pref, False) if headroom else (None, True)
 
 
 def fmt_reset(ts):
