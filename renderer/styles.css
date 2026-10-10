@@ -624,6 +624,23 @@ button.cs:hover { text-decoration-color: currentColor; }
 .sp-empty { padding: 14px; color: var(--muted); font-size: 12.5px; }
 .sp-banner { display: flex; gap: 10px; align-items: center; margin: 10px 14px 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); font-size: 12px; }
 .sp-tools { display: flex; flex-wrap: wrap; gap: 5px; padding: 12px 14px; }
+.sp-ctl > div > input[list] { width: 100%; max-width: 460px; }
+/* HPC setup checklist */
+.su-list { display: flex; flex-direction: column; }
+.su-row { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--line); }
+.su-list > .su-row:first-child { border-top: 0; }
+.sp-tools + .su-list > .su-row:first-child { border-top: 1px solid var(--line); }
+.su-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); justify-self: center; }
+.su-row.su-ok .su-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.su-row.su-todo .su-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+.su-row.su-warn .su-dot { background: var(--fail); }
+.su-row.su-busy .su-dot { background: var(--pend); animation: pulse 1.2s ease-in-out infinite; }
+.su-row.su-off { color: var(--muted); }
+.su-text { min-width: 0; }
+.su-text b { font-weight: 550; }
+.su-text .hint { font-size: 11.5px; margin-top: 1px; overflow-wrap: anywhere; }
+.su-act { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+@media (prefers-reduced-motion: reduce) { .su-row.su-busy .su-dot { animation: none; } }
 .cli-list { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; }
 .cli-row { display: grid; grid-template-columns: minmax(120px, 200px) 1fr 24px; gap: 8px; align-items: center; }
 input.mono { font-family: var(--mono); font-size: 12px; }

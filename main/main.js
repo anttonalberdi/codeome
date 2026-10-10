@@ -13,6 +13,7 @@ const jobs = require('./jobs');
 const usage = require('./usage');
 const chat = require('./chat');
 const rtools = require('./rtools');
+const setup = require('./setup');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -120,8 +121,35 @@ function ptySpec(spec) {
       return { file: 'ssh', args: ssh.shellArgs(host, remote), cwd: os.homedir() };
     }
     case 'hpc-task': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${q(spec.cwd || '~')} 2>/dev/null; ${spec.command}; echo; echo "[process exited with $?]"; exec $SHELL -l`)}`), cwd: os.homedir() };
+    // HPC setup: the VPN tunnel ends with openconnect; the others report how they finished.
+    case 'vpn': return { file: sh, args: ['-l', '-c', setup.tunnelCommand(cfg.hpc.vpn)], cwd: os.homedir() };
+    case 'install': {
+      const ic = spec.brew ? { command: setup.BREW_INSTALL } : setup.installCommand(spec.tools || []);
+      if (!ic) throw new Error('Codeome does not know how to install ' + (spec.tools || []).join(', '));
+      return { file: sh, args: ['-l', '-c', finished(ic.command)], cwd: os.homedir() };
+    }
+    case 'keygen': {
+      const p = keyTarget(spec.key);
+      return { file: sh, args: ['-l', '-c', finished(`ssh-keygen -t ed25519 -f ${q(p)} -C ${q(os.userInfo().username + '@codeome')}`)], cwd: os.homedir() };
+    }
+    case 'hpc-copy-key': {
+      const pub = fs.readFileSync(keyTarget(spec.key, true) + '.pub', 'utf8');
+      if (!/^(ssh|ecdsa|sk)-[\w@.-]+ [A-Za-z0-9+/=]+( [^\n]*)?\s*$/.test(pub)) throw new Error('That does not look like an ssh public key.');
+      return { file: sh, args: ['-l', '-c', finished(['ssh', ...ssh.copyKeyArgs(host, pub)].map(q).join(' '))], cwd: os.homedir() };
+    }
     default: throw new Error('Unknown terminal kind ' + spec.kind);
   }
+}
+
+// A one-off command that ends by saying how it went, keeping its exit status.
+const finished = (cmd) => `${cmd}; s=$?; echo; if [ $s -eq 0 ]; then echo "[done]"; else echo "[failed with exit code $s]"; fi; exit $s`;
+
+// An ssh key under ~/.ssh: the one to create (must not exist yet) or to copy (must exist).
+function keyTarget(key, existing = false) {
+  const p = path.resolve(expandHome(key || '~/.ssh/id_ed25519'));
+  if (!p.startsWith(path.join(os.homedir(), '.ssh') + path.sep)) throw new Error('Keys live in ~/.ssh.');
+  if (existing ? !fs.existsSync(p + '.pub') : fs.existsSync(p)) throw new Error(existing ? 'No public key at ' + key + '.pub' : key + ' already exists.');
+  return p;
 }
 
 // PyPI tokens go straight from the Keychain into the process env; the UI never sees them.
@@ -157,6 +185,7 @@ ipcMain.handle('config:set', (_e, c) => {
   for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = usage.normDir(e, a.dir);
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
   cfg = config.save(c);
+  applyProxy();
   if (accountsChanged) refreshUsage(true); else publishUsage();
   return cfg;
 });
@@ -216,9 +245,17 @@ ipcMain.handle('local:trash', async (_e, p) => { try { await shell.trashItem(p);
 ipcMain.handle('local:home', () => os.homedir());
 
 // ---------- HPC ----------
+// With Codeome's tunnel on, ssh to the HPC host goes through it (and direct when it isn't running).
+function applyProxy() {
+  const v = cfg.hpc.vpn;
+  ssh.setProxy(cfg.hpc.host, v.mode === 'tunnel' ? setup.proxyCommand(setup.portOf(v)) : '');
+}
+
 ipcMain.handle('hpc:status', () => ssh.check(cfg.hpc.host));
 ipcMain.handle('hpc:disconnect', () => ssh.disconnect(cfg.hpc.host));
 ipcMain.handle('hpc:vpn', async () => {
+  const v = cfg.hpc.vpn;
+  if (v.mode === 'tunnel') return { known: true, tunnel: true, up: await setup.portOpen(setup.portOf(v)) };
   const h = cfg.hpc.vpnCheckHost;
   if (!h) return { known: false };
   const r = await run('nc', ['-z', '-G', '3', h, '22'], { timeout: 5000 });
@@ -235,6 +272,14 @@ ipcMain.handle('remote:quota', async () => {
   const r = await ssh.exec(cfg.hpc.host, `(command -v lfs >/dev/null && lfs quota -h -u "$USER" "$HOME" 2>/dev/null) || quota -s 2>/dev/null || df -h "$HOME"`, { timeout: 20000 });
   return { text: r.stdout.trim() || r.stderr.trim() };
 });
+
+ipcMain.handle('setup:status', () => setup.status(cfg, loginShell()));
+ipcMain.handle('setup:testLogin', async () => {
+  if (!cfg.hpc.host) return { result: 'nohost' };
+  const r = await ssh.testLogin(cfg.hpc.host);
+  return { result: setup.classifyLogin(r.code, r.stderr), detail: r.stderr.trim().split('\n').filter((l) => !/^Warning: Permanently added/.test(l)).slice(-2).join(' ') };
+});
+ipcMain.handle('setup:install', (_e, tools) => { const ic = setup.installCommand(tools || []); return ic && { ...ic, brewInstall: setup.BREW_INSTALL }; });
 
 // ---------- long-term storage (SFTP) ----------
 const sto = () => cfg.storage.host;
@@ -589,11 +634,13 @@ ipcMain.handle('env:detect', async () => {
   const tools = ['git', 'gh', 'quarto', 'R', 'Rscript', 'python3', 'rsync', 'ssh', 'sftp', 'tmux'].concat(cfg.agents.map((a) => a.cmd.split(' ')[0]));
   const out = {};
   await Promise.all(tools.map(async (t) => { out[t] = (await run(loginShell(), ['-l', '-c', `command -v ${t}`], { timeout: 8000 })).code === 0; }));
-  return { tools: out, ptyOk: !!pty, ptyError, platform: process.platform, home: os.homedir(), tmp: path.join(os.tmpdir(), 'codeome') };
+  const installable = Object.keys(out).filter((t) => !out[t] && setup.RECIPES[t]);
+  return { tools: out, installable, recipes: setup.RECIPES, ptyOk: !!pty, ptyError, platform: process.platform, home: os.homedir(), tmp: path.join(os.tmpdir(), 'codeome') };
 });
 
 app.whenReady().then(() => {
   cfg = config.load();
+  applyProxy();
   app.setName('Codeome');
   buildMenu();
   createWindow();

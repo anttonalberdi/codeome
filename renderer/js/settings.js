@@ -6,7 +6,7 @@
   const h = App.h;
   const S = { isOpen: false };
   App.views.settings = S;
-  let page, nav, main, savedEl, agentsHost;
+  let page, nav, main, savedEl, agentsHost, setupHost, serverList;
   const sections = {};
 
   const DEFAULT_DIR = { claude: '~/.claude', codex: '~/.codex' };
@@ -81,6 +81,9 @@
     // Navigating elsewhere closes the page; switching projects refreshes the agents.
     App.listen('view', () => S.close());
     App.listen('project', () => { if (S.isOpen) renderAgents(); });
+    // The HPC checklist follows the connection, the tunnel and setup steps as they happen.
+    for (const ev of ['setup', 'hpc', 'vpn', 'login-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
+    App.listen('env', () => { if (S.isOpen && sections.mac) sections.mac.replaceWith(macSection()); });
   }
 
   function jump(id, smooth = true) {
@@ -111,6 +114,7 @@
         for (const t of App.views.terminals.list) t.term.options.fontSize = App.cfg.editor.fontSize;
       }
       if (a.host || a.storage) App.pollHpc();
+      if (a.setup) App.setup.refresh();
       flash();
     }, 250);
   }
@@ -168,19 +172,121 @@
       await publishingSection(), appearanceSection(c), macSection()));
     markNav(SECTIONS[0][0]);
     renderAgents();
+    renderSetup();
+    App.setup.refresh();
   }
 
+  // ---------- HPC ----------
+  const vpn = () => App.cfg.hpc.vpn;
   function hpcSection(c) {
+    const tunnel = c.hpc.vpn.mode === 'tunnel';
+    setupHost = h('div');
+    serverList = h('datalist#sp-vpn-servers');
+    const redraw = () => { sections.hpc.replaceWith(hpcSection(App.cfg)); renderSetup(); };
+    const mode = select([
+      { value: 'system', label: 'Campus network, or a VPN for the whole Mac' },
+      { value: 'tunnel', label: "Codeome's own VPN tunnel" }
+    ], c.hpc.vpn.mode, (v) => { vpn().mode = v; commit({ host: true, setup: true }); redraw(); }, 'How Codeome reaches the HPC network');
     return section('hpc', 'HPC', 'How Codeome reaches your cluster. It uses your system ssh, so ~/.ssh/config, keys and ProxyJump apply.',
-      card(null,
-        row('Login', text(() => App.cfg.hpc.host, (v) => { App.cfg.hpc.host = v.trim(); }, { placeholder: 'myhpc  or  user@login.cluster.example.org', apply: { host: true }, label: 'HPC login' }),
-          'A Host alias from ~/.ssh/config if you have one.'),
-        row('Start folder', text(() => App.cfg.hpc.remoteRoot, (v) => { App.cfg.hpc.remoteRoot = v.trim() || '~'; }, { placeholder: '~ or /projects/mygroup', label: 'Start folder' })),
-        row('VPN check', text(() => App.cfg.hpc.vpnCheckHost, (v) => { App.cfg.hpc.vpnCheckHost = v.trim(); }, { placeholder: 'login.cluster.example.org', label: 'VPN check host' }),
-          'Optional. A host only reachable on the VPN; the title bar shows whether it answers.'),
+      card('Network',
+        row('Reach the HPC through', mode, tunnel
+          ? "Only Codeome's connections to the HPC go through the VPN; the rest of the Mac stays on its own network. Uses OpenConnect, which speaks Cisco's protocol. Off campus, use it instead of Cisco Secure Client, not alongside it."
+          : 'Codeome uses whatever network the Mac is on. Off campus, turn on Cisco Secure Client first.'),
+        ...(tunnel ? [
+          row('VPN server', h('div', h('input', { type: 'text', value: vpn().server, list: 'sp-vpn-servers', placeholder: 'vpn.example.org', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'VPN server',
+            onchange: (e) => { vpn().server = e.target.value.trim(); commit({ setup: true }); } }), serverList),
+          'The server Cisco Secure Client connects to.'),
+          row('Username', text(() => vpn().user, (v) => { vpn().user = v.trim(); }, { placeholder: 'Asked for when the tunnel starts', label: 'VPN username' }),
+            'Optional. Your password and second factor are always asked for in the terminal and never stored.'),
+          row('Local port', text(() => vpn().port, (v) => { const n = Math.round(Number(v)); vpn().port = n > 1023 && n < 65536 ? n : 11080; }, { type: 'number', apply: { host: true, setup: true }, label: 'Local port' }),
+            'Where the tunnel listens on this Mac (127.0.0.1 only). Change it only if 11080 is taken.'),
+          row('Extra options', text(() => vpn().args, (v) => { vpn().args = v.trim(); }, { placeholder: 'None', label: 'Extra openconnect options' }),
+            'Passed to openconnect, e.g. --authgroup=NAME. Leave empty unless signing in needs it.')
+        ] : [
+          row('VPN check', text(() => App.cfg.hpc.vpnCheckHost, (v) => { App.cfg.hpc.vpnCheckHost = v.trim(); }, { placeholder: 'login.cluster.example.org', label: 'VPN check host' }),
+            'Optional. A host only reachable on the VPN; the title bar shows whether it answers.')
+        ])),
+      card('Login',
+        row('Login', text(() => App.cfg.hpc.host, (v) => { App.cfg.hpc.host = v.trim(); }, { placeholder: 'myhpc  or  user@login.cluster.example.org', apply: { host: true, setup: true }, label: 'HPC login' }),
+          'A Host alias from ~/.ssh/config, or user@host.'),
+        row('Start folder', text(() => App.cfg.hpc.remoteRoot, (v) => { App.cfg.hpc.remoteRoot = v.trim() || '~'; }, { placeholder: '~ or /projects/mygroup', label: 'Start folder' }))),
+      setupHost,
+      card('Sessions',
         row('Agent sessions', check('Keep agent sessions on the HPC running in tmux', () => App.cfg.hpc.useTmux, (v) => { App.cfg.hpc.useTmux = v; }),
           'They reattach after a disconnect.'),
         row('Refresh Slurm every', h('div.row', text(() => App.cfg.slurm.refreshSeconds, (v) => { App.cfg.slurm.refreshSeconds = Math.max(5, Number(v) || 20); }, { type: 'number', label: 'Seconds' }), h('span.hint', 'seconds')))));
+  }
+
+  // The setup checklist: each step with its state and the button that does it.
+  const STATE = { ok: 'Done', todo: 'To do', warn: 'Needs attention', busy: 'In progress', off: 'Waiting on an earlier step' };
+  function stepRow(state, title, detail, ...actions) {
+    return h('div.su-row.su-' + state, h('i.su-dot', { role: 'img', 'aria-label': STATE[state], title: STATE[state] }),
+      h('div.su-text', h('b', title), detail ? h('div.hint', detail) : null),
+      h('div.su-act', ...actions.filter(Boolean)));
+  }
+  const btn = (label, run, primary) => h('button.btn.small' + (primary ? '.primary' : ''), { onclick: run }, label);
+  const backHere = () => S.open('hpc');
+
+  function renderSetup() {
+    if (!setupHost) return;
+    const st = App.setup.status;
+    if (!st) { setupHost.replaceChildren(card('Setup', h('div.sp-empty', 'Checking…'))); return; }
+    const c = App.cfg, U = App.setup, tunnel = U.tunnelOn();
+    if (serverList) serverList.replaceChildren(...st.ciscoServers.map((s) => h('option', { value: s })));
+    const rows = [];
+
+    if (tunnel) {
+      const missing = ['openconnect', 'ocproxy'].filter((t) => !st.tools[t]);
+      rows.push(missing.length
+        ? stepRow('todo', 'OpenConnect and ocproxy', `Not installed${st.brew ? '' : '; Homebrew is installed first'}. They run the tunnel without admin rights or changes to the Mac's network.`,
+          btn('Install…', async () => { if (await U.install(missing, "Codeome's VPN tunnel needs them.")) backHere(); }, true))
+        : stepRow('ok', 'OpenConnect and ocproxy', 'Installed.'));
+      const tunnelRow = !vpn().server ? stepRow('off', 'VPN tunnel', 'Enter the VPN server above.')
+        : U.vpnUp ? stepRow('ok', 'VPN tunnel', `Running on 127.0.0.1:${st.tunnel.port}. Only Codeome's HPC connections use it.`, btn('Stop', () => U.stopVpn()))
+        : U.vpnStarting() ? stepRow('busy', 'VPN tunnel', 'Signing in. Answer the prompts in its terminal.', btn('Show terminal', () => U.startVpn()))
+        : stepRow(missing.length ? 'off' : 'todo', 'VPN tunnel', `Not running. Starting it opens a terminal to sign in to ${vpn().server}.`,
+          missing.length ? null : btn('Start', () => U.startVpn({ returnTo: backHere }), true));
+      rows.push(tunnelRow);
+    }
+
+    const login = st.login;
+    if (!c.hpc.host) rows.push(stepRow('todo', 'HPC login', 'Enter your login above.'));
+    else if (!login || login.error) rows.push(stepRow('warn', 'HPC login', (login && login.error) || 'ssh could not read this login.'));
+    else {
+      const via = login.proxyJump ? 'ProxyJump ' + login.proxyJump : login.proxyCommand ? 'a ProxyCommand' : '';
+      rows.push(stepRow(tunnel && via ? 'warn' : 'ok', 'HPC login', [`${login.user}@${login.hostname}${login.port && login.port !== 22 ? ':' + login.port : ''}`,
+        tunnel && via ? `. Your ssh config reaches it through ${via}; Codeome's tunnel replaces that for its own connections.` : ''].join('')));
+    }
+
+    rows.push(st.key.exists
+      ? stepRow('ok', 'ssh key on this Mac', App.tildify(st.key.path) || st.key.path)
+      : stepRow('todo', 'ssh key on this Mac', `None yet. Creating one makes ${App.tildify(st.key.path) || st.key.path}; a passphrase is optional.`,
+        btn('Create key', async () => { if (await U.createKey()) backHere(); }, true)));
+
+    const t = U.loginTest;
+    const test = btn(t ? 'Test again' : 'Test', () => U.testLogin());
+    const copy = btn('Copy key to the HPC', async () => { if (await U.copyKey()) backHere(); });
+    const ready = c.hpc.host && st.key.exists && !(tunnel && !U.vpnUp);
+    let keyRow;
+    if (!c.hpc.host || !st.key.exists) keyRow = stepRow('off', 'Key accepted by the HPC', 'Needs a login and a key.');
+    else if (!t) keyRow = stepRow(ready ? 'todo' : 'off', 'Key accepted by the HPC', 'Not tested. The test signs in once without a password.', ready ? test : null, ready ? copy : null);
+    else if (t.result === 'busy') keyRow = stepRow('busy', 'Key accepted by the HPC', 'Testing…');
+    else if (t.result === 'ok') keyRow = stepRow('ok', 'Key accepted by the HPC', 'Signs in without a password.', test);
+    else if (t.result === 'auth') keyRow = stepRow('warn', 'Key accepted by the HPC', "The HPC did not accept the key. Copy it there (you sign in with your password once). If the key has a passphrase, add it to the macOS keychain with: ssh-add --apple-use-keychain " + App.tildify(st.key.path), copy, test);
+    else if (t.result === 'hostkey') keyRow = stepRow('warn', 'Key accepted by the HPC', "The HPC's fingerprint is new or has changed. Connect once in a terminal to check and accept it.", btn('Connect', () => { S.close(); App.connectHpc(); }), test);
+    else if (t.result === 'network') keyRow = stepRow('warn', 'Key accepted by the HPC', (tunnel && !U.vpnUp ? `Could not reach ${c.hpc.host}: the VPN tunnel is not running.`
+      : `Could not reach ${c.hpc.host}${tunnel ? ' through the tunnel' : '. Off campus, turn on the VPN first'}. ${t.detail || ''}`), tunnel && !U.vpnUp ? btn('Start VPN', () => U.startVpn({ returnTo: backHere })) : null, test);
+    else keyRow = stepRow('warn', 'Key accepted by the HPC', t.detail || 'The test login failed.', copy, test);
+    rows.push(keyRow);
+
+    rows.push(App.hpcConnected
+      ? stepRow('ok', 'Connected', `Files, Slurm, terminals and the R console use this connection.`, btn('Disconnect', () => App.disconnectHpc()))
+      : stepRow(c.hpc.host ? 'todo' : 'off', 'Connected', c.hpc.host ? 'Opens one shared connection, in a terminal so any prompts work.' : 'Needs a login.',
+        c.hpc.host ? btn('Connect', () => { S.close(); App.connectHpc(); }, true) : null));
+
+    setupHost.replaceChildren(h('div.sp-card',
+      h('div.sp-card-h.row', h('span.grow', 'Setup'), h('button.btn.small.ghost', { onclick: () => App.setup.refresh() }, 'Check again')),
+      h('div.su-list', rows)));
   }
 
   function storageSection(c) {
@@ -383,7 +489,12 @@
 
   function macSection() {
     const tools = Object.entries(App.env.tools || {});
+    const installable = App.env.installable || [];
+    const recipes = App.env.recipes || {};
+    const install = async (list) => { if (await App.setup.install(list)) S.open('mac'); };
     return section('mac', 'This Mac', 'Command-line tools Codeome looked for on your login shell\'s PATH.',
-      card(null, h('div.sp-tools', tools.length ? tools.map(([t, ok]) => h('span.pill' + (ok ? '.ok' : '.warn'), (ok ? '' : 'missing: ') + t)) : h('span.hint', 'Still checking…'))));
+      card(null, h('div.sp-tools', tools.length ? tools.map(([t, ok]) => h('span.pill' + (ok ? '.ok' : '.warn'), (ok ? '' : 'missing: ') + t)) : h('span.hint', 'Still checking…')),
+        installable.length ? h('div.su-list', installable.map((t) => stepRow('todo', recipes[t].label, `Not installed. Used for: ${recipes[t].why}.`, btn('Install…', () => install([t])))),
+          installable.length > 1 ? h('div.sp-foot.row', h('span.grow.hint', 'Installs with Homebrew, after asking.'), btn('Install all…', () => install(installable))) : null) : null));
   }
 })();

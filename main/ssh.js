@@ -11,19 +11,24 @@ const CONTROL_DIR = path.join(os.homedir(), '.ssh', 'codeome-cm');
 try { fs.mkdirSync(CONTROL_DIR, { recursive: true, mode: 0o700 }); } catch {}
 const CONTROL_PATH = path.join(CONTROL_DIR, '%C');
 
-function muxOpts() {
-  return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=no'];
+// Codeome's VPN tunnel: a ProxyCommand used for one host only (see setup.js).
+let proxy = { host: '', cmd: '' };
+function setProxy(host, cmd) { proxy = { host: host || '', cmd: cmd || '' }; }
+function proxyOpts(host) { return proxy.cmd && host === proxy.host ? ['-o', 'ProxyCommand=' + proxy.cmd] : []; }
+
+function muxOpts(host) {
+  return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=no', ...proxyOpts(host)];
 }
 
 // Arguments for the interactive login that creates the shared master.
 function masterArgs(host) {
   return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=yes', '-o', 'ControlPersist=12h',
-    '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=4', '-fN', host];
+    '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=4', ...proxyOpts(host), '-fN', host];
 }
 
 // Arguments for an interactive shell that rides on the master if present.
 function shellArgs(host, remoteCmd) {
-  const a = ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=auto', '-o', 'ControlPersist=12h', '-t', host];
+  const a = ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=auto', '-o', 'ControlPersist=12h', ...proxyOpts(host), '-t', host];
   if (remoteCmd) a.push(remoteCmd);
   return a;
 }
@@ -41,7 +46,7 @@ async function disconnect(host) {
 // Run a remote command non-interactively over the master connection.
 async function exec(host, cmd, opts = {}) {
   if (!host) return { code: -1, stdout: '', stderr: 'No HPC host configured' };
-  return run('ssh', [...muxOpts(), '-o', 'BatchMode=yes', host, cmd], { timeout: opts.timeout || 60000, input: opts.input });
+  return run('ssh', [...muxOpts(host), '-o', 'BatchMode=yes', host, cmd], { timeout: opts.timeout || 60000, input: opts.input });
 }
 
 // List a remote directory. Uses GNU find (standard on Linux clusters).
@@ -82,4 +87,16 @@ function rsyncSshCommand() {
   return `ssh -o ControlPath=${CONTROL_PATH} -o ControlMaster=no`;
 }
 
-module.exports = { CONTROL_PATH, masterArgs, shellArgs, check, disconnect, exec, list, parseListing, readFile, writeFile, rsyncSshCommand };
+// A fresh, non-interactive login (no shared connection) to test that the key works.
+function testLogin(host) {
+  return run('ssh', ['-o', 'ControlPath=none', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=12', ...proxyOpts(host), host, 'true'], { timeout: 30000 });
+}
+
+// Adds a public key to the HPC's authorized_keys (once); runs in a terminal so a password prompt works.
+function copyKeyArgs(host, pub) {
+  const k = q(pub.trim());
+  const remote = `umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && { grep -qxF ${k} ~/.ssh/authorized_keys || echo ${k} >> ~/.ssh/authorized_keys; } && echo 'Your key is on the HPC.'`;
+  return ['-o', `ControlPath=${CONTROL_PATH}`, '-o', 'ControlMaster=no', ...proxyOpts(host), host, remote];
+}
+
+module.exports = { CONTROL_PATH, setProxy, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, disconnect, exec, list, parseListing, readFile, writeFile, rsyncSshCommand };

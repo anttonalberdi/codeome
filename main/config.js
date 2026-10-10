@@ -11,7 +11,10 @@ const DEFAULTS = {
     host: '',              // an alias from ~/.ssh/config, or user@login.cluster.org
     remoteRoot: '~',       // starting folder on the HPC
     vpnCheckHost: '',      // optional host to probe to tell whether the VPN is up
-    useTmux: true          // run remote agent sessions inside tmux so they survive disconnects
+    useTmux: true,         // run remote agent sessions inside tmux so they survive disconnects
+    // How the HPC's network is reached. system: campus, or a VPN for the whole Mac (Cisco Secure Client);
+    // tunnel: Codeome's own OpenConnect tunnel, used only for its connections to the HPC.
+    vpn: { mode: 'system', server: '', user: '', port: 11080, args: '' }
   },
   // Long-term storage reached over SFTP, e.g. ERDA (io.erda.dk); it needs no shell.
   storage: {

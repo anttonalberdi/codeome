@@ -23,9 +23,11 @@
 
   // ---------- HPC connection & cluster strip ----------
   let connecting = false;
-  App.connectHpc = async () => {
-    if (!App.cfg.hpc.host) return App.views.settings.open();
-    if (App.hpcConnected) return;
+  // direct: skip Codeome's VPN tunnel this once (on campus, or with Cisco Secure Client on).
+  App.connectHpc = async ({ direct = false } = {}) => {
+    if (!App.cfg.hpc.host) return App.views.settings.open('hpc');
+    if (App.hpcConnected || connecting) return;
+    if (!direct && App.setup.tunnelOn() && !App.setup.vpnUp) return App.setup.startVpn({ thenConnect: true });
     connecting = true; paint();
     // The login runs in a visible terminal so password / one-time-code prompts work.
     App.views.terminals.open({
@@ -67,6 +69,8 @@
   App.pollHpc = async () => {
     const [st, v, so] = await Promise.all([codeome.hpc.status(), codeome.hpc.vpn(), App.cfg.storage.host ? codeome.storage.status() : { connected: false }]);
     vpn = v;
+    const tunnelUp = !!(v.tunnel && v.up);
+    if (App.setup.vpnUp !== tunnelUp) { App.setup.vpnUp = tunnelUp; App.emit('vpn', tunnelUp); }
     const was = App.hpcConnected;
     App.hpcConnected = st.connected;
     if (was !== st.connected) App.emit('hpc', st.connected);
@@ -77,12 +81,15 @@
     paint();
   };
   App.listen('jobs', (j) => { jobs = j; paint(); });
+  App.listen('vpn', () => paint());
 
   function paint() {
     const v = document.getElementById('c-vpn'), hp = document.getElementById('c-hpc'), jb = document.getElementById('c-jobs');
     v.hidden = !vpn.known;
-    v.className = 'c-seg ' + (vpn.up ? 'ok' : 'bad');
-    v.title = vpn.up ? 'VPN reachable' : 'VPN not reachable — the cluster may be unreachable';
+    v.className = 'c-seg ' + (App.setup.vpnStarting() ? 'busy' : vpn.up ? 'ok' : 'bad');
+    v.title = vpn.tunnel
+      ? (vpn.up ? "Codeome's VPN tunnel is running" : App.setup.vpnStarting() ? "Codeome's VPN tunnel is signing in" : "Codeome's VPN tunnel is not running")
+      : (vpn.up ? 'VPN reachable' : 'VPN not reachable — the cluster may be unreachable');
     hp.className = 'c-seg ' + (connecting ? 'busy' : App.hpcConnected ? 'ok' : (App.cfg.hpc.host ? 'bad' : ''));
     document.getElementById('c-hpc-label').textContent = !App.cfg.hpc.host ? 'Set up HPC' : (connecting ? 'Connecting…' : (App.hpcConnected ? App.cfg.hpc.host : 'Connect ' + App.cfg.hpc.host));
     jb.innerHTML = '';
@@ -93,14 +100,20 @@
   }
 
   function clusterMenu(el) {
-    if (!App.cfg.hpc.host) return App.views.settings.open();
-    if (!App.hpcConnected) return App.connectHpc();
+    if (!App.cfg.hpc.host) return App.views.settings.open('hpc');
+    const tunnel = App.setup.tunnelOn() && (App.setup.vpnUp || App.setup.vpnStarting());
+    if (!App.hpcConnected && !tunnel) return App.connectHpc();
     App.menuAt(el, [
-      { label: 'Slurm jobs', key: '⌘3', run: () => App.setView('slurm') },
-      { label: 'HPC terminal', key: '⇧⌘T', run: () => App.views.terminals.hpcShell() },
-      ...App.cfg.agents.map((a) => ({ label: a.name + ' on the HPC', run: () => App.views.terminals.agentHpc(a) })),
+      ...(App.hpcConnected ? [
+        { label: 'Slurm jobs', key: '⌘3', run: () => App.setView('slurm') },
+        { label: 'HPC terminal', key: '⇧⌘T', run: () => App.views.terminals.hpcShell() },
+        ...App.cfg.agents.map((a) => ({ label: a.name + ' on the HPC', run: () => App.views.terminals.agentHpc(a) })),
+        '-',
+        { label: 'Disconnect', run: () => App.disconnectHpc() }
+      ] : [{ label: 'Connect to ' + App.cfg.hpc.host, run: () => App.connectHpc() }]),
+      ...(tunnel ? [{ label: 'Stop the VPN tunnel', run: () => App.setup.stopVpn() }] : []),
       '-',
-      { label: 'Disconnect', run: () => App.disconnectHpc() }
+      { label: 'HPC settings…', run: () => App.views.settings.open('hpc') }
     ]);
   }
 
@@ -114,7 +127,7 @@
         h('button', { onclick: () => App.openProject() }, h('b', App.project ? 'Open another project' : 'Open folder'), h('span', App.project ? 'It gets its own card on the left; this one keeps running' : 'A local project with your R and Python code')),
         h('button', { onclick: () => App.views.editor.newFile() }, h('b', 'New file'), h('span', 'Script, notebook or report')),
         App.project ? h('button', { onclick: () => App.views.chat.ask('') }, h('b', 'Ask the agent'), h('span', 'Chats in tabs; they hand work to Codex and Claude specialists')) : null,
-        h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login and VPN check')),
+        h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login, ssh key and VPN')),
         h('button', { onclick: () => App.views.terminals.rConsole() }, h('b', 'R console'), h('span', App.project ? 'Starts in ' + App.basename(App.project) + '; ⌘↩ in R and Rmd files runs code there' : 'R and Rmd code runs here with ⌘↩')),
         h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts'))),
       App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null,
@@ -180,11 +193,12 @@
       if (!env.ptyOk) App.err('Terminals need a one-time rebuild. In the Codeome folder run: npm run rebuild\n\n' + env.ptyError.split('\n')[0]);
       const missing = App.cfg.agents.filter((a) => env.tools[a.cmd.split(' ')[0]] === false).map((a) => a.name);
       if (missing.length) App.toast(`${missing.join(' and ')} not found on this Mac's PATH. Install it or adjust the command in Settings.`);
+      App.setup.check(env);
     });
     await App.views.projects.restore();
     if (!App.project) App.views.files.go('local', App.cfg.localRoot || '~');
     await App.pollHpc();
     setInterval(() => { if (!document.hidden && !connecting) App.pollHpc(); }, 15000);
-    if (!App.cfg.hpc.host) setTimeout(() => App.toast('Add your cluster login to connect to the HPC.', { action: { label: 'Open Settings', run: () => App.views.settings.open() } }), 800);
+    if (!App.cfg.hpc.host) setTimeout(() => App.toast('Set up your HPC connection, VPN included, in Settings.', { action: { label: 'Open Settings', run: () => App.views.settings.open('hpc') } }), 800);
   };
 })();

@@ -35,7 +35,7 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 - Codex jobs run in the background; the chat wakes up when one finishes. The chat's *Jobs* tab lists every job, Codex runs and Claude subagents alike.
 - **Accounts and limits.** Codex jobs run on the active Codex account while it has headroom, and otherwise on the account with the most. New chats do the same with Claude accounts (pick one under the message box before the first message; a conversation stays on its account). Once an account passes the stop threshold (90% of either window by default), Codeome holds new jobs back. A Codex job exits with code 75 and a Claude subagent call is refused, and the orchestrator re-routes the work or pauses and tells you. *Resume plan on …* (in the chat's usage notice) starts a new chat on another account that picks up the plan where the last one stopped.
 
-**HPC connection** — uses your system `ssh`, so `~/.ssh/config`, keys, ProxyJump and the VPN behave exactly as in iTerm2. You log in once (password or one-time code prompts appear in a terminal tab); every other operation reuses that connection for 12 hours. The title bar shows VPN reachability, connection state and your running / waiting / failed jobs.
+**HPC connection** — uses your system `ssh`, so `~/.ssh/config`, keys, ProxyJump and the VPN behave exactly as in iTerm2 (or, with Codeome's own VPN tunnel, only Codeome's HPC connections use the VPN; see Settings below). You log in once (password or one-time code prompts appear in a terminal tab); every other operation reuses that connection for 12 hours. The title bar shows VPN reachability, connection state and your running / waiting / failed jobs.
 
 **Files & transfer** (replaces FileZilla) — three stacked sections: the Mac project folder, the HPC, and long-term storage over SFTP (such as ERDA; set it up in Settings → Storage). Click a section's header to collapse it, drag the line between sections to resize them (double-click to even them out), and right-click a header to rename it or show only that section. Drag between sections, or from Finder, to copy: Mac ↔ HPC with `rsync` (resumable, incremental, with progress), Mac ↔ storage with `sftp`, and HPC ↔ storage directly from the HPC in a terminal there, so the data doesn't pass through the Mac. Rename, delete, folder size, storage quota, "terminal here", "R console here", "Claude here".
 
@@ -85,13 +85,16 @@ Open **Settings** (`⌘,`). It is a full page with a section list on the left. C
      User abc123
      IdentityFile ~/.ssh/id_ed25519
    ```
-2. **VPN check** (optional) — a host only reachable on the VPN, so the title bar can tell you whether the VPN is up.
-3. **Agents**
+2. **Network** — how Codeome reaches the cluster's network:
+   - *Campus network, or a VPN for the whole Mac* (e.g. Cisco Secure Client). Optionally give a **VPN check** host, only reachable on the VPN, so the title bar shows whether the VPN is up.
+   - *Codeome's own VPN tunnel*: only Codeome's connections to the HPC go through the VPN; the rest of the Mac stays on its own network. It runs [OpenConnect](https://www.infradead.org/openconnect/), which speaks Cisco's AnyConnect protocol, with `ocproxy`, so it needs no admin rights and changes none of the Mac's routes or DNS. Set the **VPN server** (e.g. `vpn.example.org`; the servers in Cisco Secure Client's profile are suggested). Connecting to the HPC starts the tunnel in a terminal tab, where you sign in with your password and second factor; nothing is stored. While it runs, ssh to the HPC host goes through it. When it is not running, ssh goes direct, so the same setting also works on campus. The **VPN** dot in the title bar shows the tunnel; click the cluster strip to stop it. Use it instead of Cisco Secure Client, not alongside it.
+3. **Setup checklist** — below the login, Codeome checks each step and offers the button that does it: install OpenConnect and ocproxy (with Homebrew, which it installs first if needed, always after asking), start the tunnel, create an ssh key, copy it to the HPC (you sign in with your password once), test a login without a password, and connect. Settings → *This Mac* also offers to install missing command-line tools.
+4. **Agents**
    - *Agent chat*: the orchestrator's Claude model (or the one in its command).
    - *Team in <project>*: every agent in the project's `.claude/agents/`, kit roles and your own. Each has an **AI** dropdown (Claude, Codex, or the other engine for reviewers) and a **Model** dropdown (Claude models for Claude, the models your Codex account offers for Codex, or *Other…* for any model ID). *Edit .md* opens the agent's instructions in the editor, and *+ New agent* creates one. The AI goes into `routing.md`, the Claude model into the agent file, and the Codex model into `.codeome/agents.json`. Kit updates keep these choices.
    - *Command-line agents*: name and command for each agent offered as a terminal session. Defaults: `Claude Code = claude`, `Codex = codex`. Add variants like `Claude (Opus) = claude --model opus`.
-4. **Accounts & usage limits** — one account per line, `Name = folder`. A Claude account is a `CLAUDE_CONFIG_DIR` and a Codex account a `CODEX_HOME`; `~/.claude` and `~/.codex` are the defaults. *Add account…* in the usage popover creates one and opens a terminal to sign in. You can also set the stop threshold here.
-5. **Zenodo / PyPI tokens** if you publish from here.
+5. **Accounts & usage limits** — one account per line, `Name = folder`. A Claude account is a `CLAUDE_CONFIG_DIR` and a Codex account a `CODEX_HOME`; `~/.claude` and `~/.codex` are the defaults. *Add account…* in the usage popover creates one and opens a terminal to sign in. You can also set the stop threshold here.
+6. **Zenodo / PyPI tokens** if you publish from here.
 
 ### Where the usage numbers come from
 - **Codex**: Codeome asks `codex app-server` for each account every few minutes and when a Codex job ends.

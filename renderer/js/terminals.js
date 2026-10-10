@@ -89,12 +89,14 @@
     if (T.active === id) { const last = T.visible().pop(); if (last) T.activate(last.id); else { T.active = null; renderTabs(); showEmpty(); } }
     else renderTabs();
   };
-  T.visible = () => T.list.filter((t) => t.project === App.project);
-  T.closeProject = (project) => { for (const t of T.list.filter((x) => x.project === project)) T.close(t.id); };
+  // A global session (the VPN tunnel) shows in every project and outlives them.
+  const shownIn = (t, project) => t.project === project || t.spec.global;
+  T.visible = () => T.list.filter((t) => shownIn(t, App.project));
+  T.closeProject = (project) => { for (const t of T.list.filter((x) => x.project === project && !x.spec.global)) T.close(t.id); };
 
   // Show the project's own sessions, back on the one last used there.
   App.listen('project', (project) => {
-    const vis = T.list.filter((t) => t.project === project);
+    const vis = T.list.filter((t) => shownIn(t, project));
     const last = vis.find((t) => t.id === T.lastActive[project]) || vis[vis.length - 1];
     if (last) T.activate(last.id);
     else { T.active = null; for (const t of T.list) t.el.hidden = true; renderTabs(); showEmpty(); }
@@ -124,7 +126,7 @@
         onauxclick: (e) => { if (e.button === 1) T.close(t.id); },
         oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, tabMenu(t)); } },
         h('i.live' + (t.alive ? '' : '.dead')),
-        t.spec.badge ? h('span.badge' + (t.spec.badge === 'HPC' ? '.hpc' : t.spec.badge === 'R' ? '.r' : ''), t.spec.badge) : null,
+        t.spec.badge ? h('span.badge' + (t.spec.badge === 'HPC' || t.spec.badge === 'VPN' ? '.hpc' : t.spec.badge === 'R' ? '.r' : ''), t.spec.badge) : null,
         t === rt && t.spec.badge !== 'R' ? h('span.badge.r', { title: 'Receives R code' }, 'R') : null,
         h('span.t', t.title),
         t.account && App.cfg.accounts[t.spec.engine] && App.cfg.accounts[t.spec.engine].list.length > 1 ? h('span.acct', t.account) : null,
@@ -132,12 +134,14 @@
     }
   }
 
+  // Logins, the VPN tunnel and setup steps: never a target for R code or plots.
+  const SETUP_KINDS = new Set(['hpc-login', 'storage-login', 'vpn', 'install', 'keygen', 'hpc-copy-key']);
   function tabMenu(t) {
     const rt = T.rFor(t.project);
     return [
-      t.alive && t.spec.kind !== 'hpc-login' && t.spec.kind !== 'storage-login' ? { label: t === rt ? 'Receives R code ✓' : 'Send R code here', disabled: t === rt, run: () => { T.rTarget[t.project] = t.id; renderTabs(); } } : null,
+      t.alive && !SETUP_KINDS.has(t.spec.kind) ? { label: t === rt ? 'Receives R code ✓' : 'Send R code here', disabled: t === rt, run: () => { T.rTarget[t.project] = t.id; renderTabs(); } } : null,
       t.spec.lang === 'r' ? { label: 'Restart R', run: () => { T.close(t.id); T.rConsole({ remote: isHpc(t), cwd: t.spec.cwd }); } } : null,
-      t.alive && !t.plots && !/login$/.test(t.spec.kind) ? { label: 'Show R plots in Codeome', run: () => App.views.plots.enable(t) } : null,
+      t.alive && !t.plots && !SETUP_KINDS.has(t.spec.kind) ? { label: 'Show R plots in Codeome', run: () => App.views.plots.enable(t) } : null,
       { label: 'Close', run: () => T.close(t.id) }
     ];
   }
