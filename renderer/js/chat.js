@@ -240,6 +240,28 @@
     expire(chat);
   };
 
+  function accountMenu(chat, anchor) {
+    const U = App.views.usage, r = anchor.getBoundingClientRect();
+    const on = chat.accountName || chat.account;
+    App.menu(r.left, r.bottom + 4, [{ header: 'Claude account for this chat' }, ...App.cfg.accounts.claude.list.map((a) => {
+      const u = U && U.accounts('claude').find((x) => x.name === a.name), lv = U && U.level(u);
+      return { label: (a.name === on ? '✓ ' : '') + a.name + (lv != null ? ` (${Math.round(lv)}%)` : ''), disabled: a.name === on || !!(u && !U.ready(u)), run: () => switchAccount(chat, a.name) };
+    })]);
+  }
+
+  // A started conversation moves with its transcript; the next message resumes it on the new account.
+  async function switchAccount(chat, name) {
+    const from = chat.accountName || chat.account;
+    if (chat.busy && !(await App.confirm('Switch this chat to ' + name + '?', 'The agent is still working. It will be stopped, and the conversation continues on ' + name + ' with your next message.', 'Switch', true))) return;
+    if (chat.running) { chat.stopping = true; await codeome.chat.stop(chat.id); for (let i = 0; chat.running && i < 50; i++) await new Promise((res) => setTimeout(res, 100)); }
+    if (chat.running) { chat.stopping = false; return App.err('The session did not stop, so the account was not changed.'); }
+    const r = await codeome.chat.move({ id: chat.id, from, to: name });
+    if (r.error) return App.err(r.error);
+    chat.account = chat.accountName = name;
+    note(chat, `This chat now runs on ${name}.`);
+    save(chat); paintState(); App.emit('sessions');
+  }
+
   function setMode(v) {
     const chat = cur();
     store.set('codeome.chat.mode', v);
@@ -881,7 +903,7 @@
     const accts = App.cfg.accounts.claude.list;
     acctEl.innerHTML = '';
     if (chat && accts.length > 1) {
-      if (chat.started || chat.running) acctEl.append(h('span.hint', { title: 'This conversation stays on the account it started on' }, chat.accountName || chat.account));
+      if (chat.started || chat.running) acctEl.append(h('button.chat-acct-btn', { title: 'Switch this chat to another Claude account', 'aria-haspopup': 'menu', onclick: (e) => accountMenu(chat, e.currentTarget) }, chat.accountName || chat.account));
       else {
         const U = App.views.usage;
         acctEl.append(h('select', { 'aria-label': 'Claude account for this chat', onchange: (e) => { chat.account = e.target.value; } },

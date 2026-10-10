@@ -142,6 +142,8 @@ svg { width: 18px; height: 18px; display: block; }
 .usage-note .dismiss { position: absolute; top: 4px; right: 4px; }
 .usage-note.warn { border-left-color: var(--pend); }
 .usage-note.bad { border-left-color: var(--fail); }
+.chat-acct-btn { font: inherit; font-size: 11.5px; color: var(--muted); background: none; border: 0; padding: 2px 4px; border-radius: 4px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-acct-btn:hover, .chat-acct-btn:focus-visible { color: var(--text); text-decoration: underline; }
 .tab .acct { font-size: 10.5px; color: var(--muted); }
 
 /* ---------- title bar & cluster strip ---------- */

@@ -145,3 +145,21 @@ test('only plain job-runner commands are approved without asking', () => {
   for (const c of ok) assert.ok(chat.isJobRunner(c), c);
   for (const c of bad) assert.ok(!chat.isJobRunner(c), c);
 });
+
+test('moving a conversation copies its transcript and subagent files into the other account folder', () => {
+  const a = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-acct-a-')), b = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-acct-b-'));
+  const src = path.join(a, 'projects', '-Users-me-proj');
+  fs.mkdirSync(path.join(src, ID, 'subagents'), { recursive: true });
+  fs.writeFileSync(path.join(src, ID + '.jsonl'), '{"n":1}\n');
+  fs.writeFileSync(path.join(src, ID, 'subagents', 'agent-1.jsonl'), '{}\n');
+  chat.moveSession(a, b, ID);
+  const dest = path.join(b, 'projects', '-Users-me-proj');
+  assert.strictEqual(fs.readFileSync(path.join(dest, ID + '.jsonl'), 'utf8'), '{"n":1}\n');
+  assert.ok(fs.existsSync(path.join(dest, ID, 'subagents', 'agent-1.jsonl')));
+  // Moving back after more turns replaces the older copy.
+  fs.writeFileSync(path.join(dest, ID + '.jsonl'), '{"n":1}\n{"n":2}\n');
+  chat.moveSession(b, a, ID);
+  assert.strictEqual(fs.readFileSync(path.join(src, ID + '.jsonl'), 'utf8'), '{"n":1}\n{"n":2}\n');
+  assert.throws(() => chat.moveSession(a, b, '1f8fad5b-d9cb-469f-a165-70867728950e'), /no transcript/);
+  assert.throws(() => chat.moveSession(a, b, '../x'), /Bad chat/);
+});

@@ -217,4 +217,18 @@ function deleteChat(project, id) {
   return { ok: true };
 }
 
-module.exports = { Session, systemPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, MODES };
+// Claude Code keeps a conversation in its account's config folder: projects/<project folder>/<id>.jsonl, with the
+// files of its subagents in <id>/ beside it. Copying both into another account's folder lets that account resume it.
+function moveSession(fromDir, toDir, id) {
+  if (!validId(id)) throw new Error('Bad chat');
+  const root = path.join(fromDir, 'projects');
+  let folder = null;
+  try { folder = fs.readdirSync(root).find((d) => fs.existsSync(path.join(root, d, id + '.jsonl'))); } catch {}
+  if (!folder) throw new Error('This conversation has no transcript in its account folder.');
+  const dest = path.join(toDir, 'projects', folder);
+  fs.mkdirSync(dest, { recursive: true });
+  fs.copyFileSync(path.join(root, folder, id + '.jsonl'), path.join(dest, id + '.jsonl'));
+  if (fs.existsSync(path.join(root, folder, id))) fs.cpSync(path.join(root, folder, id), path.join(dest, id), { recursive: true });
+}
+
+module.exports = { Session, systemPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };

@@ -633,6 +633,21 @@ ipcMain.handle('stats:get', (_e, days) => {
     const titles = {};
     for (const s of sum.sessions) {
       if (!titles[s.project]) { titles[s.project] = {}; for (const c of chat.listChats(s.project)) titles[s.project][c.id] = c.title; }
+// Move a stopped conversation to another Claude account, where its next message resumes it.
+ipcMain.handle('chat:move', (_e, { id, from, to }) => {
+  if (chats.has(id)) return { error: 'The session is still running.' };
+  try {
+    const dirOf = (name) => {
+      const n = !name || name === 'auto' ? cfg.accounts.claude.active : name;
+      const a = cfg.accounts.claude.list.find((x) => x.name === n || (x.aka || []).includes(n));
+      if (!a) throw new Error('No Claude account named ' + n + '.');
+      return path.resolve(expandHome(a.dir || usage.DEFAULT_DIR.claude));
+    };
+    const a = dirOf(from), b = dirOf(to);
+    if (a !== b) chat.moveSession(a, b, id);
+    return { ok: true };
+  } catch (e) { return { error: String(e.message || e) }; }
+});
       s.title = titles[s.project][s.session] || null;
     }
     return { ...sum, file: stats.file() };
