@@ -164,6 +164,20 @@
   App.start = async () => {
     App.cfg = await codeome.config.get();
     codeome.version().then((v) => { document.getElementById('app-version').textContent = 'v' + v; });
+    // Clicking the version looks for a newer Codeome (and Claude Code / Codex) on GitHub right away.
+    const ver = document.getElementById('app-version');
+    ver.title = 'Check for updates';
+    ver.addEventListener('click', async () => {
+      if (ver.classList.contains('busy')) return;
+      ver.classList.add('busy'); App.toast('Checking GitHub for updates…');
+      const r = await App.setup.checkClis({ force: true });
+      ver.classList.remove('busy');
+      if (!r || r.error) return App.err('Could not check for updates' + (r && r.error ? ': ' + r.error : '.'));
+      const me = r.updates.find((u) => u.engine === 'codeome'), clis = r.updates.filter((u) => u.command);
+      if (me) App.toast(`Codeome ${me.latest} is available. You have ${me.installed}.`, { ms: 20000, action: { label: 'View release', run: () => codeome.shell.open(me.url) } });
+      else App.toast(`Codeome ${r.installed.codeome} is up to date.`);
+      if (clis.length) App.toast(`${clis.map((u) => `${u.label} ${u.latest}`).join(' and ')} available.`, { ms: 20000, action: { label: 'Update…', run: () => App.setup.updateClis(clis) } });
+    });
     App.views.terminals.init();
     App.views.transfer.init(); App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.packages.init(); App.views.plots.init(); App.views.agents.init();
     App.views.projects.init();

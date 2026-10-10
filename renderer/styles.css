@@ -202,6 +202,9 @@ svg { width: 18px; height: 18px; display: block; }
 .bi-tile { fill: var(--bi-tile); stroke: var(--bi-edge); } .bi-brace { stroke: var(--bi-brace); }
 .bi-l1 { fill: var(--bi-l1); } .bi-l2 { fill: var(--bi-l2); } .bi-l3 { fill: var(--bi-l3); } .bi-l4 { fill: var(--bi-l4); }
 .brand small { margin-left: 5px; font-weight: 500; font-size: 10px; letter-spacing: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.brand small { cursor: pointer; -webkit-app-region: no-drag; }
+.brand small:hover { color: var(--text, inherit); text-decoration: underline; }
+.brand small.busy { opacity: .5; cursor: progress; }
 .project-tag { border: 1px solid transparent; background: var(--p-soft); color: var(--p-ink); font-weight: 600; font-size: 12px; line-height: 18px; padding: 2px 10px; border-radius: 7px; cursor: pointer; max-width: 320px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-tag:hover { border-color: var(--p-strong); }
 .project-tag.empty { background: transparent; color: var(--muted); border: 1px dashed var(--line-strong); font-weight: 500; }
