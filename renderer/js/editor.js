@@ -64,6 +64,7 @@
     const key = prefix({ remote, storage }) + path;
     const existing = E.tabs.find((t) => t.key === key && mine(t));
     if (existing) { E.activate(existing.id); return existing; }
+    if (E.isGdoc(path)) { if (remote || storage) { App.toast('Google files open from this Mac only.'); return; } return E.gdoc(path); }
     if (E.isBinary(path)) { if (E.isPreviewable(path)) return E.preview(path, { remote, storage }); App.toast(App.basename(path) + ' is a binary file.'); return; }
     const r = await fileApi({ remote, storage }).read(path);
     if (r.error) { App.err(r.error); return; }
@@ -284,6 +285,48 @@
     const pv = E.tabs.find((x) => x.key === 'preview:' + prefix(t) + t.path);
     if (pv && pv.reload && (!pv.autoRender || pv.autoRender())) pv.reload(true);
   });
+
+  // ---------- Google Docs ----------
+  // Google Drive for desktop's pointer files open as the live Google editor: a native view that the main process
+  // lays over `host`. It sits above the page, so it is hidden whenever the tab is not shown, a dialog, menu or popover is up,
+  // or a page such as Settings covers the editor.
+  const GDOC = ['gdoc', 'gsheet', 'gslides'];
+  E.isGdoc = (p) => GDOC.includes(App.ext(p));
+  E.gdoc = function (path) {
+    return E.openCustom({
+      key: 'gdoc:' + path, title: App.basename(path).replace(/\.[^.]+$/, ''), badge: 'Google',
+      render: (el, tab) => {
+        const host = h('div', { style: { flex: 1, minHeight: 0 } });
+        const status = h('span.hint');
+        let url = '';
+        el.append(h('div.toolbar', h('span.path', path), status,
+          h('button.btn.small', { title: 'Ask the agent to read or edit this document', onclick: () => App.views.chat.ask(`In the Google document ${App.views.files.relRef(path)}: `) }, 'Ask the agent'),
+          h('button.btn.small', { onclick: () => codeome.gdoc.reload(tab.id) }, 'Reload'),
+          h('button.btn.small', { onclick: () => url && codeome.shell.open(url) }, 'Open in browser')), host);
+        const layers = ['overlay', 'menu-pop'].map((id) => document.getElementById(id));
+        const place = () => {
+          const r = host.getBoundingClientRect();
+          const covered = () => !host.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+          const shown = host.isConnected && r.width > 0 && r.height > 0 && layers.every((l) => l.hidden) && !document.querySelector('.popover') && !covered();
+          codeome.gdoc.place(tab.id, shown ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
+        };
+        const ro = new ResizeObserver(place); ro.observe(host);
+        const mo = new MutationObserver(place); for (const l of layers) mo.observe(l, { attributes: true, attributeFilter: ['hidden'] });
+        mo.observe(document.body, { childList: true });
+        mo.observe(document.getElementById('app'), { attributes: true, attributeFilter: ['class'] });
+        window.addEventListener('resize', place);
+        const off = codeome.gdoc.onState((s) => {
+          if (s.id !== tab.id) return;
+          url = s.url;
+          const signIn = /^https:\/\/accounts\.google\./.test(s.url);
+          status.textContent = s.error ? s.error : signIn ? 'Sign in to Google to open this document.' : s.loading ? 'Loading…' : '';
+        });
+        tab.layout = place;
+        tab.onClose = () => { ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', place); off(); codeome.gdoc.close(tab.id); };
+        codeome.gdoc.open(tab.id, path).then((r) => { if (r.error) status.textContent = r.error; else { url = r.url; place(); } });
+      }
+    });
+  };
 
   // ---------- diff tabs ----------
   E.diff = function ({ key, title, original, modified, lang }) {

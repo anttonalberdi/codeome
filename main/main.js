@@ -17,6 +17,7 @@ const rtools = require('./rtools');
 const setup = require('./setup');
 const vpn = require('./vpn');
 const login = require('./login');
+const gdoc = require('./gdoc');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -48,7 +49,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   // Links clicked in previews or panels open in the default browser.
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => { gdoc.closeAll(win); win = null; });
 }
 
 function buildMenu() {
@@ -225,6 +226,20 @@ ipcMain.handle('dialog:confirm', async (_e, { message, detail, ok }) => {
 ipcMain.handle('shell:open', (_e, url) => shell.openExternal(url));
 ipcMain.handle('shell:reveal', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
+
+// ---------- Google Docs ----------
+// Google Drive sometimes fails the first read of a pointer file it has not fetched yet, so a failure is tried again.
+ipcMain.handle('gdoc:open', async (_e, { id, path: file }) => {
+  for (let i = 0; ; i++) {
+    try { return gdoc.open(win, id, expandHome(file), send); } catch (e) {
+      if (i === 2) return { error: String(e.message || e) };
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+});
+ipcMain.handle('gdoc:reload', (_e, id) => gdoc.reload(id));
+ipcMain.on('gdoc:place', (_e, { id, bounds }) => gdoc.place(id, bounds));
+ipcMain.on('gdoc:close', (_e, { id }) => gdoc.close(id, win));
 
 // ---------- local files ----------
 ipcMain.handle('local:list', async (_e, dir) => {
@@ -618,21 +633,6 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter })
     return { ok: true, account: acct.info };
   } catch (e) { return { error: String(e.message || e) }; }
 });
-ipcMain.handle('chat:send', (_e, { id, text }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.user(text); return { ok: true }; });
-ipcMain.handle('chat:respond', (_e, { id, requestId, response }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.respond(requestId, response); return { ok: true }; });
-ipcMain.handle('chat:control', (_e, { id, request }) => { const s = chats.get(id); return s ? s.control(request) : { error: 'The session is not running.' }; });
-ipcMain.handle('chat:stop', (_e, id) => { const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
-ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { return chat.saveChat(project, c); } catch (e) { return { error: e.message }; } });
-ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));
-ipcMain.handle('chat:load', (_e, { project, id }) => chat.loadChat(project, id));
-ipcMain.handle('chat:delete', (_e, { project, id }) => chat.deleteChat(project, id));
-// What the sessions used over the last days, with each session's chat title where it still exists.
-ipcMain.handle('stats:get', (_e, days) => {
-  try {
-    const sum = stats.summary(stats.read(), { days: Number(days) || 30 });
-    const titles = {};
-    for (const s of sum.sessions) {
-      if (!titles[s.project]) { titles[s.project] = {}; for (const c of chat.listChats(s.project)) titles[s.project][c.id] = c.title; }
 // Move a stopped conversation to another Claude account, where its next message resumes it.
 ipcMain.handle('chat:move', (_e, { id, from, to }) => {
   if (chats.has(id)) return { error: 'The session is still running.' };
@@ -648,6 +648,21 @@ ipcMain.handle('chat:move', (_e, { id, from, to }) => {
     return { ok: true };
   } catch (e) { return { error: String(e.message || e) }; }
 });
+ipcMain.handle('chat:send', (_e, { id, text }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.user(text); return { ok: true }; });
+ipcMain.handle('chat:respond', (_e, { id, requestId, response }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.respond(requestId, response); return { ok: true }; });
+ipcMain.handle('chat:control', (_e, { id, request }) => { const s = chats.get(id); return s ? s.control(request) : { error: 'The session is not running.' }; });
+ipcMain.handle('chat:stop', (_e, id) => { const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
+ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { return chat.saveChat(project, c); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));
+ipcMain.handle('chat:load', (_e, { project, id }) => chat.loadChat(project, id));
+ipcMain.handle('chat:delete', (_e, { project, id }) => chat.deleteChat(project, id));
+// What the sessions used over the last days, with each session's chat title where it still exists.
+ipcMain.handle('stats:get', (_e, days) => {
+  try {
+    const sum = stats.summary(stats.read(), { days: Number(days) || 30 });
+    const titles = {};
+    for (const s of sum.sessions) {
+      if (!titles[s.project]) { titles[s.project] = {}; for (const c of chat.listChats(s.project)) titles[s.project][c.id] = c.title; }
       s.title = titles[s.project][s.session] || null;
     }
     return { ...sum, file: stats.file() };

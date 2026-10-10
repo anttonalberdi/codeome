@@ -100,6 +100,12 @@ contextBridge.exposeInMainWorld('codeome', {
     setActive: (engine, name) => ipcRenderer.invoke('usage:setActive', { engine, name }),
     onUpdate: on('usage:update')
   },
+  gdoc: {
+    open: (id, path) => ipcRenderer.invoke('gdoc:open', { id, path }), reload: invoke('gdoc:reload'),
+    place: (id, bounds) => ipcRenderer.send('gdoc:place', { id, bounds }),
+    close: (id) => ipcRenderer.send('gdoc:close', { id }),
+    onState: on('gdoc:state')
+  },
   env: { detect: invoke('env:detect') },
   onMenu: on('menu')
 });

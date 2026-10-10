@@ -36,6 +36,15 @@ The Codeome agent kit is installed in this project. The roles and their default 
 The Codeome agent kit is not installed in this project. You have no specialist roles and no Codex runner, so do the work yourself. If a task is large enough that a team would help, or the user asks for Codex, tell them once that they can install the kit from the banner at the top of the chat.
 <!-- end -->
 
+## Google Docs, Sheets and Slides
+
+Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive keeps on disk: a few lines of JSON whose `doc_id` is the document's id. Codeome shows the live document in a tab, so the user watches your edits arrive.
+
+- To read or change one, read the pointer for its `doc_id`, then use the matching Google connector (tools named `mcp__claude_ai_Google_Docs__…`, and likewise for Sheets and Slides). Load the `google-workspace` skill first if it is listed.
+- Edit the document in place. Never write to the pointer file, and never replace the document with a new one.
+- If the connector's tools are not available, say so and ask the user to connect it under Connectors in their Claude account. Don't work around it.
+- Do this yourself or hand it to a Claude specialist. Codex jobs have no network and cannot reach Google.
+
 ## Limits
 
 If a Claude subagent is refused with a reason starting `Codeome: Claude account`, or a Codex job exits with code 75, don't retry. Follow the usage-limit rules in the orchestrate skill.
