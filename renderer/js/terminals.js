@@ -89,7 +89,7 @@
     if (T.active === id) { const last = T.visible().pop(); if (last) T.activate(last.id); else { T.active = null; renderTabs(); showEmpty(); } }
     else renderTabs();
   };
-  // A global session (the VPN tunnel) shows in every project and outlives them.
+  // A global session shows in every project and outlives them.
   const shownIn = (t, project) => t.project === project || t.spec.global;
   T.visible = () => T.list.filter((t) => shownIn(t, App.project));
   T.closeProject = (project) => { for (const t of T.list.filter((x) => x.project === project && !x.spec.global)) T.close(t.id); };
@@ -134,8 +134,8 @@
     }
   }
 
-  // Logins, the VPN tunnel and setup steps: never a target for R code or plots.
-  const SETUP_KINDS = new Set(['hpc-login', 'storage-login', 'vpn', 'install', 'keygen', 'hpc-copy-key']);
+  // Logins and setup steps: never a target for R code or plots.
+  const SETUP_KINDS = new Set(['hpc-login', 'storage-login', 'install', 'keygen', 'hpc-copy-key']);
   function tabMenu(t) {
     const rt = T.rFor(t.project);
     return [

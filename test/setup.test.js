@@ -9,24 +9,6 @@ test('tunnel runs openconnect with ocproxy as a userspace SOCKS proxy', () => {
   assert.throws(() => setup.tunnelArgs({ server: '' }), /VPN server/);
 });
 
-test('the saved VPN password is typed once, at the first Password: prompt only', () => {
-  const sent = [];
-  const feed = setup.passwordFiller('s3cret', (s) => sent.push(s));
-  feed('POST https://vpn.example.org/\r\nPlease enter your username and password.\r\nPass');
-  assert.deepStrictEqual(sent, []);
-  feed('word:');
-  assert.deepStrictEqual(sent, ['s3cret\r']);
-  feed('\r\nLogin failed.\r\nPassword:');
-  assert.deepStrictEqual(sent, ['s3cret\r']);
-  const second = [];
-  const feed2 = setup.passwordFiller('s3cret', (s) => second.push(s));
-  feed2('Second Password:');
-  assert.deepStrictEqual(second, []);
-  const none = [];
-  setup.passwordFiller('', (s) => none.push(s))('Password:');
-  assert.deepStrictEqual(none, []);
-});
-
 test('extra options split on spaces and keep quoted values together', () => {
   assert.deepStrictEqual(setup.splitArgs('--authgroup "Staff" --useragent=AnyConnect'), ['--authgroup', 'Staff', '--useragent=AnyConnect']);
   assert.deepStrictEqual(setup.splitArgs(''), []);

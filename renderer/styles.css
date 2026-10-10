@@ -616,6 +616,8 @@ button.cs:hover { text-decoration-color: currentColor; }
 .sp-label label { font-weight: 500; }
 .sp-label .hint { font-size: 11.5px; margin-top: 2px; }
 .sp-code { font-family: var(--mono); font-size: 11px; margin: 4px 0; padding: 5px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); color: var(--text); white-space: pre; overflow-x: auto; }
+.vpn-wait { display: flex; align-items: center; gap: 10px; padding: 6px 0; color: var(--muted); }
+.vpn-log { max-height: 50vh; overflow: auto; white-space: pre-wrap; }
 .sp-ctl { min-width: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .sp-ctl > input, .sp-ctl > select, .sp-ctl > div > textarea { max-width: 460px; }
 .sp-ctl > div { width: 100%; }

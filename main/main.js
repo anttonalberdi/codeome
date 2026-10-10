@@ -14,6 +14,7 @@ const usage = require('./usage');
 const chat = require('./chat');
 const rtools = require('./rtools');
 const setup = require('./setup');
+const vpn = require('./vpn');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -121,8 +122,7 @@ function ptySpec(spec) {
       return { file: 'ssh', args: ssh.shellArgs(host, remote), cwd: os.homedir() };
     }
     case 'hpc-task': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${q(spec.cwd || '~')} 2>/dev/null; ${spec.command}; echo; echo "[process exited with $?]"; exec $SHELL -l`)}`), cwd: os.homedir() };
-    // HPC setup: the VPN tunnel ends with openconnect; the others report how they finished.
-    case 'vpn': return { file: sh, args: ['-l', '-c', setup.tunnelCommand(cfg.hpc.vpn)], cwd: os.homedir() };
+    // HPC setup steps report how they finished.
     case 'install': {
       const ic = spec.brew ? { command: setup.BREW_INSTALL } : setup.installCommand(spec.tools || []);
       if (!ic) throw new Error('Codeome does not know how to install ' + (spec.tools || []).join(', '));
@@ -171,8 +171,6 @@ ipcMain.handle('pty:spawn', (_e, spec) => {
     const p = pty.spawn(s.file, s.args, { name: 'xterm-256color', cols: spec.cols || 100, rows: spec.rows || 30, cwd: fs.existsSync(s.cwd) ? s.cwd : os.homedir(), env });
     ptys.set(spec.id, p);
     p.onData((d) => send('pty:data', { id: spec.id, data: d }));
-    // The VPN password goes from the Keychain into the tunnel's prompt; the UI never sees it.
-    if (spec.kind === 'vpn') p.onData(setup.passwordFiller(config.getSecret('vpn:password'), (s) => p.write(s)));
     p.onExit(({ exitCode }) => { ptys.delete(spec.id); send('pty:exit', { id: spec.id, code: exitCode }); });
     return { ok: true, pid: p.pid, account: acct && acct.info };
   } catch (e) { return { error: String(e.message || e) }; }
@@ -273,6 +271,37 @@ ipcMain.handle('remote:quota', async () => {
   const r = await ssh.exec(cfg.hpc.host, `(command -v lfs >/dev/null && lfs quota -h -u "$USER" "$HOME" 2>/dev/null) || quota -s 2>/dev/null || df -h "$HOME"`, { timeout: 20000 });
   return { text: r.stdout.trim() || r.stderr.trim() };
 });
+
+// Codeome's VPN tunnel runs without a terminal (see vpn.js); the window shows its prompts.
+// A saved password goes from the Keychain straight to openconnect. One typed in a dialog
+// is saved only once the tunnel is up, so a wrong one is never kept.
+let tunnel = null, tunnelState = { phase: 'stopped' }, pendingPassword = '';
+ipcMain.handle('vpn:start', () => {
+  if (tunnel && !tunnel.ended) return { ok: true, state: tunnel.state() };
+  if (!pty) return { error: 'Terminal backend failed to load: ' + ptyError };
+  const v = cfg.hpc.vpn;
+  let command;
+  try { command = setup.tunnelCommand(v); } catch (e) { return { error: e.message }; }
+  pendingPassword = '';
+  tunnel = vpn.start({
+    spawn: () => pty.spawn(loginShell(), ['-l', '-c', command], { name: 'xterm-256color', cols: 200, rows: 30, cwd: os.homedir(), env: augmentedEnv({ TERM: 'xterm-256color' }) }),
+    portOpen: () => setup.portOpen(setup.portOf(v)),
+    user: v.user, password: config.getSecret('vpn:password'),
+    emit: (s) => { tunnelState = s; send('vpn:state', s); },
+    onUp: () => { if (pendingPassword) config.setSecret('vpn:password', pendingPassword); pendingPassword = ''; }
+  });
+  return { ok: true, state: tunnel.state() };
+});
+ipcMain.handle('vpn:answer', (_e, { id, value, save }) => {
+  if (!tunnel) return false;
+  const kind = tunnelState.prompt && tunnelState.prompt.kind;
+  const ok = tunnel.answer(id, value);
+  if (ok && kind === 'password') pendingPassword = save ? String(value) : '';
+  return ok;
+});
+ipcMain.handle('vpn:stop', () => { if (tunnel) tunnel.stop(); return true; });
+ipcMain.handle('vpn:state', () => tunnelState);
+ipcMain.handle('vpn:log', () => (tunnel ? tunnel.log() : ''));
 
 ipcMain.handle('setup:status', () => setup.status(cfg, loginShell()));
 ipcMain.handle('setup:testVpn', () => setup.testVpn(cfg));
@@ -649,4 +678,5 @@ app.whenReady().then(() => {
   startUsage();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('window-all-closed', () => { for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { if (tunnel) tunnel.stop(); });
+app.on('window-all-closed', () => { if (tunnel) tunnel.stop(); for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });

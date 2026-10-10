@@ -85,7 +85,8 @@ App.err = (msg) => App.toast(String(msg), { error: true });
 
 // ---------- modal dialogs ----------
 // fields: [{key, label, type:'text'|'password'|'textarea'|'select'|'check'|'number', value, options, hint, placeholder}]
-App.modal = ({ title, text, fields = [], ok = 'OK', cancel = 'Cancel', danger = false, body }) => new Promise((resolve) => {
+// closer: called with a function that closes the dialog from outside; it then resolves undefined.
+App.modal = ({ title, text, fields = [], ok = 'OK', cancel = 'Cancel', danger = false, body, closer }) => new Promise((resolve) => {
   const ov = document.getElementById('overlay');
   const inputs = {};
   const renderField = (f) => {
@@ -121,6 +122,7 @@ App.modal = ({ title, text, fields = [], ok = 'OK', cancel = 'Cancel', danger = 
   ov.onclick = (e) => { if (e.target === ov) close(null); };
   document.addEventListener('keydown', onKey, true);
   setTimeout(() => { const first = m.querySelector('input,textarea,select') || m.querySelector('footer .btn:last-child'); if (first) first.focus(); }, 0);
+  if (closer) closer(() => { if (ov.contains(m)) close(undefined); });
 });
 App.prompt = async (title, label, value = '', opts = {}) => {
   const r = await App.modal({ title, ok: opts.ok || 'OK', text: opts.text, fields: [{ key: 'v', label, value, placeholder: opts.placeholder }] });

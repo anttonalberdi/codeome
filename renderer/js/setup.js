@@ -1,7 +1,7 @@
 // HPC setup: Codeome's own VPN tunnel, the ssh key, and installing missing tools.
 // Settings → HPC shows these as a checklist; connecting to the HPC uses them too.
-// Every step runs in a visible terminal, so password, passphrase and second-factor
-// prompts work, and nothing is installed without asking first.
+// The tunnel signs in through dialogs; the other steps run in a visible terminal, so
+// password and passphrase prompts work, and nothing is installed without asking first.
 (function () {
   const h = App.h;
   const U = { status: null, vpnUp: false, loginTest: null, vpnTest: null };
@@ -52,59 +52,123 @@
   };
 
   // ---------- VPN tunnel ----------
-  let watch = null, connectWhenUp = false, back = null;
-  const vpnTab = () => T().list.find((t) => t.spec.kind === 'vpn' && t.alive);
-  U.vpnStarting = () => !U.vpnUp && !!vpnTab();
+  // It signs in without a terminal (main/vpn.js): Codeome asks in dialogs for what
+  // is not saved, then shows that a sign-in waits for approval on the MFA device.
+  let connectWhenUp = false, back = null, dialog = null, mfaTimer = null;
+  U.tun = { phase: 'stopped' };
+  const server = () => App.cfg.hpc.vpn.server;
+  U.vpnStarting = () => !U.vpnUp && ['starting', 'prompt', 'waiting'].includes(U.tun.phase);
 
-  // Starts the tunnel in a terminal (to sign in there) and watches for it to come up.
+  // One sign-in dialog at a time; a new one (or the tunnel coming up) closes the last.
+  function show(opts) {
+    closeDialog();
+    const d = {};
+    dialog = d;
+    return App.modal({ ...opts, closer: (c) => { d.close = c; } }).then((v) => { if (dialog === d) dialog = null; return v; });
+  }
+  function closeDialog() { const d = dialog; dialog = null; if (d && d.close) d.close(); }
+
   // thenConnect: connect to the HPC once it is up; returnTo: run when it is (e.g. reopen Settings).
   U.startVpn = async ({ thenConnect = false, returnTo = null } = {}) => {
-    const v = App.cfg.hpc.vpn;
-    if (!v.server) {
+    if (!server()) {
       App.toast('Set the VPN server first.', { action: { label: 'Open Settings', run: () => App.views.settings.open('hpc') } });
       return;
     }
     if (U.vpnUp) { if (thenConnect) App.connectHpc(); return; }
     connectWhenUp = connectWhenUp || thenConnect;
     back = returnTo || back;
-    const running = vpnTab();
-    if (running) { App.views.settings.close(); T().showPanel(); T().activate(running.id); return; }
+    if (U.vpnStarting()) { onState(U.tun, true); return; }
     const st = await U.refresh();
     const missing = ['openconnect', 'ocproxy'].filter((t) => !st.tools[t]);
     if (missing.length && !(await U.install(missing, "Codeome's VPN tunnel needs them."))) { connectWhenUp = false; back = null; return; }
-    App.views.settings.close();
-    T().open({ kind: 'vpn', title: 'VPN · ' + v.server, badge: 'VPN', global: true, cwd: '~',
-      onExit: () => { stopWatch(); connectWhenUp = false; back = null; App.pollHpc(); } });
-    App.toast(`Sign in to ${v.server} in the terminal below. The tunnel only carries Codeome's HPC connections.`, {
-      ms: 9000, action: thenConnect ? { label: 'Connect without it', run: () => { connectWhenUp = false; App.connectHpc({ direct: true }); } } : null });
-    startWatch();
-    App.emit('vpn', U.vpnUp);
+    const r = await codeome.vpn.start();
+    if (r.error) { connectWhenUp = false; back = null; App.err(r.error); return; }
+    App.toast(`Signing in to ${server()}…`);
   };
 
-  function startWatch() {
-    stopWatch();
-    watch = setInterval(async () => {
-      const r = await codeome.hpc.vpn();
-      if (!r.up) return;
-      stopWatch();
-      await App.pollHpc();
+  // The dialog for one of openconnect's prompts; Cancel stops the sign-in.
+  async function ask(pr) {
+    const title = 'Sign in to ' + server();
+    let r, value, save = false;
+    if (pr.kind === 'username') {
+      r = await show({ title, text: pr.error || 'Your VPN username.', ok: 'Continue',
+        fields: [{ key: 'v', label: 'Username', placeholder: 'e.g. abc123' }, { key: 'remember', type: 'check', label: 'Remember it in Settings', value: true }] });
+      if (r && r.remember && r.v.trim()) { App.cfg.hpc.vpn.user = r.v.trim(); App.saveConfig(); }
+      value = r && r.v.trim();
+    } else if (pr.kind === 'password') {
+      const who = App.cfg.hpc.vpn.user;
+      r = await show({ title, text: pr.error || (who ? `The VPN password for ${who}.` : 'Your VPN password.'), ok: 'Sign in',
+        fields: [{ key: 'v', label: 'Password', type: 'password' },
+          { key: 'save', type: 'check', label: pr.saved ? 'Replace the saved password once it works' : 'Save in the Keychain once it works', value: true }] });
+      value = r && r.v; save = !!(r && r.save);
+    } else if (pr.kind === 'group') {
+      r = await show({ title, text: pr.error || 'Pick your group.', ok: 'Continue',
+        fields: [{ key: 'v', label: 'Group', type: 'select', options: pr.options, value: pr.options[0] }] });
+      value = r && r.v;
+    } else {
+      r = await show({ title: 'Second factor', text: pr.error || `${server()} asks for a second factor, for example a code from your authenticator app.`, ok: 'Continue',
+        fields: [{ key: 'v', label: pr.label }] });
+      value = r && r.v.trim();
+    }
+    if (r === undefined) return; // replaced by the next step
+    if (r === null) { U.stopVpn({ quiet: true }); App.toast('VPN sign-in cancelled.'); return; }
+    codeome.vpn.answer(pr.id, value || '', save);
+  }
+
+  // Shown after the password while the server may wait for an approval on the MFA device.
+  async function mfa() {
+    const r = await show({ title: 'Approve the sign-in',
+      text: `Check your MFA device, for example the authenticator app on your phone, and approve the sign-in to ${server()}. Codeome connects as soon as you do.`,
+      body: h('div.vpn-wait', h('span.spinner'), h('span', 'Waiting for the approval…')),
+      ok: 'Hide', cancel: 'Cancel sign-in' });
+    if (r === null) { U.stopVpn({ quiet: true }); App.toast('VPN sign-in cancelled.'); }
+  }
+
+  async function showLog() {
+    const log = (await codeome.vpn.log()).trim();
+    App.modal({ title: 'VPN sign-in log', body: h('pre.sp-code.vpn-log', log || 'Nothing logged.'), ok: 'Close', cancel: null });
+  }
+  U.showVpnLog = showLog;
+
+  // again: show the current step's dialog again (Start pressed while signing in).
+  function onState(s, again = false) {
+    const prev = U.tun;
+    U.tun = s;
+    clearTimeout(mfaTimer);
+    if (s.phase === 'prompt' && (again || !prev.prompt || prev.prompt.id !== s.prompt.id)) ask(s.prompt);
+    else if (s.phase === 'waiting') {
+      if (again) mfa();
+      else if (prev.phase !== 'waiting') { closeDialog(); mfaTimer = setTimeout(() => { if (U.tun.phase === 'waiting') mfa(); }, 1500); }
+    } else if (s.phase === 'up' && prev.phase !== 'up') {
+      closeDialog();
+      U.vpnUp = true;
       App.toast('VPN tunnel is up.');
+      App.pollHpc();
       const go = connectWhenUp, ret = back;
       connectWhenUp = false; back = null;
       if (go) App.connectHpc();
       else if (ret) ret();
-    }, 1500);
+    } else if (s.phase === 'failed' && prev.phase !== 'failed') {
+      closeDialog();
+      U.vpnUp = false; connectWhenUp = false; back = null;
+      App.toast('VPN: ' + s.reason, { error: true, action: { label: 'Show log', run: showLog } });
+      App.pollHpc();
+    } else if (s.phase === 'stopped') {
+      closeDialog();
+      U.vpnUp = false; connectWhenUp = false; back = null;
+      App.pollHpc();
+    }
+    App.emit('vpn', U.vpnUp);
   }
-  function stopWatch() { clearInterval(watch); watch = null; }
+  codeome.vpn.onState((s) => onState(s));
+  codeome.vpn.state().then((s) => { if (s && s.phase !== 'stopped') onState(s); });
 
-  // Signs out of the VPN (Ctrl-C lets openconnect log the session off), then closes the tab.
-  U.stopVpn = async () => {
-    const t = vpnTab();
-    if (!t) return;
+  // Signs out of the VPN (openconnect logs the session off).
+  U.stopVpn = async ({ quiet = false } = {}) => {
+    if (U.tun.phase === 'stopped' || U.tun.phase === 'failed') return;
     if (App.hpcConnected) await codeome.hpc.disconnect();
-    codeome.pty.write(t.id, '\x03');
-    setTimeout(() => { if (T().get(t.id)) T().close(t.id); App.pollHpc(); }, 2000);
-    App.toast('VPN tunnel stopped.');
+    await codeome.vpn.stop();
+    if (!quiet) App.toast('VPN tunnel stopped.');
   };
 
   // Whether the HPC network answers: directly (campus, Cisco Secure Client) or through the tunnel.

@@ -217,9 +217,9 @@
             onchange: (e) => { vpn().server = e.target.value.trim(); commit({ setup: true }); } }), serverList),
           'The server Cisco Secure Client connects to.'),
           row('Username', text(() => vpn().user, (v) => { vpn().user = v.trim(); }, { placeholder: 'Asked for when the tunnel starts', label: 'VPN username' }),
-            'Optional. Without it, the tunnel asks for it in its terminal.'),
+            'Optional. Without it, Codeome asks when the tunnel starts.'),
           row('Password', vpnPassword(),
-            'Optional. Kept in the macOS Keychain and typed in when the tunnel signs in. Then approve the MFA request on your phone, or answer its prompt in the terminal.'),
+            'Optional. Kept in the macOS Keychain and used when the tunnel signs in; without it, Codeome asks. Then approve the sign-in on your MFA device.'),
           row('Local port', text(() => vpn().port, (v) => { const n = Math.round(Number(v)); vpn().port = n > 1023 && n < 65536 ? n : 11080; }, { type: 'number', apply: { host: true, setup: true }, label: 'Local port' }),
             'Where the tunnel listens on this Mac (127.0.0.1 only). Change it only if 11080 is taken.'),
           row('Extra options', text(() => vpn().args, (v) => { vpn().args = v.trim(); }, { placeholder: 'None', label: 'Extra openconnect options' }),
@@ -265,8 +265,11 @@
         : stepRow('ok', 'OpenConnect and ocproxy', 'Installed.'));
       const tunnelRow = !vpn().server ? stepRow('off', 'VPN tunnel', 'Enter the VPN server above.')
         : U.vpnUp ? stepRow('ok', 'VPN tunnel', `Running on 127.0.0.1:${st.tunnel.port}. Only Codeome's HPC connections use it.`, btn('Stop', () => U.stopVpn()))
-        : U.vpnStarting() ? stepRow('busy', 'VPN tunnel', 'Signing in. Answer the prompts in its terminal.', btn('Show terminal', () => U.startVpn()))
-        : stepRow(missing.length ? 'off' : 'todo', 'VPN tunnel', `Not running. Starting it opens a terminal to sign in to ${vpn().server}.`,
+        : U.vpnStarting() ? stepRow('busy', 'VPN tunnel', U.tun.phase === 'waiting' ? 'Waiting for the sign-in to be approved on your MFA device.' : `Signing in to ${vpn().server}…`,
+          btn('Cancel', () => U.stopVpn({ quiet: true })), btn(U.tun.phase === 'prompt' ? 'Continue…' : 'Show', () => U.startVpn()))
+        : U.tun.phase === 'failed' ? stepRow('warn', 'VPN tunnel', U.tun.reason, btn('Log', () => U.showVpnLog()),
+          missing.length ? null : btn('Start again', () => U.startVpn({ returnTo: backHere }), true))
+        : stepRow(missing.length ? 'off' : 'todo', 'VPN tunnel', `Not running. Starting it signs in to ${vpn().server}; Codeome asks for anything not saved above.`,
           missing.length ? null : btn('Start', () => U.startVpn({ returnTo: backHere }), true));
       rows.push(tunnelRow);
     }
