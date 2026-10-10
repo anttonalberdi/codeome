@@ -2,10 +2,13 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 0.3.0
 
 ### Added
 - **Codex chats**: a new chat can run on Codex instead of Claude. Pick the AI under the message box before the first message; it stays for the life of the chat, and the tab, the history and the bar under the message box show which one it is. A Codex chat is the orchestrator for the team too: it hands work to Codex specialists, and uses the account, model and effort set for Codex (Settings → *Agents* → *Codex chats*). It can't edit Google Docs, Sheets or Slides, which go through Claude's connectors, so it says so with a button that starts a Claude chat. A Codex chat can't change account or continue in a terminal yet.
+
+### Changed
+- The agent chat shows an *is thinking…* line with a running timer from the moment a message is sent until the turn ends, so a quiet agent is not mistaken for a stuck one. Your messages and the agent's replies carry the time they were sent.
 
 ### Fixed
 - The Claude and Codex usage card in the title bar stays under its button. It used to jump to the top-left corner of the window whenever the usage was refreshed while it was open.
