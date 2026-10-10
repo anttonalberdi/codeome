@@ -21,6 +21,7 @@
   --side-w: 300px;
   --panel-h: 300px;
   --tb-h: 40px;
+  --bi-tile: #ffffff; --bi-edge: #cbd5e1; --bi-brace: #0f172a; --bi-l1: #0284c7; --bi-l2: #059669; --bi-l3: #d97706; --bi-l4: #be123c;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -28,6 +29,7 @@
     --bg: #1a1f26; --surface: #20262e; --surface-2: #252c35; --line: #2f3742; --line-strong: #3d4754;
     --text: #d9dee5; --muted: #8792a2; --accent: #9cc59f; --accent-soft: #2c3b30;
     --run: #6cc4bb; --pend: #e0b45a; --fail: #ec8478; --done: #8792a2; --sel: #2b3a4d; --focus: #9cc59f;
+    --bi-tile: #0f172a; --bi-edge: #334155; --bi-brace: #f1f5f9; --bi-l1: #38bdf8; --bi-l2: #34d399; --bi-l3: #fbbf24; --bi-l4: #fb7185;
     color-scheme: dark;
   }
   :root:not([data-theme="light"]) .ptint { --p-soft: hsl(var(--ph) 22% 27%); --p-ink: hsl(var(--ph) 45% 82%); --p-strong: hsl(var(--ph) 45% 66%); }
@@ -37,6 +39,7 @@
   --bg: #1a1f26; --surface: #20262e; --surface-2: #252c35; --line: #2f3742; --line-strong: #3d4754;
   --text: #d9dee5; --muted: #8792a2; --accent: #9cc59f; --accent-soft: #2c3b30;
   --run: #6cc4bb; --pend: #e0b45a; --fail: #ec8478; --done: #8792a2; --sel: #2b3a4d; --focus: #9cc59f;
+  --bi-tile: #0f172a; --bi-edge: #334155; --bi-brace: #f1f5f9; --bi-l1: #38bdf8; --bi-l2: #34d399; --bi-l3: #fbbf24; --bi-l4: #fb7185;
   color-scheme: dark;
 }
 
@@ -182,7 +185,10 @@ svg { width: 18px; height: 18px; display: block; }
 .tb-left, .tb-right { flex: 1; display: flex; align-items: center; min-width: 0; }
 .tb-left { gap: 10px; }
 .tb-right { justify-content: flex-end; }
-.brand { font-weight: 700; font-size: 12px; letter-spacing: .14em; color: var(--text); user-select: none; flex: none; }
+.brand { display: flex; align-items: center; font-weight: 700; font-size: 12px; letter-spacing: .03em; color: var(--text); user-select: none; flex: none; }
+.brand-icon { width: 18px; height: 18px; margin-right: 6px; flex: none; }
+.bi-tile { fill: var(--bi-tile); stroke: var(--bi-edge); } .bi-brace { stroke: var(--bi-brace); }
+.bi-l1 { fill: var(--bi-l1); } .bi-l2 { fill: var(--bi-l2); } .bi-l3 { fill: var(--bi-l3); } .bi-l4 { fill: var(--bi-l4); }
 .brand small { margin-left: 5px; font-weight: 500; font-size: 10px; letter-spacing: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
 .project-tag { border: 1px solid transparent; background: var(--p-soft); color: var(--p-ink); font-weight: 600; font-size: 12px; line-height: 18px; padding: 2px 10px; border-radius: 7px; cursor: pointer; max-width: 320px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-tag:hover { border-color: var(--p-strong); }
