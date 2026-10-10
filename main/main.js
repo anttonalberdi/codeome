@@ -171,6 +171,8 @@ ipcMain.handle('pty:spawn', (_e, spec) => {
     const p = pty.spawn(s.file, s.args, { name: 'xterm-256color', cols: spec.cols || 100, rows: spec.rows || 30, cwd: fs.existsSync(s.cwd) ? s.cwd : os.homedir(), env });
     ptys.set(spec.id, p);
     p.onData((d) => send('pty:data', { id: spec.id, data: d }));
+    // The VPN password goes from the Keychain into the tunnel's prompt; the UI never sees it.
+    if (spec.kind === 'vpn') p.onData(setup.passwordFiller(config.getSecret('vpn:password'), (s) => p.write(s)));
     p.onExit(({ exitCode }) => { ptys.delete(spec.id); send('pty:exit', { id: spec.id, code: exitCode }); });
     return { ok: true, pid: p.pid, account: acct && acct.info };
   } catch (e) { return { error: String(e.message || e) }; }

@@ -26,13 +26,25 @@ function splitArgs(s) {
   return out;
 }
 
-// The openconnect command line. It asks for the password and second factor itself.
+// The openconnect command line. It asks for the password (see passwordFiller) and second factor itself.
 function tunnelArgs(v, ocproxy = 'ocproxy') {
   if (!v || !v.server) throw new Error('Set the VPN server in Settings → HPC.');
   return ['--protocol=anyconnect', ...(v.user ? ['--user=' + v.user] : []),
     '--script-tun', '--script', `${q(ocproxy)} -D ${portOf(v)} -k 30`, ...splitArgs(v.args), v.server];
 }
 const tunnelCommand = (v) => 'exec ' + ['openconnect', ...tunnelArgs(v)].map(q).join(' ');
+
+// Types the saved VPN password at openconnect's first "Password:" prompt, once: a
+// wrong one is not sent again (the terminal asks), and later prompts such as the
+// second factor's are left to the person.
+function passwordFiller(password, write) {
+  let tail = '', done = !password;
+  return (data) => {
+    if (done) return;
+    tail = (tail + data).slice(-200);
+    if (/(?:^|[\r\n])\s*Password:\s*$/i.test(tail)) { done = true; write(password + '\r'); }
+  };
+}
 
 // ssh's ProxyCommand for the HPC host: through the tunnel while it runs, otherwise
 // direct (on campus, or with Cisco Secure Client on), so one setting works everywhere.
@@ -214,5 +226,5 @@ async function status(cfg, shell) {
     login, key, ciscoServers: ciscoServers(), home: os.homedir() };
 }
 
-module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, proxyCommand, portOpen, hostPort, vpnTarget, classifyProbe, probe, testVpn, locate, RECIPES, BREW_INSTALL, installCommand,
+module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, passwordFiller, proxyCommand, portOpen, hostPort, vpnTarget, classifyProbe, probe, testVpn, locate, RECIPES, BREW_INSTALL, installCommand,
   parseSshG, resolveHost, findKey, classifyLogin, ciscoServers, status };

@@ -177,6 +177,27 @@
 
   // ---------- HPC ----------
   const vpn = () => App.cfg.hpc.vpn;
+  // The VPN password goes straight to the Keychain; the page only knows whether one is saved.
+  function vpnPassword() {
+    const KEY = 'vpn:password', SAVED = 'Saved — type a new one to replace';
+    const status = h('span.pill', '…');
+    const input = h('input', { type: 'password', placeholder: 'Asked for when the tunnel starts', autocomplete: 'off', 'aria-label': 'VPN password' });
+    const clear = h('button.btn.small', { hidden: true, onclick: async () => { await codeome.secret.set(KEY, ''); paint(false); flash('Password removed'); } }, 'Remove');
+    const save = h('button.btn.small', { onclick: async () => {
+      if (!input.value) return;
+      await codeome.secret.set(KEY, input.value);
+      input.value = ''; paint(true); flash('Password saved');
+    } }, 'Save');
+    input.onkeydown = (e) => { if (e.key === 'Enter') save.click(); };
+    function paint(has) {
+      status.className = 'pill' + (has ? ' ok' : '');
+      status.textContent = has ? 'saved' : 'not saved';
+      input.placeholder = has ? SAVED : 'Asked for when the tunnel starts';
+      clear.hidden = !has;
+    }
+    codeome.secret.has(KEY).then(paint);
+    return h('div.row', input, save, clear, status);
+  }
   function hpcSection(c) {
     const tunnel = c.hpc.vpn.mode === 'tunnel';
     setupHost = h('div');
@@ -190,13 +211,15 @@
       card('Network',
         row('Reach the HPC through', mode, tunnel
           ? "Only Codeome's connections to the HPC go through the VPN; the rest of the Mac stays on its own network. Uses OpenConnect, which speaks Cisco's protocol. Off campus, use it instead of Cisco Secure Client, not alongside it."
-          : 'Codeome uses whatever network the Mac is on. Off campus, turn on Cisco Secure Client first.'),
+          : "Codeome uses whatever network the Mac is on. Off campus, turn on Cisco Secure Client first, or choose Codeome's own VPN tunnel to sign in (username, password and MFA) from here."),
         ...(tunnel ? [
           row('VPN server', h('div', h('input', { type: 'text', value: vpn().server, list: 'sp-vpn-servers', placeholder: 'vpn.example.org', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'VPN server',
             onchange: (e) => { vpn().server = e.target.value.trim(); commit({ setup: true }); } }), serverList),
           'The server Cisco Secure Client connects to.'),
           row('Username', text(() => vpn().user, (v) => { vpn().user = v.trim(); }, { placeholder: 'Asked for when the tunnel starts', label: 'VPN username' }),
-            'Optional. Your password and second factor are always asked for in the terminal and never stored.'),
+            'Optional. Without it, the tunnel asks for it in its terminal.'),
+          row('Password', vpnPassword(),
+            'Optional. Kept in the macOS Keychain and typed in when the tunnel signs in. Then approve the MFA request on your phone, or answer its prompt in the terminal.'),
           row('Local port', text(() => vpn().port, (v) => { const n = Math.round(Number(v)); vpn().port = n > 1023 && n < 65536 ? n : 11080; }, { type: 'number', apply: { host: true, setup: true }, label: 'Local port' }),
             'Where the tunnel listens on this Mac (127.0.0.1 only). Change it only if 11080 is taken.'),
           row('Extra options', text(() => vpn().args, (v) => { vpn().args = v.trim(); }, { placeholder: 'None', label: 'Extra openconnect options' }),
