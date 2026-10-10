@@ -1,6 +1,7 @@
 // Left column: one card per open project. Each project keeps its own editor tabs,
 // terminal and agent sessions (which keep running while another project is shown)
-// and its place in the HPC file browser.
+// and its place in the HPC file browser. Each project has a color (a hue) shared by its
+// card and the tag in the title bar; it is picked when the project is first opened.
 (function () {
   const h = App.h;
   const P = { list: [], state: {} }; // state[dir] = { remoteDir, jobs }
@@ -10,6 +11,11 @@
   P.init = () => {
     el = document.getElementById('projects');
     P.list = (App.cfg.openProjects || []).filter(Boolean);
+    App.cfg.projectColors = App.cfg.projectColors || {};
+    P.list.forEach(colorOf);
+    const tag = document.getElementById('project-btn');
+    tag.onclick = () => (App.project ? App.menuAt(tag, tagMenu()) : P.open());
+    tag.oncontextmenu = (e) => { e.preventDefault(); if (App.project) App.menu(e.clientX, e.clientY, tagMenu()); };
     applyCollapsed();
     // Unsaved files and live sessions change the cards.
     App.listen('sessions', schedule);
@@ -30,6 +36,7 @@
     dir = dir || await codeome.dialog.folder({ defaultPath: App.project || App.cfg.localRoot });
     if (!dir) return;
     if (!P.list.includes(dir)) P.list.push(dir);
+    colorOf(dir);
     await P.switchTo(dir);
   };
 
@@ -44,7 +51,7 @@
     }
     App.cfg.openProjects = P.list.slice();
     App.cfg.activeProject = dir;
-    document.getElementById('project-name').textContent = dir ? App.basename(dir) : 'No folder open';
+    paintTag();
     document.title = dir ? App.basename(dir) + ' — Codeome' : 'Codeome';
     render();
     App.emit('project', dir);
@@ -99,7 +106,77 @@
     const parts = name.replace(/\.[^.]+$/, '').split(/[-_\s.]+/).filter(Boolean);
     return ((parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)) || '?').toUpperCase();
   }
-  const hue = (s) => { let x = 0; for (const c of s) x = (x * 31 + c.charCodeAt(0)) % 360; return x; };
+
+  // ---------- project colors ----------
+  // Twelve hues 30° apart. A new project takes the one furthest from the other open
+  // projects' hues; ties go to the earliest in PICK, so the first few are well spread.
+  const HUES = [[0, 'Red'], [30, 'Orange'], [60, 'Yellow'], [90, 'Lime'], [120, 'Green'], [150, 'Jade'],
+    [180, 'Teal'], [210, 'Blue'], [240, 'Indigo'], [270, 'Violet'], [300, 'Magenta'], [330, 'Pink']];
+  const PICK = [210, 30, 120, 300, 180, 0, 270, 90, 150, 330, 240, 60];
+  const gap = (a, b) => { const d = Math.abs(a - b) % 360; return Math.min(d, 360 - d); };
+
+  function colorOf(dir) {
+    const c = App.cfg.projectColors;
+    if (c[dir] == null) {
+      const used = P.list.filter((d) => d !== dir && c[d] != null).map((d) => c[d]);
+      const far = (hue) => Math.min(Infinity, ...used.map((u) => gap(hue, u)));
+      c[dir] = PICK.reduce((best, hue) => (far(hue) > far(best) ? hue : best));
+    }
+    return c[dir];
+  }
+
+  function setColor(dir, hue, save = true) {
+    App.cfg.projectColors[dir] = hue;
+    render();
+    paintTag();
+    if (save) App.saveConfig();
+  }
+
+  function paintTag() {
+    const tag = document.getElementById('project-btn'), dir = App.project;
+    document.getElementById('project-name').textContent = dir ? App.basename(dir) : 'No folder open';
+    tag.classList.toggle('empty', !dir);
+    if (dir) tag.style.setProperty('--ph', colorOf(dir)); else tag.style.removeProperty('--ph');
+    tag.title = dir ? App.tildify(dir) : 'Open a project folder (⌘O)';
+    tag.setAttribute('aria-label', dir ? `Project ${App.basename(dir)}` : 'Open a project folder');
+  }
+
+  // Swatches and a hue slider under the card or tag; changes show as you pick.
+  function pickColor(dir, anchor) {
+    const swatches = HUES.map(([hue, name]) => h('button.swatch.ptint', {
+      style: '--ph: ' + hue, title: name, 'aria-label': name, onclick: () => { setColor(dir, hue); sync(); }
+    }));
+    const slider = h('input.hue-slider', {
+      type: 'range', min: 0, max: 359, step: 1, value: colorOf(dir), 'aria-label': 'Hue',
+      oninput: () => { setColor(dir, +slider.value, false); sync(); },
+      onchange: () => App.saveConfig()
+    });
+    const sync = () => {
+      const cur = colorOf(dir);
+      swatches.forEach((b, i) => b.setAttribute('aria-pressed', String(HUES[i][0] === cur)));
+      slider.value = cur;
+    };
+    sync();
+    const body = h('div.color-pick',
+      h('div.cp-head', 'Color of ', h('b', App.basename(dir))),
+      h('div.swatches', swatches),
+      h('label.cp-hue', h('span', 'Any hue'), slider));
+    const p = App.popover(anchor, body, 'Project color');
+    p.pop.classList.add('color-pop');
+    p.set(body);
+  }
+
+  function tagMenu() {
+    const dir = App.project, tag = document.getElementById('project-btn');
+    return [
+      { label: 'Project color…', run: () => pickColor(dir, tag) },
+      { label: 'Reveal in Finder', run: () => codeome.shell.reveal(dir) },
+      { label: 'Copy path', run: () => navigator.clipboard.writeText(dir) },
+      '-',
+      { label: 'Open another project…', key: '⌘O', run: () => P.open() },
+      { label: 'Close project', key: '⇧⌘W', danger: true, run: () => P.close(dir) }
+    ];
+  }
 
   function render() {
     if (!el) return;
@@ -133,12 +210,12 @@
       unsaved ? h('span.ps-dirty', `${unsaved} unsaved`) : null
     ].filter(Boolean);
     const label = [name, cs.waiting ? `${cs.waiting} chat${cs.waiting > 1 ? 's' : ''} waiting for you` : '', working ? workingText : '', jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', cs.unread ? `${cs.unread} unseen agent repl${cs.unread > 1 ? 'ies' : 'y'}` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ');
-    const c = h('div.proj' + (active ? '.active' : ''), {
+    const c = h('div.proj.ptint' + (active ? '.active' : ''), {
       role: 'tab', 'aria-selected': String(active), 'aria-label': label, tabindex: active ? '0' : '-1', draggable: 'true',
-      title: App.tildify(dir), style: '--ph: ' + hue(name),
+      title: App.tildify(dir), style: '--ph: ' + colorOf(dir),
       onclick: () => P.switchTo(dir),
       onauxclick: (e) => { if (e.button === 1) P.close(dir); },
-      oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, menu(dir)); },
+      oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, menu(dir, c)); },
       onkeydown: (e) => {
         const i = P.list.indexOf(dir);
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -175,10 +252,11 @@
     return c;
   }
 
-  function menu(dir) {
+  function menu(dir, card) {
     const i = P.list.indexOf(dir);
     return [
       dir !== App.project ? { label: 'Switch to project', run: () => P.switchTo(dir) } : null,
+      { label: 'Project color…', run: () => pickColor(dir, card) },
       { label: 'Reveal in Finder', run: () => codeome.shell.reveal(dir) },
       { label: 'Copy path', run: () => navigator.clipboard.writeText(dir) },
       '-',

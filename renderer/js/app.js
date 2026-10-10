@@ -167,7 +167,6 @@
     initResize();
     document.querySelectorAll('#rail button').forEach((b) => { b.onclick = () => App.setView(b.dataset.view); });
     document.getElementById('settings-btn').onclick = () => App.views.settings.toggle();
-    document.getElementById('project-btn').onclick = () => App.openProject();
     const cl = document.getElementById('cluster');
     cl.onclick = () => clusterMenu(cl);
     cl.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clusterMenu(cl); } };

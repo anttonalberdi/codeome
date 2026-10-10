@@ -155,6 +155,10 @@ const steps = {
     App.setView('agents');
     if (${JSON.stringify(process.env.SHOT_LIGHT || '')}) { document.documentElement.dataset.theme = 'light'; App.views.editor.applyTheme(); document.querySelector('.proj-fold').click(); }
     if (${JSON.stringify(process.env.SHOT_POPOVER || '')}) setTimeout(() => document.querySelector('.u-eng').click(), 2000);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    // SHOT_COLOR: open the color picker from the title-bar tag (a swatch number also picks that swatch).
+    const pick = ${JSON.stringify(process.env.SHOT_COLOR || '')};
+    if (pick) setTimeout(() => { document.getElementById('project-btn').click(); document.querySelector('#menu-pop button').click(); if (+pick) document.querySelectorAll('.swatch')[+pick].click(); }, 2000);
   })(); 0`]
 };
 
