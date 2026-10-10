@@ -131,7 +131,7 @@
         t.spec.badge ? h('span.badge' + (t.spec.badge === 'HPC' || t.spec.badge === 'VPN' ? '.hpc' : t.spec.badge === 'R' ? '.r' : ''), t.spec.badge) : null,
         t === rt && t.spec.badge !== 'R' ? h('span.badge.r', { title: 'Receives R code' }, 'R') : null,
         h('span.t', t.title),
-        t.account && App.cfg.accounts[t.spec.engine] && App.cfg.accounts[t.spec.engine].list.length > 1 ? h('span.acct', t.account) : null,
+        t.account && App.cfg.accounts[t.spec.engine] && App.cfg.accounts[t.spec.engine].list.length > 1 ? h('span.acct', { title: t.account }, App.views.usage.short(t.account)) : null,
         h('button.x', { title: 'Close', onclick: (e) => { e.stopPropagation(); T.close(t.id); } }, h('span', '×'))));
     }
   }

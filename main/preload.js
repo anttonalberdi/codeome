@@ -92,7 +92,7 @@ contextBridge.exposeInMainWorld('codeome', {
     onEvent: on('chat:event'), onExit: on('chat:exit')
   },
   usage: {
-    get: invoke('usage:get'), refresh: invoke('usage:refresh'),
+    get: invoke('usage:get'), refresh: invoke('usage:refresh'), found: invoke('usage:found'),
     setActive: (engine, name) => ipcRenderer.invoke('usage:setActive', { engine, name }),
     onUpdate: on('usage:update')
   },

@@ -1,8 +1,8 @@
 // Title bar: 5-hour and weekly usage of Claude and Codex for the active account, and
-// a popover to see every account, choose the active one, and add accounts.
+// a popover to see every account, choose the active one, and add accounts by email.
 (function () {
   const h = App.h;
-  const U = { snap: null };
+  const U = { snap: null, found: { claude: [], codex: [] } };
   App.views.usage = U;
   const ENGINES = [['claude', 'Claude'], ['codex', 'Codex']];
   const WINDOWS = [['fiveHour', '5h', '5-hour'], ['weekly', 'wk', 'Weekly']];
@@ -10,11 +10,20 @@
 
   U.init = async () => {
     U.snap = await codeome.usage.get();
-    codeome.usage.onUpdate((s) => { U.snap = s; paint(); App.emit('usage', s); });
+    codeome.usage.onUpdate((s) => { U.snap = s; paint(); App.emit('usage', s); adopt(); });
     paint();
+    adopt();
     // Reset times and "updated … ago" move on even when nothing new arrives.
     setInterval(() => { if (!document.hidden) paint(); }, 60000);
   };
+
+  // An account is named by the email address it signs in with (same rule as main/usage.js).
+  U.isEmail = (s) => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(String(s || ''));
+  const same = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+  // you@example.org → you, where there is no room for the address.
+  U.short = (name) => (U.isEmail(name) ? name.split('@')[0] : name);
+  // Signed in as itself: the only accounts work is started on or moved to.
+  U.ready = (a) => !!(a && a.signedIn && !a.mismatch);
 
   U.stopAt = () => (U.snap && U.snap.stopAt) || App.cfg.usage.stopAt || 90;
   U.accounts = (engine) => (U.snap && U.snap[engine] ? U.snap[engine].accounts : []);
@@ -32,6 +41,11 @@
     const ps = WINDOWS.map(([k]) => U.pct(a, k)).filter((p) => p != null);
     return ps.length ? Math.max(...ps) : null;
   };
+  // The windows an account's plan has: a reading without a 5-hour window means there is none.
+  // Before the first reading, both are assumed.
+  U.windows = (a) => (a && a.asOf && a.windows && Object.keys(a.windows).length ? WINDOWS.filter(([k]) => a.windows[k]) : WINDOWS);
+  // max → Max, the subscription as the CLI names it.
+  U.plan = (a) => (a && a.plan ? String(a.plan).replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase()) : null);
   U.tone = (p) => (p == null ? 'none' : p >= U.stopAt() ? 'bad' : p >= U.stopAt() - 15 ? 'warn' : 'ok');
   // "5-hour 72% (resets in 1 h 20 min)" for the window closest to the limit.
   U.worst = (a) => {
@@ -59,7 +73,7 @@
 
   // The two windows of an account as bars with their reset times, and how old the reading is.
   U.lines = (engine, a) => [
-    WINDOWS.map(([k, , long]) => {
+    U.windows(a).map(([k, , long]) => {
       const p = U.pct(a, k);
       const w = a.windows && a.windows[k];
       return h('div.u-line.' + (fresh(a) ? U.tone(p) : 'old'),
@@ -79,8 +93,8 @@
       const a = U.active(engine);
       const many = U.accounts(engine).length > 1;
       el.append(h('button.u-eng', { title: summary(engine, label, a), 'aria-label': summary(engine, label, a), 'aria-haspopup': 'dialog', onclick: (e) => open(engine, e.currentTarget) },
-        h('span.u-name', label, many ? h('span.u-acct', a ? a.name : '') : null),
-        h('span.u-bars', WINDOWS.map(([k, short]) => meter(a, k, short)))));
+        h('span.u-name', label, many ? h('span.u-acct', a ? U.short(a.name) : '') : null),
+        h('span.u-bars', U.windows(a).map(([k, short]) => meter(a, k, short)))));
     }
     if (App.pop && App.pop.engine) App.pop.set(popContent(App.pop.engine));
   }
@@ -103,14 +117,13 @@
     wrap.append(h('div.u-pop-head', h('h3', label + ' usage'), refreshBtn));
     for (const a of (e ? e.accounts : [])) {
       const isActive = a.name === e.active;
-      const who = [a.email, a.plan].filter(Boolean).join(' · ');
+      const who = same(a.email, a.name) ? null : a.email;
       wrap.append(h('div.u-acc' + (isActive ? '.active' : ''),
         h('div.row',
-          h('b.grow', a.name),
-          isActive ? h('span.pill.ok', 'active') : h('button.btn.small', { onclick: () => codeome.usage.setActive(engine, a.name) }, 'Make active')),
-        h('div.sub', who || (a.signedOut ? 'Not signed in' : (App.tildify(a.dir) || (engine === 'claude' ? '~/.claude' : '~/.codex')))),
-        a.signedOut ? h('button.btn.small.primary', { style: { marginTop: '4px' }, onclick: () => U.signIn(engine, a) }, 'Sign in…') : null,
-        U.lines(engine, a)));
+          h('b', a.name), U.plan(a) ? h('span.pill', { title: label + ' subscription' }, U.plan(a)) : null, h('span.grow'),
+          isActive ? h('span.pill.ok', 'active') : a.signedOut ? null : h('button.btn.small', { onclick: () => codeome.usage.setActive(engine, a.name) }, 'Make active')),
+        h('div.sub', a.mismatch ? `Signed in as ${a.email}, not ${a.name}` : a.signedOut ? 'Not signed in' : (who || (a.signedIn ? 'Signed in' : 'Asking who is signed in…'))),
+        a.signedOut ? h('button.btn.small.primary', { style: { marginTop: '4px' }, onclick: () => U.signInAll([{ engine, a }]) }, 'Sign in…') : U.lines(engine, a)));
     }
     wrap.append(h('div.u-pop-foot',
       h('button.btn.small', { onclick: () => U.addAccount(engine) }, 'Add account…'),
@@ -120,11 +133,44 @@
   }
 
   // ---------- accounts ----------
-  const LOGIN = { claude: (d) => `CLAUDE_CONFIG_DIR=${d} claude auth login`, codex: (d) => `CODEX_HOME=${d} codex login` };
+  // An account is an email address. Signing in confirms it, and its sign-in then stays
+  // in the account's own folder, so moving to it later never asks again.
   const ENV = { claude: 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
-
   const NAME = { claude: 'Claude', codex: 'Codex' };
-  const inSnap = (engine, name) => U.accounts(engine).find((x) => x.name === name);
+  // Claude's sign-in page can start with the address filled in; Codex's cannot.
+  const LOGIN = { claude: (a) => 'claude auth login' + (U.isEmail(a.name) ? ' --email ' + a.name : ''), codex: () => 'codex login' };
+  const inSnap = (snap, engine, a) => ((snap && snap[engine] && snap[engine].accounts) || []).find((x) => (a.dir == null ? x.name === a.name : (x.dir || '') === (a.dir || '')));
+
+  // The account goes by this address from now on. Chats started under the old name still find it.
+  U.rename = (engine, name, email) => {
+    const accts = App.cfg.accounts[engine];
+    const entry = accts.list.find((x) => x.name === name);
+    if (!entry || accts.list.some((x) => x !== entry && same(x.name, email))) return false;
+    entry.aka = [...(entry.aka || []), entry.name];
+    if (accts.active === entry.name) accts.active = email;
+    entry.name = email;
+    return true;
+  };
+
+  // An account without an address (the CLI's own folder, or one from before accounts
+  // were emails) takes the address it is signed in with.
+  let adopting = false;
+  async function adopt() {
+    if (adopting) return;
+    let changed = false;
+    for (const [engine] of ENGINES) {
+      for (const a of U.accounts(engine)) {
+        const entry = App.cfg.accounts[engine].list.find((x) => x.name === a.name && (x.dir || '') === (a.dir || ''));
+        if (entry && !U.isEmail(entry.name) && a.signedIn && U.isEmail(a.email) && U.rename(engine, entry.name, a.email)) changed = true;
+      }
+    }
+    if (!changed) return;
+    adopting = true;
+    try { await App.saveConfig(); } finally { adopting = false; }
+  }
+
+  // Folders on this Mac that are signed in but are no account yet: { engine: [{ dir, email, plan }] }.
+  U.findFound = async () => { U.found = await codeome.usage.found(); return U.found; };
 
   // Sign in to one account in a terminal over the workspace; resolves with its exit code.
   // Started from Settings, it returns there afterwards (stay: the caller does that).
@@ -133,20 +179,20 @@
     const back = App.views.settings.isOpen && !stay;
     App.views.settings.close();
     const T = App.views.terminals;
-    const cmd = a.dir ? `mkdir -p ${App.shPath(a.dir)} && ${LOGIN[engine](App.shPath(a.dir))}`
-      : (engine === 'claude' ? 'unset CLAUDE_CONFIG_DIR; claude auth login' : 'unset CODEX_HOME; codex login');
+    const cmd = a.dir ? `mkdir -p ${App.shPath(a.dir)} && ${ENV[engine]}=${App.shPath(a.dir)} ${LOGIN[engine](a)}` : `unset ${ENV[engine]}; ${LOGIN[engine](a)}`;
     let done;
     const ended = new Promise((r) => { done = r; });
     // A console tab ends with its command, so the sign-in is known to be over.
-    const t = await T.open({ kind: 'console', title: `Sign in · ${NAME[engine]} ${a.name}`, command: cmd, cwd: App.env.home || '~', badge: 'Mac', global: true, onExit: (code) => done(code) });
+    const t = await T.open({ kind: 'console', title: `Sign in · ${NAME[engine]} ${U.short(a.name)}`, command: cmd, cwd: App.env.home || '~', badge: 'Mac', global: true, onExit: (code) => done(code) });
     if (!t.alive) done(-1);
     const code = await ended;
     // A finished sign-in closes its tab; a failed one stays open to show why.
     if (code === 0) setTimeout(() => T.get(t.id) && T.close(t.id), 1500);
     if (back) App.views.settings.open('accounts');
-    await codeome.usage.refresh();
-    const now = inSnap(engine, a.name);
-    if (now && now.signedIn) App.toast(`${NAME[engine]} account ${a.name} is signed in${now.email ? ' as ' + now.email : ''}.`);
+    // The sign-in is what confirms the address: ask the CLI who it is now.
+    const now = inSnap(await codeome.usage.refresh(), engine, a);
+    if (now && now.mismatch) App.err(`That sign-in was ${now.email}, not ${a.name}, so the account is not used yet. Sign in again as ${a.name}, or switch the account to ${now.email} on its card in Settings.`);
+    else if (now && now.signedIn) App.toast(`${NAME[engine]} account ${U.isEmail(a.name) ? a.name : now.email || a.name} is confirmed and ready.`);
     else if (code !== 0) App.err(`${NAME[engine]} account ${a.name} was not signed in. The terminal shows why.`);
     return code;
   };
@@ -157,8 +203,8 @@
     const back = App.views.settings.isOpen;
     for (const [i, { engine, a }] of todo.entries()) {
       const ok = await App.modal({
-        title: `Sign in to ${NAME[engine]} account ${a.name}`,
-        text: `${todo.length > 1 ? `Account ${i + 1} of ${todo.length}. ` : ''}A terminal opens and sends you to the browser. Sign in there with the ${NAME[engine]} login meant for "${a.name}". If the browser is still signed in to another one, switch there first.`,
+        title: `Sign in to ${NAME[engine]}${U.isEmail(a.name) ? ' as ' + a.name : ''}`,
+        text: `${todo.length > 1 ? `Account ${i + 1} of ${todo.length}. ` : ''}A terminal opens and sends you to the browser. ${U.isEmail(a.name) ? `Sign in there as ${a.name}` : `Sign in there with the ${NAME[engine]} login for this account`}. If the browser is still signed in to another ${NAME[engine]} login, switch there first. This is needed once: the account then stays signed in.`,
         ok: 'Sign in', cancel: todo.length > 1 ? 'Stop' : 'Cancel'
       });
       if (!ok) break;
@@ -167,31 +213,27 @@
     if (back) App.views.settings.open('accounts');
   };
 
-  // preset: { name, dir } for a folder that already exists (found on this Mac).
-  U.addAccount = async (engine, preset = {}) => {
+  // An email address is all an account needs. found: { email, dir } for a folder on this
+  // Mac that is already signed in, which is added as it is.
+  U.addAccount = async (engine, found) => {
     App.closePopover();
     const label = NAME[engine];
-    const v = await App.modal({
-      title: `Add a ${label} account`,
-      text: `Each account lives in its own folder (${ENV[engine]}), with its own sign-in. Codeome then asks you to sign in, unless the folder already is.`,
-      ok: 'Add',
-      fields: [
-        { key: 'name', label: 'Name', placeholder: 'Work', value: preset.name || '' },
-        { key: 'dir', label: 'Folder', placeholder: engine === 'claude' ? '~/.claude-work' : '~/.codex-work', value: preset.dir || '', hint: 'Leave empty to use ~/.' + engine + '-<name>.' }
-      ]
-    });
-    if (!v || !v.name.trim()) return;
-    const name = v.name.trim();
+    let email = found && found.email;
+    if (!email) {
+      email = await App.prompt(`Add a ${label} account`, 'Email address', '', { placeholder: 'you@university.org', ok: 'Add and sign in',
+        text: `The address you sign in to ${label} with. Codeome sends you to the browser to sign in once; after that the account stays ready, and work moves to it without asking again.` });
+      if (!email) return;
+    }
+    if (!U.isEmail(email)) return App.err(`"${email}" is not an email address.`);
     const list = App.cfg.accounts[engine].list;
-    if (list.some((a) => a.name === name)) return App.err(`There is already a ${label} account called ${name}.`);
-    const dir = (v.dir.trim() || `~/.${engine}-${App.safeName(name)}`).replace(/\/+$/, '');
-    list.push({ name, dir });
+    if (list.some((a) => same(a.name, email))) return App.err(`${email} is already a ${label} account.`);
+    // A folder that is already signed in with this address is used as it is; otherwise Codeome makes one.
+    const known = found || (U.found[engine] || []).find((f) => same(f.email, email));
+    list.push(known ? { name: email, dir: known.dir } : { name: email });
     await App.saveConfig();
-    // A folder that is already signed in needs nothing more.
-    await codeome.usage.refresh();
-    const now = inSnap(engine, name);
+    const now = inSnap(await codeome.usage.refresh(), engine, { name: email });
     if (!now) return;
-    if (now.signedIn) return App.toast(`${label} account ${name} added${now.email ? ', signed in as ' + now.email : ''}.`);
+    if (U.ready(now)) return App.toast(`${label} account ${email} is confirmed and ready.`);
     await U.signInAll([{ engine, a: now }]);
   };
 

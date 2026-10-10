@@ -136,17 +136,17 @@ const steps = {
     document.documentElement.style.setProperty('--side-w', '380px');
     App.setView('packages');
   })(); 0`],
-  // Settings → Accounts & limits with five made-up accounts: signed in, signed out, and one doubled sign-in.
+  // Settings → Accounts & limits with five made-up accounts: confirmed, signed out, another sign-in, and one doubled.
   'settings-accounts': [`(async () => {
     const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });
     const fake = { version: 1, stopAt: 90,
-      claude: { active: 'Personal', accounts: [
-        { name: 'Personal', dir: '', email: 'me@example.org', plan: 'max', signedIn: true, windows: w(93, 61), asOf: now - 90 },
-        { name: 'Lab', dir: '~/.claude-lab', email: 'lab@example.org', plan: 'pro', signedIn: true, windows: w(12, 34), asOf: now - 600 },
-        { name: 'Teaching', dir: '~/.claude-teaching', signedIn: false, signedOut: true, windows: {} }] },
-      codex: { active: 'Default', accounts: [
-        { name: 'Default', dir: '', email: 'me@example.org', plan: 'plus', signedIn: true, windows: w(41, 77), asOf: now - 120 },
-        { name: 'Lab', dir: '~/.codex-lab', email: 'me@example.org', plan: 'plus', signedIn: true, windows: w(41, 77), asOf: now - 120 }] } };
+      claude: { active: 'me@example.org', accounts: [
+        { name: 'me@example.org', dir: '', email: 'me@example.org', plan: 'max', signedIn: true, windows: w(93, 61), asOf: now - 90 },
+        { name: 'lab@example.org', dir: '~/.claude-lab-example-org', email: 'lab@example.org', plan: 'pro', signedIn: true, windows: w(12, 34), asOf: now - 600 },
+        { name: 'teaching@example.org', dir: '~/.claude-teaching-example-org', signedIn: false, signedOut: true, windows: {} }] },
+      codex: { active: 'me@example.org', accounts: [
+        { name: 'me@example.org', dir: '', email: 'me@example.org', plan: 'plus', signedIn: true, windows: { weekly: w(41, 77).weekly }, asOf: now - 120 }, // a plan with no 5-hour window
+        { name: 'lab@example.org', dir: '~/.codex-lab-example-org', email: 'me@example.org', plan: 'plus', signedIn: true, mismatch: true, signedOut: true, windows: w(41, 77), asOf: now - 120 }] } };
     for (const e of ['claude', 'codex']) App.cfg.accounts[e] = { active: fake[e].active, list: fake[e].accounts.map((a) => ({ name: a.name, dir: a.dir })) };
     const U = App.views.usage;
     const put = () => { U.snap = fake; U.paint(); };
@@ -158,9 +158,9 @@ const steps = {
   projects: [`(async () => {
     const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });
     App.views.usage.snap = { version: 1, stopAt: 90,
-      claude: { active: 'Personal', accounts: [{ name: 'Personal', dir: '', email: 'me@example.org', plan: 'max', windows: w(93, 61), asOf: now - 90 }, { name: 'Lab', dir: '~/.claude-lab', email: 'lab@example.org', plan: 'pro', windows: w(12, 34), asOf: now - 600 }] },
-      codex: { active: 'Default', accounts: [{ name: 'Default', dir: '', email: 'me@example.org', plan: 'plus', windows: w(41, 77), asOf: now - 120 }] } };
-    App.cfg.accounts.claude.list = [{ name: 'Personal', dir: '' }, { name: 'Lab', dir: '~/.claude-lab' }];
+      claude: { active: 'me@example.org', accounts: [{ name: 'me@example.org', dir: '', email: 'me@example.org', plan: 'max', signedIn: true, windows: w(93, 61), asOf: now - 90 }, { name: 'lab@example.org', dir: '~/.claude-lab-example-org', email: 'lab@example.org', plan: 'pro', signedIn: true, windows: w(12, 34), asOf: now - 600 }] },
+      codex: { active: 'me@example.org', accounts: [{ name: 'me@example.org', dir: '', email: 'me@example.org', plan: 'plus', signedIn: true, windows: w(41, 77), asOf: now - 120 }] } };
+    App.cfg.accounts.claude.list = [{ name: 'me@example.org', dir: '' }, { name: 'lab@example.org', dir: '~/.claude-lab-example-org' }];
     App.views.usage.paint();
     const fake = App.views.usage.snap;
     setTimeout(() => { App.views.usage.snap = fake; App.views.usage.paint(); App.emit('usage', fake); }, 1800);

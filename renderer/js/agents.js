@@ -193,7 +193,7 @@
       const a = U.active(engine), lv = U.level(a);
       if (lv == null || lv < U.stopAt() - 15) continue;
       const past = lv >= U.stopAt();
-      const spare = U.accounts(engine).filter((x) => x !== a && (U.level(x) == null || U.level(x) < U.stopAt()));
+      const spare = U.accounts(engine).filter((x) => x !== a && !x.signedOut && (U.level(x) == null || U.level(x) < U.stopAt()));
       const what = engine === 'claude'
         ? (past ? 'New Claude subagents are paused, and new chats start on another account.' : `Claude subagents pause at ${U.stopAt()}%.`)
         : (past ? (spare.length ? `Codex jobs now run on ${spare[0].name}.` : 'New Codex jobs are held back.') : `Codex jobs move to another account at ${U.stopAt()}%.`);

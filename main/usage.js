@@ -1,7 +1,9 @@
 // Claude and Codex usage limits, per account. Plain Node (no Electron) so it is testable.
 //
-// Accounts are config folders: CLAUDE_CONFIG_DIR for Claude Code, CODEX_HOME for
-// Codex. An empty dir means the CLI's default (~/.claude, ~/.codex).
+// An account is an email address, confirmed by signing in. Each keeps its sign-in in
+// its own config folder (CLAUDE_CONFIG_DIR for Claude Code, CODEX_HOME for Codex), so
+// every signed-in account stays ready and switching never asks again. Codeome picks
+// the folder; an empty dir means the CLI's default (~/.claude, ~/.codex).
 //   Codex  — `codex app-server` answers account/rateLimits/read live; no tokens touched.
 //   Claude — Claude Code hands rate_limits to its status line. Sessions Codeome starts
 //            get a status line (codeome-statusline) that records them in
@@ -27,6 +29,31 @@ function normDir(engine, dir) {
   const d = String(dir || '').trim().replace(/\/+$/, '');
   if (!d) return '';
   return path.resolve(expandHome(d)) === path.resolve(expandHome(DEFAULT_DIR[engine])) ? '' : d;
+}
+
+// An account is named by the email address it signs in with.
+const EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+const isEmail = (s) => EMAIL.test(String(s || ''));
+// The folder a new account gets: ~/.claude-you-example-org.
+const folderFor = (engine, email) => `~/.${engine}-${String(email).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
+
+// What a sign-in check says about an account. signedIn: true / false, or null while
+// nothing is known. A sign-in with another address than the account's does not count:
+// the account is not used until it is signed in as itself.
+function signInState(name, signedIn, email) {
+  const mismatch = !!(signedIn && isEmail(name) && email && String(email).toLowerCase() !== name.toLowerCase());
+  return { signedIn, mismatch, signedOut: signedIn === false || mismatch };
+}
+
+// Config folders in the home folder that are not accounts yet (~/.claude-lab, ~/.codex-work).
+// A config folder holds one of these once its CLI has run there.
+const FOLDER_MARK = { claude: ['.claude.json', '.credentials.json', 'settings.json'], codex: ['auth.json', 'config.toml'] };
+function findFolders(engine, known = [], homeDir = os.homedir()) {
+  const have = new Set(known.filter(Boolean).map((d) => accountKey(d)));
+  let names = []; try { names = fs.readdirSync(homeDir); } catch {}
+  return names.filter((n) => n.startsWith(`.${engine}-`) && FOLDER_MARK[engine].some((m) => fs.existsSync(path.join(homeDir, n, m))))
+    .map((n) => path.join(homeDir, n)).filter((d) => !have.has(accountKey(d)))
+    .map((d) => (homeDir === os.homedir() ? '~' + d.slice(homeDir.length) : d));
 }
 
 // Same rule as codeome-statusline's account_key().
@@ -192,4 +219,4 @@ function codexModels(dir) {
   return { default: def, models };
 }
 
-module.exports = { codexModels, ENV_VAR, DEFAULT_DIR, STALE_S, home, normDir, accountKey, codexWindows, claudeWindows, windowPct, level, pick, readClaude, queryCodex, claudeIdentity, launch, installStatusline, writeSnapshot };
+module.exports = { codexModels, isEmail, folderFor, signInState, findFolders, ENV_VAR, DEFAULT_DIR, STALE_S, home, normDir, accountKey, codexWindows, claudeWindows, windowPct, level, pick, readClaude, queryCodex, claudeIdentity, launch, installStatusline, writeSnapshot };

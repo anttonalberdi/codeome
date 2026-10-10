@@ -36,7 +36,9 @@ const DEFAULTS = {
   zenodo: { sandbox: false },
   editor: { fontSize: 13, theme: 'auto' },
   slurm: { refreshSeconds: 20, historyDays: 3 },
-  // Accounts are config folders (CLAUDE_CONFIG_DIR / CODEX_HOME); '' is the CLI's default.
+  // An account is { name, dir }: name is the email it signs in with, dir its config folder
+  // (CLAUDE_CONFIG_DIR / CODEX_HOME), chosen by Codeome; '' is the CLI's default. The CLI's
+  // own folder starts as 'Default' and takes its email once it is signed in.
   accounts: {
     claude: { active: 'Default', list: [{ name: 'Default', dir: '' }] },
     codex: { active: 'Default', list: [{ name: 'Default', dir: '' }] }

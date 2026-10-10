@@ -187,7 +187,7 @@ ipcMain.on('pty:kill', (_e, { id }) => { const p = ptys.get(id); if (p) { try { 
 // ---------- config & secrets ----------
 ipcMain.handle('config:get', () => cfg);
 ipcMain.handle('config:set', (_e, c) => {
-  for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = usage.normDir(e, a.dir);
+  for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = a.dir == null ? usage.folderFor(e, a.name) : usage.normDir(e, a.dir); // a new account gets its folder here
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
   cfg = config.save(c);
   applyProxy();
@@ -603,8 +603,9 @@ ipcMain.handle('chat:load', (_e, { project, id }) => chat.loadChat(project, id))
 ipcMain.handle('chat:delete', (_e, { project, id }) => chat.deleteChat(project, id));
 
 // ---------- usage limits & accounts ----------
-// Live readings per account, keyed engine → account name.
+// Live readings per account, keyed engine → account folder (an account can change its name).
 const readings = { claude: {}, codex: {} };
+const rk = (a) => usage.accountKey(a.dir);
 const identities = { claude: {} };
 let statusline = null;
 const cliCmd = (engine) => ((cfg.agents.find((a) => new RegExp('^' + engine + '(\\s|$)').test(a.cmd)) || {}).cmd || engine).split(' ')[0];
@@ -612,12 +613,12 @@ const cliCmd = (engine) => ((cfg.agents.find((a) => new RegExp('^' + engine + '(
 function accountsOf(engine) {
   const now = Date.now() / 1000;
   return cfg.accounts[engine].list.map((a) => {
-    const r = readings[engine][a.name] || {};
-    const id = engine === 'claude' ? identities.claude[a.name] || {} : r.account || {};
+    const r = readings[engine][rk(a)] || {};
+    const id = engine === 'claude' ? identities.claude[rk(a)] || {} : r.account || {};
     // true / false once the CLI has answered, null while nothing is known yet.
-    const signedIn = engine === 'claude' ? (identities.claude[a.name] ? !id.signedOut : null) : (r.account === undefined ? null : !!r.account);
-    return { name: a.name, dir: a.dir, key: usage.accountKey(a.dir), email: id.email || null, plan: id.plan || (r.limits && r.limits.plan) || null,
-      signedIn, signedOut: signedIn === false, windows: r.windows || {}, reached: !!r.reached, asOf: r.asOf || null, error: r.error || null,
+    const signedIn = engine === 'claude' ? (identities.claude[rk(a)] ? !id.signedOut : null) : (r.account === undefined ? null : !!r.account);
+    return { name: a.name, dir: a.dir, key: rk(a), email: id.email || null, plan: id.plan || (r.limits && r.limits.plan) || null,
+      ...usage.signInState(a.name, signedIn, id.email), windows: r.windows || {}, reached: !!r.reached, asOf: r.asOf || null, error: r.error || null,
       level: usage.level({ windows: r.windows || {}, reached: r.reached, asOf: r.asOf }, now) };
   });
 }
@@ -639,7 +640,7 @@ function publishUsage() {
 function readClaudeUsage() {
   for (const a of cfg.accounts.claude.list) {
     const r = usage.readClaude(a.dir);
-    readings.claude[a.name] = r.asOf ? { windows: r.windows, asOf: r.asOf } : {};
+    readings.claude[rk(a)] = r.asOf ? { windows: r.windows, asOf: r.asOf } : {};
   }
 }
 
@@ -648,8 +649,8 @@ function refreshCodex() {
   if (codexBusy) return codexBusy;
   codexBusy = Promise.all(cfg.accounts.codex.list.map(async (a) => {
     const r = await usage.queryCodex(a.dir, cliCmd('codex'));
-    const prev = readings.codex[a.name] || {};
-    readings.codex[a.name] = r.limits
+    const prev = readings.codex[rk(a)] || {};
+    readings.codex[rk(a)] = r.limits
       ? { windows: r.limits.windows, reached: r.limits.reached, limits: r.limits, account: r.account, asOf: Date.now() / 1000 }
       : { ...prev, account: r.account !== undefined ? r.account : prev.account, error: r.error };
   })).finally(() => { codexBusy = null; });
@@ -659,7 +660,7 @@ function refreshCodex() {
 async function refreshIdentities() {
   await Promise.all(cfg.accounts.claude.list.map(async (a) => {
     const id = await usage.claudeIdentity(a.dir, cliCmd('claude'));
-    if (id) identities.claude[a.name] = id;
+    if (id) identities.claude[rk(a)] = id;
   }));
 }
 
@@ -674,7 +675,9 @@ async function refreshUsage(full) {
 function launchOn(engine, requested, command) {
   readClaudeUsage();
   const list = accountsOf(engine);
-  let chosen = requested && requested !== 'auto' ? list.find((a) => a.name === requested) : null;
+  // A chat started before its account took its email still asks for the old name.
+  const asked = requested && requested !== 'auto' ? cfg.accounts[engine].list.find((a) => a.name === requested || (a.aka || []).includes(requested)) : null;
+  let chosen = asked ? list.find((a) => a.name === asked.name) : null;
   let info = null;
   if (!chosen) {
     const p = usage.pick(list, cfg.accounts[engine].active, cfg.usage.stopAt);
@@ -687,6 +690,15 @@ function launchOn(engine, requested, command) {
 
 ipcMain.handle('usage:get', () => snapshot());
 ipcMain.handle('usage:refresh', () => refreshUsage(true));
+// Config folders on this Mac that are signed in but are no account yet, with who they belong to.
+ipcMain.handle('usage:found', async () => {
+  const out = { claude: [], codex: [] };
+  await Promise.all(Object.keys(out).map((e) => Promise.all(usage.findFolders(e, cfg.accounts[e].list.map((a) => a.dir)).map(async (dir) => {
+    const id = e === 'claude' ? await usage.claudeIdentity(dir, cliCmd('claude')) : (await usage.queryCodex(dir, cliCmd('codex'))).account;
+    if (id && id.email) out[e].push({ dir, email: id.email, plan: id.plan || null });
+  }))));
+  return out;
+});
 ipcMain.handle('usage:setActive', (_e, { engine, name }) => {
   if (!cfg.accounts[engine] || !cfg.accounts[engine].list.some((a) => a.name === name)) return { error: 'Unknown account ' + name };
   cfg.accounts[engine].active = name;

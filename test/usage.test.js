@@ -82,3 +82,29 @@ test('the status line records rate limits under the account key Codeome reads, t
   fs.writeFileSync(path.join(cfgDir, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'echo mine' } }));
   assert.strictEqual(run({ CLAUDE_CONFIG_DIR: cfgDir }).stdout.trim(), 'mine');
 });
+
+test('an account is an email address: its folder is derived, and only a matching sign-in counts', () => {
+  assert.ok(usage.isEmail('Alex.Example+lab@example.org'));
+  for (const bad of ['Work', 'me@uni', 'me @example.org', 'me@example.org; rm -rf ~', '']) assert.ok(!usage.isEmail(bad), bad);
+  assert.strictEqual(usage.folderFor('claude', 'Alex.Example@example.org'), '~/.claude-alex-example-example-org');
+  assert.strictEqual(usage.folderFor('codex', 'lab@example.org'), '~/.codex-lab-example-org');
+
+  assert.deepStrictEqual(usage.signInState('me@example.org', true, 'Me@Example.org'), { signedIn: true, mismatch: false, signedOut: false });
+  // Signed in as someone else: not used until it is signed in as itself.
+  assert.deepStrictEqual(usage.signInState('me@example.org', true, 'lab@example.org'), { signedIn: true, mismatch: true, signedOut: true });
+  assert.deepStrictEqual(usage.signInState('me@example.org', false, null), { signedIn: false, mismatch: false, signedOut: true });
+  assert.deepStrictEqual(usage.signInState('me@example.org', null, null), { signedIn: null, mismatch: false, signedOut: false });
+  // No address to compare with (an API key, or an account that has no email yet).
+  assert.strictEqual(usage.signInState('me@example.org', true, null).signedOut, false);
+  assert.strictEqual(usage.signInState('Default', true, 'me@example.org').mismatch, false);
+});
+
+test('config folders that are no account yet are found by what their CLI leaves in them', () => {
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-home-'));
+  for (const [d, f] of [['.claude-lab', '.claude.json'], ['.claude-work', 'settings.json'], ['.claude-empty', 'notes.txt'], ['.codex-lab', 'auth.json'], ['.claude', '.claude.json']]) {
+    fs.mkdirSync(path.join(h, d));
+    fs.writeFileSync(path.join(h, d, f), '{}');
+  }
+  assert.deepStrictEqual(usage.findFolders('claude', ['', path.join(h, '.claude-work')], h).map((d) => path.basename(d)), ['.claude-lab']);
+  assert.deepStrictEqual(usage.findFolders('codex', [], h).map((d) => path.basename(d)), ['.codex-lab']);
+});
