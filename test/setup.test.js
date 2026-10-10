@@ -95,3 +95,22 @@ test('a probe reports a refused port', async () => {
   const r = await setup.probe('127.0.0.1', 1);
   assert.strictEqual(r.result, 'refused');
 });
+
+test('the tunnel is ready once the login answers through it, or after waiting long enough', async () => {
+  const cfg = { hpc: { host: 'hpc', vpn: { mode: 'tunnel', port: 12000 } } };
+  let open = false, result = 'dns';
+  const probed = [];
+  const d = { portOpen: async () => open, vpnTarget: async () => ({ host: 'login.example', port: 22 }),
+    probe: async (...a) => { probed.push(a); return { result }; } };
+  const ready = setup.tunnelReady(cfg, 60000, d);
+  assert.strictEqual(await ready(), false);
+  assert.deepStrictEqual(probed, []); // nothing is probed before ocproxy listens
+  open = true;
+  assert.strictEqual(await ready(), false); // the port is open, the VPN's DNS is not there yet
+  assert.deepStrictEqual(probed, [['login.example', 22, 12000]]);
+  result = 'ok';
+  assert.strictEqual(await ready(), true);
+  result = 'unreachable';
+  assert.strictEqual(await setup.tunnelReady(cfg, -1, d)(), true); // a login that is down does not hold the tunnel back
+  assert.strictEqual(await setup.tunnelReady(cfg, 60000, { ...d, vpnTarget: async () => null })(), true);
+});

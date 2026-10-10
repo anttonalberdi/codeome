@@ -2,7 +2,7 @@
 // pty; its prompts are read from the output and answered with the saved username
 // and password, or passed to the window as dialogs (a missing username or password,
 // the group, a second-factor code). After the password it may wait for a push to be
-// approved on the person's MFA device; the tunnel is up once ocproxy's port answers.
+// approved on the person's MFA device; the tunnel is up once it carries traffic (ready()).
 //
 // Phases: starting → prompt ⇄ waiting → up, and stopped or failed when it ends.
 
@@ -38,11 +38,11 @@ function reasonOf(log, fallback = 'openconnect stopped.') {
   return (bad.length ? bad[bad.length - 1] : lines[lines.length - 1]) || fallback;
 }
 
-// o: spawn() → { onData, onExit, write, kill }; portOpen() → Promise<bool>;
+// o: spawn() → { onData, onExit, write, kill }; ready() → Promise<bool> (may take seconds);
 // user and password (may be empty); emit(state) on every change; onUp() once it is up.
 function start(o) {
   const st = { phase: 'starting', prompt: null, reason: '' };
-  let buf = '', log = '', seq = 0, failed = false, stopping = false, timer = null, poll = null, ended = false;
+  let buf = '', log = '', seq = 0, failed = false, stopping = false, timer = null, poll = null, ended = false, checking = false;
   const auto = { username: false, password: false };
   const set = (patch) => { Object.assign(st, patch); o.emit({ ...st }); };
   const p = o.spawn();
@@ -74,7 +74,11 @@ function start(o) {
     else set({ phase: 'failed', prompt: null, reason: st.phase === 'up' ? 'The VPN tunnel closed: ' + reasonOf(log) : reasonOf(log) });
   });
   poll = setInterval(async () => {
-    if (ended || st.phase === 'up' || !(await o.portOpen())) return;
+    if (ended || st.phase === 'up' || checking) return;
+    checking = true;
+    const ready = await o.ready();
+    checking = false;
+    if (!ready || ended || st.phase === 'up') return;
     clearInterval(poll);
     set({ phase: 'up', prompt: null });
     if (o.onUp) o.onUp();

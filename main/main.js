@@ -317,7 +317,8 @@ ipcMain.handle('hpc:status', () => ssh.check(cfg.hpc.host));
 ipcMain.handle('hpc:disconnect', () => ssh.disconnect(cfg.hpc.host));
 ipcMain.handle('hpc:vpn', async () => {
   const v = cfg.hpc.vpn;
-  if (v.mode === 'tunnel') return { known: true, tunnel: true, up: await setup.portOpen(setup.portOf(v)) };
+  // While Codeome's own sign-in runs, the open port alone does not make it up (see setup.tunnelReady).
+  if (v.mode === 'tunnel') return { known: true, tunnel: true, up: !(tunnel && !tunnel.ended && tunnelState.phase !== 'up') && await setup.portOpen(setup.portOf(v)) };
   const t = await setup.vpnTarget(cfg);
   if (!t) return { known: false };
   return { known: true, up: (await setup.probe(t.host, t.port)).result === 'ok', host: t.host };
@@ -347,7 +348,7 @@ ipcMain.handle('vpn:start', () => {
   pendingPassword = '';
   tunnel = vpn.start({
     spawn: () => pty.spawn(loginShell(), ['-l', '-c', command], { name: 'xterm-256color', cols: 200, rows: 30, cwd: os.homedir(), env: augmentedEnv({ TERM: 'xterm-256color' }) }),
-    portOpen: () => setup.portOpen(setup.portOf(v)),
+    ready: setup.tunnelReady(cfg),
     user: v.user, password: config.getSecret('vpn:password'),
     emit: (s) => { tunnelState = s; send('vpn:state', s); },
     onUp: () => { if (pendingPassword) config.setSecret('vpn:password', pendingPassword); pendingPassword = ''; }

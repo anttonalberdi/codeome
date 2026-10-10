@@ -106,6 +106,23 @@ async function testVpn(cfg) {
   return { ...(await probe(target.host, target.port, tunnel ? portOf(v) : 0)), tunnel, ...target };
 }
 
+// Whether the tunnel carries traffic yet, asked every second while it signs in. ocproxy's
+// port opens a moment before the VPN's routes and DNS work, and an ssh started in that gap
+// is closed at once ("Connection closed by UNKNOWN port 65535"). So the HPC login has to
+// answer through it; once the port has been open for `patience` ms the tunnel counts as up
+// anyway (the login may be down, or no host is set yet).
+function tunnelReady(cfg, patience = 20000, d = { portOpen, vpnTarget, probe }) {
+  let since = 0;
+  return async () => {
+    const port = portOf(cfg.hpc.vpn);
+    if (!(await d.portOpen(port))) { since = 0; return false; }
+    since = since || Date.now();
+    const t = await d.vpnTarget(cfg);
+    if (!t || (await d.probe(t.host, t.port, port)).result === 'ok') return true;
+    return Date.now() - since > patience;
+  };
+}
+
 // ---------- tools ----------
 // Where a command lives: on Codeome's PATH (which adds Homebrew's), else the login shell's.
 async function locate(tool, shell) {
@@ -216,5 +233,5 @@ async function status(cfg, shell) {
     login, key, ciscoServers: ciscoServers(), home: os.homedir() };
 }
 
-module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, proxyCommand, portOpen, hostPort, vpnTarget, classifyProbe, probe, testVpn, locate, RECIPES, BREW_INSTALL, installCommand,
+module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, proxyCommand, portOpen, tunnelReady, hostPort, vpnTarget, classifyProbe, probe, testVpn, locate, RECIPES, BREW_INSTALL, installCommand,
   parseSshG, resolveHost, findKey, classifyLogin, ciscoServers, status };

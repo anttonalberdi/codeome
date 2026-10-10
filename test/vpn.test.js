@@ -8,7 +8,7 @@ function fakeTunnel(opts = {}) {
   let data, exit, open = false;
   const t = vpn.start({
     spawn: () => ({ onData: (f) => { data = f; }, onExit: (f) => { exit = f; }, write: (s) => typed.push(s), kill: () => exit({ exitCode: 1 }) }),
-    portOpen: async () => open,
+    ready: async () => open,
     user: opts.user || '', password: opts.password || '',
     emit: (s) => states.push(s), onUp: opts.onUp
   });

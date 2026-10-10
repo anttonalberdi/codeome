@@ -22,6 +22,9 @@ What changed in each version of Codeome, newest first. The version is the one in
 - Kit skills now belong to a role group, like roles. Deselecting a group removes its skills too, except files you have edited.
 - The release-manager asks for approval before opening a pull request or issue on someone else's repository, submitting to CRAN, or uploading a package to win-builder or R-hub. Package recipes for Bioconda and conda-forge are routed to it instead of the pipeline-engineer.
 
+### Fixed
+- Connecting to the HPC with the VPN tunnel off no longer fails the first time with *Connection closed by UNKNOWN port 65535*. After the VPN sign-in, Codeome now waits until the HPC login answers through the tunnel before it connects.
+
 ## 0.1.0
 
 First version: the work up to 10 October 2026.
