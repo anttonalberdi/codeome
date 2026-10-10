@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## 0.3.1
+
+### Added
+- **Dark Google documents**: in dark mode, Google Docs, Sheets and Slides tabs are shown with flipped colours, on the same dark blue as the rest of the app, with pictures and video left as they are. The *Original colours* button in a document's toolbar switches that tab back to Google's own colours, and *Dark colours* flips it again. The flip is visual only and changes nothing in the document.
+
 ## 0.3.0
 
 ### Added
