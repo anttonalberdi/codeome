@@ -622,8 +622,11 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter })
     const [bin, ...extra] = claudeCmd().trim().split(/\s+/);
     const env = augmentedEnv({ ...acct.env, TERM_PROGRAM: 'Codeome' });
     for (const k of acct.unset) delete env[k];
+    // The projects connected to this one: their folders, and their CLAUDE.md files too.
+    const linked = ((cfg.projectLinks || {})[project] || []).filter((d) => d !== project && fs.existsSync(d));
+    if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
     const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
-    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort }), env, autoAllow, meter: resume ? { ...(meter || {}), resumed: true } : {} });
+    const s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked }), env, autoAllow, meter: resume ? { ...(meter || {}), resumed: true } : {} });
     s.on('message', (msg) => send('chat:event', { id, msg }));
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
     s.on('turn', (t) => { try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, ...t }); } catch (e) { console.error('chat stats', e); } });

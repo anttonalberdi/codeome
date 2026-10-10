@@ -4,6 +4,8 @@
 // card and the tag in the title bar; it is picked when the project is first opened.
 // Cards can be put in named groups, which fold to their header. The groups come first,
 // in their own order, and the projects in no group follow.
+// Projects can also be connected to each other: the agent chat of a project works across
+// the folders of the projects connected to it. The card shows a chain and how many.
 (function () {
   const h = App.h;
   const P = { list: [], state: {} }; // state[dir] = { remoteDir, jobs }
@@ -16,6 +18,7 @@
     App.cfg.projectColors = App.cfg.projectColors || {};
     App.cfg.projectGroups = (App.cfg.projectGroups || []).filter((g) => g && g.id);
     App.cfg.projectGroup = App.cfg.projectGroup || {};
+    App.cfg.projectLinks = App.cfg.projectLinks || {};
     P.list = shown();
     P.list.forEach(colorOf);
     const tag = document.getElementById('project-btn');
@@ -198,6 +201,41 @@
       g.collapsed ? null : n ? dirs.map(card) : h('div.pg-empty', 'Drag a project here'));
   }
 
+  // ---------- connections ----------
+  // cfg.projectLinks maps a project to the projects it is connected to. A connection goes
+  // both ways and is direct: A–B and B–C do not connect A and C. Chats pick a change up
+  // when they next start (see chat:start in main.js).
+  const linksOf = (dir) => App.cfg.projectLinks[dir] || [];
+  P.linksOf = linksOf;
+  function setLink(a, b, on) {
+    for (const [x, y] of [[a, b], [b, a]]) {
+      const l = linksOf(x).filter((d) => d !== y);
+      if (on) l.push(y);
+      if (l.length) App.cfg.projectLinks[x] = l; else delete App.cfg.projectLinks[x];
+    }
+    App.saveConfig();
+    render();
+  }
+  const LINK_ICON = '<svg viewBox="0 0 16 16"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l.9-.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+  // The other open projects, and connected ones that are closed, each with a checkbox.
+  function pickLinks(dir, anchor) {
+    const others = [...new Set([...P.list, ...linksOf(dir)])].filter((d) => d !== dir);
+    const body = h('div.link-pick',
+      h('div.cp-head', 'Connect ', h('b', App.basename(dir)), ' to'),
+      others.length ? h('div.lp-list', others.map((d) => {
+        const box = h('input', { type: 'checkbox', checked: linksOf(dir).includes(d), onchange: () => setLink(dir, d, box.checked) });
+        return h('label.lp-item', { title: App.tildify(d) }, box,
+          h('span.lp-dot.ptint', { style: '--ph: ' + colorOf(d) }),
+          h('span.lp-name', App.basename(d)),
+          P.list.includes(d) ? null : h('span.lp-note', 'closed'));
+      })) : h('div.lp-note', 'Open another project to connect it.'),
+      h('div.lp-help', 'The agent chat of each project can read and edit the other\'s files. Chats that are running pick this up when they restart.'));
+    const p = App.popover(anchor, body, 'Connected projects');
+    p.pop.classList.add('color-pop');
+    p.set(body);
+  }
+
   const state = (dir) => (P.state[dir] = P.state[dir] || {});
 
   // Running agent jobs per project, read from each project's .codeome/jobs/.
@@ -328,6 +366,7 @@
     const cs = App.views.chat.stats(dir);
     const working = cs.working > 0;
     const unsaved = App.views.editor.tabs.filter((t) => t.project === dir && t.dirty).length;
+    const links = linksOf(dir), linkText = links.length ? `connected to ${links.map(App.basename).join(', ')}` : '';
     const workingText = cs.working > 1 ? `${cs.working} agents working` : 'agent working';
     const stat = [
       cs.waiting ? h('span.ps-wait', `${cs.waiting > 1 ? cs.waiting + ' chats need' : 'agent needs'} you`) : null,
@@ -337,7 +376,7 @@
       sessions ? h('span', `${sessions} session${sessions > 1 ? 's' : ''}`) : null,
       unsaved ? h('span.ps-dirty', `${unsaved} unsaved`) : null
     ].filter(Boolean);
-    const label = [name, cs.waiting ? `${cs.waiting} chat${cs.waiting > 1 ? 's' : ''} waiting for you` : '', working ? workingText : '', jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', cs.unread ? `${cs.unread} unseen agent repl${cs.unread > 1 ? 'ies' : 'y'}` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ');
+    const label = [name, cs.waiting ? `${cs.waiting} chat${cs.waiting > 1 ? 's' : ''} waiting for you` : '', working ? workingText : '', jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', cs.unread ? `${cs.unread} unseen agent repl${cs.unread > 1 ? 'ies' : 'y'}` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : '', linkText].filter(Boolean).join(', ');
     const c = h('div.proj.ptint' + (active ? '.active' : ''), {
       role: 'tab', 'aria-selected': String(active), 'aria-label': label, tabindex: active ? '0' : '-1', draggable: 'true',
       title: App.tildify(dir), style: '--ph: ' + colorOf(dir),
@@ -374,7 +413,8 @@
     },
     h('span.pmono', initials(name), cs.waiting ? h('i.m-wait') : jobs || working ? h('i.m-jobs') : cs.unread ? h('i.m-done') : (unsaved ? h('i.m-dirty') : null)),
     h('span.pinfo',
-      h('span.pname', name),
+      h('span.prow', h('span.pname', name),
+        links.length ? h('span.plink', { title: 'Connected to ' + links.map(App.basename).join(', '), onclick: (e) => { e.stopPropagation(); pickLinks(dir, c); }, html: LINK_ICON + links.length }) : null),
       h('span.ppath', App.tildify(App.dirname(dir))),
       stat.length ? h('span.pstat', stat) : null));
     return c;
@@ -387,6 +427,7 @@
       { label: 'Project color…', run: () => pickColor(dir, card) },
       { label: 'Reveal in Finder', run: () => codeome.shell.reveal(dir) },
       { label: 'Copy path', run: () => navigator.clipboard.writeText(dir) },
+      { label: 'Connect to projects…', run: () => pickLinks(dir, card) },
       '-',
       { label: 'Move up', disabled: i <= 0, run: () => move(dir, -1) },
       { label: 'Move down', disabled: i >= near.length - 1, run: () => move(dir, 1) },

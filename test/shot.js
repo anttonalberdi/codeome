@@ -221,10 +221,13 @@ const steps = {
     for (const d of [...dirs, root]) await App.openProject(d);
     App.cfg.projectGroups = [{ id: 'a', name: 'Thesis', collapsed: false }, { id: 'b', name: 'Teaching', collapsed: true }, { id: 'c', name: 'Side projects', collapsed: false }];
     App.cfg.projectGroup = { [dirs[0]]: 'a', [root]: 'a', [dirs[1]]: 'b', [dirs[2]]: 'b' };
+    App.cfg.projectLinks = { [root]: [dirs[0], dirs[3]], [dirs[0]]: [root], [dirs[3]]: [root] };
     App.views.projects.state[dirs[1]] = { jobs: 1 };
     App.views.projects.render();
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
     if (${JSON.stringify(process.env.SHOT_NARROW || '')}) document.querySelector('.proj-fold').click();
+    // SHOT_LINKS: open the connections of the active project from its chain.
+    if (${JSON.stringify(process.env.SHOT_LINKS || '')}) document.querySelector('.proj.active .plink').click();
   })(); 0`]
 };
 

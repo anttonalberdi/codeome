@@ -33,6 +33,19 @@ test('arguments start a new session or resume one, with the configured extras fi
   assert.ok(!chat.buildArgs({ id: ID, mode: 'bogus' }).includes('--permission-mode'));
 });
 
+test('connected projects are added as folders and named in the prompt', () => {
+  const plain = chat.buildArgs({ id: ID, kitInstalled: true });
+  assert.ok(!plain.includes('--add-dir'));
+  assert.ok(!plain[plain.indexOf('--append-system-prompt') + 1].includes('Connected projects'));
+  const a = chat.buildArgs({ id: ID, resume: true, kitInstalled: true, linked: ['/w/api', '/w/web site'] });
+  assert.deepStrictEqual(a.filter((_x, i) => a[i - 1] === '--add-dir'), ['/w/api', '/w/web site']);
+  const prompt = a[a.indexOf('--append-system-prompt') + 1];
+  assert.ok(prompt.includes('## Connected projects') && prompt.includes('- `web site`: /w/web site'));
+  assert.ok(prompt.includes('Codex jobs'));
+  assert.ok(!chat.linkedPrompt(['/w/api'], false).includes('Codex'));
+  assert.strictEqual(chat.linkedPrompt([], true), '');
+});
+
 test('the model chosen in Settings replaces a --model in the command', () => {
   assert.deepStrictEqual(chat.withModel(['--model', 'opus', '--verbose'], ''), ['--model', 'opus', '--verbose']);
   assert.deepStrictEqual(chat.withModel(['--model', 'opus', '--verbose'], 'claude-fable-5-1'), ['--verbose', '--model', 'claude-fable-5-1']);

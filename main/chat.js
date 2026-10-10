@@ -32,6 +32,19 @@ function systemPrompt(kitInstalled, text = fs.readFileSync(PROMPT, 'utf8')) {
     .replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
+// What the orchestrator is told about the projects connected to this one (see projects.js),
+// whose folders it gets with --add-dir. '' when there are none.
+function linkedPrompt(linked, kitInstalled) {
+  if (!linked || !linked.length) return '';
+  return ['', '## Connected projects', '',
+    'The user has connected this project to the folders below. Treat them and this project as parts of one larger project: read, search and edit them as the task needs, and follow their `CLAUDE.md` files, which are loaded.',
+    '', ...linked.map((d) => `- \`${path.basename(d)}\`: ${d}`), '',
+    '- Relative paths are in this project. Name a connected project when you mean a file there.',
+    '- Each folder can be its own git repository, so check and commit them one at a time.',
+    kitInstalled ? '- The team, the jobs and the Codex runner belong to this project. Codex jobs can read the connected folders but write only here, so make changes there yourself or give them to a Claude specialist.' : null
+  ].filter((l) => l !== null).join('\n') + '\n';
+}
+
 // The configured command's extra words with a value chosen in Settings, which wins
 // over the same flag in the command. '' keeps the command as it is.
 function withFlag(extra, flag, value) {
@@ -48,9 +61,11 @@ const withModel = (extra, model) => withFlag(extra, '--model', model);
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '' }) {
+// linked: folders of the projects connected to this one.
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [] }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', systemPrompt(kitInstalled)];
+    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', systemPrompt(kitInstalled) + linkedPrompt(linked, kitInstalled)];
+  for (const d of linked) args.push('--add-dir', d);
   args.push(resume ? '--resume' : '--session-id', id);
   if (mode && mode !== 'default' && MODES.includes(mode)) args.push('--permission-mode', mode);
   return args;
@@ -231,4 +246,4 @@ function moveSession(fromDir, toDir, id) {
   if (fs.existsSync(path.join(root, folder, id))) fs.cpSync(path.join(root, folder, id), path.join(dest, id), { recursive: true });
 }
 
-module.exports = { Session, systemPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };
+module.exports = { Session, systemPrompt, linkedPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };

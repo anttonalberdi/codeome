@@ -281,7 +281,7 @@
     const { model, effort } = App.cfg.chat || {};
     if (model) cmd = cmd.replace(/\s--model(=|\s+)\S+/, '') + ' --model ' + model;
     if (effort) cmd = cmd.replace(/\s--effort(=|\s+)\S+/, '') + ' --effort ' + effort;
-    App.views.terminals.open({ kind: 'agent-local', title: 'Agent chat', command: cmd + ' --resume ' + chat.id, cwd: chat.project, badge: 'Mac', engine: 'claude', account: chat.accountName || 'auto' });
+    App.views.terminals.open({ kind: 'agent-local', title: 'Agent chat', command: cmd + ' --resume ' + chat.id + App.views.projects.linksOf(chat.project).map((d) => ' --add-dir ' + App.shq(d)).join(''), cwd: chat.project, badge: 'Mac', engine: 'claude', account: chat.accountName || 'auto' });
     note(chat, 'Continued in a terminal. Messages sent there are not shown here, but the agent remembers them.', 'info');
     save(chat);
   };
