@@ -18,6 +18,7 @@ const setup = require('./setup');
 const vpn = require('./vpn');
 const login = require('./login');
 const gdoc = require('./gdoc');
+const secrets = require('./secrets');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -166,6 +167,12 @@ function secretEnv(name) {
   return t ? { TWINE_USERNAME: '__token__', TWINE_PASSWORD: t } : {};
 }
 
+// Your own secrets (Settings → Secrets) become environment variables where each is switched on:
+// in terminals, tasks and consoles on this Mac, or in agent sessions, of the projects it is open to.
+// HPC sessions get none.
+const SECRET_SCOPE = { shell: 'terminals', task: 'terminals', console: 'terminals', 'agent-local': 'agents' };
+const userSecretEnv = (scope, project) => secrets.envFor(cfg.secrets, scope, config.getSecret, project);
+
 ipcMain.handle('pty:spawn', (_e, spec) => {
   if (!pty) return { error: 'Terminal backend failed to load: ' + ptyError + '\nRun "npm run rebuild" in the project folder.' };
   try {
@@ -173,7 +180,7 @@ ipcMain.handle('pty:spawn', (_e, spec) => {
     let acct = null;
     if (spec.kind === 'agent-local' && usage.ENV_VAR[spec.engine]) { acct = launchOn(spec.engine, spec.account, spec.command); spec = { ...spec, command: acct.command }; }
     const s = ptySpec(spec);
-    const env = augmentedEnv({ TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Codeome', ...(spec.env || {}), ...secretEnv(spec.secretEnv), ...(acct ? acct.env : {}) });
+    const env = augmentedEnv({ ...userSecretEnv(SECRET_SCOPE[spec.kind], spec.project), TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Codeome', ...(spec.env || {}), ...secretEnv(spec.secretEnv), ...(acct ? acct.env : {}) });
     if (acct) for (const k of acct.unset) delete env[k];
     const p = pty.spawn(s.file, s.args, { name: 'xterm-256color', cols: spec.cols || 100, rows: spec.rows || 30, cwd: fs.existsSync(s.cwd) ? s.cwd : os.homedir(), env });
     ptys.set(spec.id, p);
@@ -205,6 +212,33 @@ ipcMain.handle('config:set', (_e, c) => {
 });
 ipcMain.handle('secret:set', (_e, { key, value }) => { config.setSecret(key, value); return true; });
 ipcMain.handle('secret:has', (_e, key) => config.hasSecret(key));
+// Your own secrets. The window names them and never reads a value back: a copy goes from
+// the Keychain straight to the clipboard, and is taken off it again after a while.
+const COPY_SECONDS = 30;
+let copied = null;
+function clearCopied() {
+  if (!copied) return;
+  clearTimeout(copied.timer);
+  if (clipboard.readText() === copied.value) clipboard.clear();
+  copied = null;
+}
+ipcMain.handle('secrets:set', (_e, { name, value }) => {
+  const bad = secrets.nameError(name);
+  if (bad) return { error: bad };
+  if (!value) return { error: 'Enter a value.' };
+  config.setSecret(secrets.key(name), String(value));
+  return { ok: true };
+});
+ipcMain.handle('secrets:remove', (_e, name) => { if (!secrets.nameError(name)) config.setSecret(secrets.key(name), ''); return { ok: true }; });
+ipcMain.handle('secrets:has', (_e, names) => (Array.isArray(names) ? names : []).map((n) => !secrets.nameError(n) && config.hasSecret(secrets.key(n))));
+ipcMain.handle('secrets:copy', (_e, name) => {
+  const value = secrets.nameError(name) ? '' : config.getSecret(secrets.key(name));
+  if (!value) return { error: 'No value is saved for ' + name + '.' };
+  clearCopied();
+  clipboard.writeText(value);
+  copied = { value, timer: setTimeout(clearCopied, COPY_SECONDS * 1000) };
+  return { ok: true, seconds: COPY_SECONDS };
+});
 
 // ---------- dialogs & shell ----------
 ipcMain.handle('dialog:folder', async (_e, opts = {}) => {
@@ -620,7 +654,7 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter })
     const acct = launchOn('claude', account, claudeCmd());
     const dir = (cfg.accounts.claude.list.find((a) => a.name === acct.info.name) || {}).dir || '';
     const [bin, ...extra] = claudeCmd().trim().split(/\s+/);
-    const env = augmentedEnv({ ...acct.env, TERM_PROGRAM: 'Codeome' });
+    const env = augmentedEnv({ ...userSecretEnv('agents', project), ...acct.env, TERM_PROGRAM: 'Codeome' });
     for (const k of acct.unset) delete env[k];
     // The projects connected to this one: their folders, and their CLAUDE.md files too.
     const linked = ((cfg.projectLinks || {})[project] || []).filter((d) => d !== project && fs.existsSync(d));
@@ -819,5 +853,5 @@ app.whenReady().then(() => {
   startUsage();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => { stopLogins(); if (tunnel) tunnel.stop(); });
+app.on('before-quit', () => { clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); });
 app.on('window-all-closed', () => { stopLogins(); if (tunnel) tunnel.stop(); for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });

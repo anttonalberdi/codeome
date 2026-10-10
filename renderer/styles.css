@@ -870,6 +870,15 @@ button.cs:hover { text-decoration-color: currentColor; }
 .cli-list { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; }
 .cli-row { display: grid; grid-template-columns: minmax(120px, 200px) 1fr 24px; gap: 8px; align-items: center; }
 input.mono { font-family: var(--mono); font-size: 12px; }
+.sec-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 16px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
+.sec-row:first-of-type { border-top: 0; }
+.sec-name { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+input.sec-note { width: 100%; border-color: transparent; background: transparent; box-shadow: none; padding: 1px 0; font-size: 11.5px; color: var(--muted); }
+input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); background: var(--bg); padding: 1px 5px; color: var(--text); }
+.sec-use, .sec-acts { display: flex; gap: 12px; align-items: center; }
+.sec-acts { gap: 6px; }
+.sec-scope { min-width: 96px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec-add { display: grid; grid-template-columns: minmax(140px, 220px) minmax(140px, 1fr) auto; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
 .ag-table { display: flex; flex-direction: column; }
 .ag-row { display: grid; grid-template-columns: minmax(180px, 1fr) 150px minmax(170px, 230px) 100px 70px 72px; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
 .ag-headrow { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding-top: 7px; padding-bottom: 5px; border-top: 0; }

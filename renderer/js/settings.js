@@ -1,7 +1,7 @@
 // Settings: a full page over the workspace, showing one section at a time. Changes save as you make them.
 // Sections: HPC, long-term storage, Agents (for all projects: the chat's model, the command-line agents and
 // the global agents and skills; for the open project: its agents with their engine and model, and its skills),
-// accounts and limits, Python, publishing tokens,
+// accounts and limits, Python, publishing tokens, your own secrets,
 // appearance, and what was found on this Mac.
 (function () {
   const h = App.h;
@@ -36,9 +36,9 @@
   const MODEL_RE = /^[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
     ['hpc', 'HPC'], ['storage', 'Storage'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
-    ['publishing', 'Zenodo & PyPI'], ['appearance', 'Appearance'], ['mac', 'This Mac']
+    ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
-  const ALIAS = { zenodo: 'publishing', pypi: 'publishing', erda: 'storage' };
+  const ALIAS = { zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
 
   // ---------- page ----------
   S.open = async (section) => {
@@ -158,7 +158,7 @@
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
     hpc: hpcSection, storage: storageSection, agents: agentsSection, accounts: accountsSection, r: rSection,
-    python: pythonSection, publishing: publishingSection, appearance: appearanceSection, mac: macSection
+    python: pythonSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
   };
   async function show(id) {
     current = id;
@@ -724,6 +724,79 @@
         input.onkeydown = (e) => { if (e.key === 'Enter') saveBtn.click(); };
         return row(label, h('div.row', input, saveBtn, status), hint);
       })));
+  }
+
+  // ---------- secrets ----------
+  // Your own tokens and keys, each named as the environment variable it becomes. Values go
+  // straight to the Keychain; the page knows the names and where each is used, never a value.
+  async function secretsSection() {
+    const list = () => (App.cfg.secrets = App.cfg.secrets || []);
+    const redraw = async () => { if (current === 'secrets') sections.secrets.replaceWith(await secretsSection()); };
+    const has = await codeome.secrets.has(list().map((s) => s.name));
+
+    // Which projects a secret is open to: every one, or the ones ticked.
+    const scopeLabel = (s) => (!Array.isArray(s.projects) ? 'All projects' : !s.projects.length ? 'No projects' : s.projects.length === 1 ? App.basename(s.projects[0]) : `${s.projects.length} projects`);
+    async function pickProjects(s) {
+      const dirs = [...new Set([...App.views.projects.list, ...(App.cfg.openProjects || []), ...(App.cfg.recentFolders || []), ...(s.projects || [])])];
+      const r = await App.modal({ title: `Projects for ${s.name}`, ok: 'Save',
+        text: 'Terminals and agent sessions of the ticked projects get this secret. With "All projects" ticked, every project does, as do terminals outside any project.',
+        fields: [{ key: 'all', type: 'check', label: 'All projects', value: !Array.isArray(s.projects) },
+          { legend: 'Only these' },
+          ...dirs.map((d, j) => ({ key: 'p' + j, type: 'check', label: `${App.basename(d)}  ·  ${App.tildify(d)}`, value: (s.projects || []).includes(d) }))] });
+      if (!r) return;
+      if (r.all) delete s.projects; else s.projects = dirs.filter((_d, j) => r['p' + j]);
+      await App.saveConfig(); flash(); redraw();
+    }
+
+    const rows = list().map((s, i) => h('div.sec-row', { role: 'listitem' },
+      h('div.ag-name',
+        h('div.row', h('b.sec-name', s.name), has[i] ? null : h('span.pill.warn', { title: 'Its value is missing from the Keychain. Use Replace… to enter it again.' }, 'no value')),
+        h('input.sec-note', { type: 'text', value: s.note || '', placeholder: 'Add a note: what it is for, when it expires', 'aria-label': `Note for ${s.name}`,
+          onchange: (e) => { s.note = e.target.value.trim().slice(0, 200); commit(); } })),
+      h('div.sec-use',
+        check('Terminals', () => s.terminals, (v) => { s.terminals = v; }),
+        check('Agents', () => s.agents, (v) => { s.agents = v; }),
+        h('button.btn.small.sec-scope', { title: Array.isArray(s.projects) ? s.projects.map((d) => App.tildify(d)).join('\n') || 'Set in no project' : 'Set in every project', 'aria-label': `Projects for ${s.name}: ${scopeLabel(s)}`, onclick: () => pickProjects(s) }, scopeLabel(s))),
+      h('div.sec-acts',
+        h('button.btn.small', { disabled: !has[i], onclick: async () => {
+          const r = await codeome.secrets.copy(s.name);
+          if (r.error) return App.err(r.error);
+          flash(`Copied for ${r.seconds} s`);
+        } }, 'Copy'),
+        h('button.btn.small', { onclick: async () => {
+          const r = await App.modal({ title: `Replace ${s.name}`, text: 'The new value takes the place of the saved one.', ok: 'Replace', fields: [{ key: 'v', label: 'New value', type: 'password', placeholder: 'Paste token' }] });
+          if (!r || !r.v.trim()) return;
+          const res = await codeome.secrets.set(s.name, r.v.trim());
+          if (res.error) return App.err(res.error);
+          flash('Secret replaced'); redraw();
+        } }, 'Replace…'),
+        h('button.icon-btn.small', { title: 'Remove', 'aria-label': 'Remove ' + s.name, html: App.icons.trash, onclick: async () => {
+          if (!await App.confirm(`Remove ${s.name}?`, 'Its value is deleted from this Mac. Terminals and chats already running keep it until they close.', 'Remove', true)) return;
+          await codeome.secrets.remove(s.name);
+          App.cfg.secrets = list().filter((x) => x !== s);
+          await App.saveConfig(); flash('Secret removed'); redraw();
+        } }))));
+
+    const name = h('input.mono', { type: 'text', placeholder: 'GITHUB_TOKEN', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Name' });
+    const value = h('input', { type: 'password', placeholder: 'Paste token', autocomplete: 'off', 'aria-label': 'Value' });
+    const add = h('button.btn.small.primary', { onclick: async () => {
+      const n = name.value.trim(), v = value.value.trim();
+      if (!n) return name.focus();
+      if (!v) return value.focus();
+      if (list().some((x) => x.name === n)) return App.err(`${n} is already saved. Use Replace… to change its value.`);
+      const res = await codeome.secrets.set(n, v);
+      if (res.error) return App.err(res.error);
+      list().push({ name: n, note: '', terminals: false, agents: false });
+      await App.saveConfig(); flash('Secret saved'); redraw();
+    } }, 'Save');
+    name.onkeydown = (e) => { if (e.key === 'Enter') value.focus(); };
+    value.onkeydown = (e) => { if (e.key === 'Enter') add.click(); };
+
+    return section('secrets', 'Secrets', 'Access tokens, API keys and passwords of your own, encrypted with the macOS Keychain. A value is never shown again: copy it, or have Codeome set it as an environment variable.',
+      card('Saved secrets',
+        rows.length ? h('div', { role: 'list', 'aria-label': 'Saved secrets' }, rows) : h('div.sp-empty', 'None yet. Add one below.'),
+        h('div.sec-add', name, value, add),
+        h('div.sp-foot.hint', 'The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. Both are off for a new secret, apply to what starts from then on, and never reach the HPC. The button beside them limits the secret to the projects you pick. Copy puts the value on the clipboard for 30 seconds.')));
   }
 
   function appearanceSection(c) {

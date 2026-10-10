@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('codeome', {
   pathForFile: (f) => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
   config: { get: invoke('config:get'), set: invoke('config:set') },
   secret: { set: (key, value) => ipcRenderer.invoke('secret:set', { key, value }), has: invoke('secret:has') },
+  secrets: {
+    set: (name, value) => ipcRenderer.invoke('secrets:set', { name, value }), remove: invoke('secrets:remove'),
+    has: invoke('secrets:has'), copy: invoke('secrets:copy')
+  },
   dialog: { folder: invoke('dialog:folder'), files: invoke('dialog:files'), save: invoke('dialog:save'), confirm: invoke('dialog:confirm') },
   shell: { open: invoke('shell:open'), reveal: invoke('shell:reveal'), openPath: invoke('shell:openPath') },
   pty: {

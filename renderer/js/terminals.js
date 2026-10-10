@@ -57,7 +57,7 @@
     try { fit.fit(); } catch {}
     // Callbacks stay here; only data crosses to the main process.
     const wire = Object.fromEntries(Object.entries(spec).filter(([, v]) => typeof v !== 'function'));
-    const r = await codeome.pty.spawn({ id, ...wire, cols: term.cols, rows: term.rows });
+    const r = await codeome.pty.spawn({ id, ...wire, project: t.project, cols: term.cols, rows: term.rows });
     if (r.error) { term.write('\r\n\x1b[31m' + r.error.replace(/\n/g, '\r\n') + '\x1b[0m\r\n'); t.alive = false; renderTabs(); }
     else if (r.account && r.account.name) {
       t.account = r.account.name;

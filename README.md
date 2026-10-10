@@ -63,6 +63,13 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 Tokens for Zenodo and PyPI are stored encrypted with the macOS Keychain and never shown in the interface.
 
+**Secrets** — Settings → *Secrets* keeps access tokens, API keys and passwords of your own, encrypted the same way. Each is named as an environment variable, such as `GITHUB_TOKEN`, and can carry a note. A saved value is never shown again:
+- *Copy* puts it on the clipboard and takes it off again after 30 seconds.
+- *Terminals* sets it as an environment variable in terminals, tasks and the R console started on this Mac.
+- *Agents* sets it in the agent chat and in agent sessions on this Mac, so the agent can read and use it.
+
+Both switches are off for a new secret and apply to what starts from then on. The button beside them, *All projects* at first, limits the secret to the projects you tick: only their terminals and agent sessions get it. Secrets are never sent to the HPC.
+
 ## Install
 
 ### Option A — download the built app
@@ -110,6 +117,7 @@ Open **Settings** (`⌘,`). It is a full page with a section list on the left. C
    - When a global and a project item share a name, both rows say which one Claude Code uses: the project's agent replaces the global one, and the global skill replaces the project's. With several Claude accounts, the global ones are those in the active account's folder.
 5. **Accounts & usage limits** — an account is an email address, and one card shows each with its sign-in and its usage. *Add a … account…* asks for the address and signs it in once through a terminal and your browser; the account is *confirmed* when the sign-in is for that address. Each account keeps its sign-in in its own folder (a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that Codeome chooses; `~/.claude` and `~/.codex` are the first account's), so every confirmed account stays signed in and work moves between them without asking again. *Sign in to the other N…* takes every account that is not signed in, one after the other. An account signed in with another address is not used until you sign in again or switch it to that address. Sign-ins already on the Mac (`~/.claude-lab`) are offered as cards to add. Accounts from before take the address they are signed in with. You can also set the stop threshold here.
 6. **Zenodo / PyPI tokens** if you publish from here.
+7. **Secrets** — your own tokens and keys, if you want them at hand or set in terminals and agent sessions.
 
 ### Where the usage numbers come from
 - **Codex**: Codeome asks `codex app-server` for each account every few minutes and when a Codex job ends.
@@ -158,6 +166,7 @@ main/          Electron main process
   slurm.js       squeue / sacct / scancel / sbatch
   zenodo.js      Zenodo REST client
   config.js      settings + Keychain-encrypted tokens
+  secrets.js     your own secrets: their names, and which processes get them as environment variables
   chat.js        the Agent chat's headless Claude Code sessions (stream-json), saved chats
   stats.js       each chat's token meter (context window, tokens a turn) and the statistics log
   kit.js         installs/updates the agent kit in a project

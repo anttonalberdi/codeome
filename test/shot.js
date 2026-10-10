@@ -224,6 +224,27 @@ const steps = {
     const pick = ${JSON.stringify(process.env.SHOT_COLOR || '')};
     if (pick) setTimeout(() => { document.getElementById('project-btn').click(); document.querySelector('#menu-pop button').click(); if (+pick) document.querySelectorAll('.swatch')[+pick].click(); }, 2000);
   })(); 0`],
+  // Settings → Secrets with three made-up secrets. SHOT_ENV: also start a terminal and an agent
+  // session and log which of them each one sees.
+  'settings-secrets': [`(async () => {
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    for (const n of ['GITHUB_TOKEN', 'HF_TOKEN', 'ZENODO_COPY']) await codeome.secrets.set(n, 'made-up-' + n.toLowerCase());
+    App.cfg.secrets = [{ name: 'GITHUB_TOKEN', note: 'Fine-grained, read-only. Expires March 2027', terminals: true, agents: true }, { name: 'HF_TOKEN', note: '', terminals: true, agents: false, projects: [${JSON.stringify(path.resolve(__dirname, '..'))}] }, { name: 'ZENODO_COPY', note: 'Copy only', terminals: false, agents: false }, { name: 'LOST', note: '', terminals: false, agents: false }];
+    await App.saveConfig();
+    await App.views.settings.open('secrets');
+    if (${JSON.stringify(process.env.SHOT_PICK || '')}) document.querySelectorAll('.sec-scope')[1].click();
+    if (${JSON.stringify(process.env.SHOT_ENV || '')}) {
+      const seen = {};
+      codeome.pty.onData(({ id, data }) => { seen[id] = (seen[id] || '') + data; });
+      const cmd = 'echo "sees:[$GITHUB_TOKEN][$HF_TOKEN][$ZENODO_COPY]"';
+      await codeome.pty.spawn({ id: 'shot-task', kind: 'task', command: cmd, cwd: '~', project: ${JSON.stringify(path.resolve(__dirname, '..'))} });
+      await codeome.pty.spawn({ id: 'shot-other', kind: 'task', command: cmd, cwd: '~', project: '/somewhere/else' });
+      await codeome.pty.spawn({ id: 'shot-agent', kind: 'agent-local', command: cmd, cwd: '~' });
+      await new Promise((r) => setTimeout(r, 1800));
+      for (const id of Object.keys(seen)) console.warn(id, (seen[id].match(/sees:\\[[^\\n\\r]*/) || ['nothing'])[0]);
+      console.warn('copy', JSON.stringify(await codeome.secrets.copy('ZENODO_COPY')), JSON.stringify(await codeome.secrets.copy('LOST')), JSON.stringify(await codeome.secrets.set('PATH', 'x')));
+    }
+  })(); 0`],
   // Five project cards in two groups, the second folded, and one card in no group.
   // SHOT_NARROW: also collapse the column to monograms.
   groups: [`(async () => {

@@ -34,6 +34,9 @@ const DEFAULTS = {
   ],
   python: { local: 'python3', remote: 'python3' },
   zenodo: { sandbox: false },
+  // Your own secrets, by name: { name, note, terminals, agents, projects }. The values are in the
+  // Keychain-encrypted store; see secrets.js for where each is set as an environment variable.
+  secrets: [],
   editor: { fontSize: 13, theme: 'auto' },
   slurm: { refreshSeconds: 20, historyDays: 3 },
   // An account is { name, dir }: name is the email it signs in with, dir its config folder
