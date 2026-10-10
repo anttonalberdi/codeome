@@ -20,12 +20,35 @@
     App.listen('project', () => { msg.value = ''; G.refresh(); });
     App.listen('saved', (t) => { if (!t.remote && App.currentView === 'git') G.refresh(); });
     App.listen('view', (v) => { if (v === 'git') G.refresh(); });
+    // Rail marker: uncommitted changes, kept current while the view is closed (agents edit files too).
+    App.listen('project', () => G.checkDirty());
+    App.listen('saved', (t) => { if (!t.remote) G.checkDirty(); });
+    App.listen('chat-state', () => G.checkDirty());
+    setInterval(() => { if (!document.hidden) G.checkDirty(); }, 10000);
+    G.checkDirty();
   };
+
+  let checking = false;
+  G.checkDirty = async () => {
+    if (checking) return;
+    checking = true;
+    try {
+      const r = App.project ? await codeome.git.dirty(App.project) : null;
+      paintRail(r && r.repo ? r.changes : 0);
+    } catch { paintRail(0); } finally { checking = false; }
+  };
+  function paintRail(n) {
+    const b = document.querySelector('#rail button[data-view="git"]');
+    if (!b) return;
+    b.classList.toggle('dirty', n > 0);
+    b.title = 'Git & GitHub (⌘4)' + (n ? ` — ${n} uncommitted change${n > 1 ? 's' : ''}` : '');
+  }
 
   G.refresh = async () => {
     if (!root) return;
     if (!App.project) { root.innerHTML = ''; root.append(head(), h('div.empty', 'Open a project folder to see its Git status.', h('br'), h('button.btn.small', { onclick: () => App.openProject() }, 'Open folder'))); return; }
     G.st = await codeome.git.status(App.project);
+    paintRail(G.st.repo ? G.st.files.length : 0);
     render();
   };
 

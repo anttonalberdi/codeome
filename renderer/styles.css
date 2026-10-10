@@ -702,6 +702,7 @@ button.cs:hover { text-decoration-color: currentColor; }
 .hist-row:hover .icon-btn, .hist-row:focus-within .icon-btn { visibility: visible; }
 #rail button.needs::after, #rail button.ready::after { content: ""; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--pend); }
 #rail button.ready::after { background: var(--accent); }
+#rail button.dirty::after { content: ""; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--pend); }
 #rail button.busy::after { content: ""; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--run); animation: pulse 1.2s ease-in-out infinite; }
 .group-label { padding: 10px 12px 4px; font-size: 12px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
 

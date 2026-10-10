@@ -566,6 +566,12 @@ ipcMain.handle('git:status', async (_e, cwd) => {
   const gh = (await run('gh', ['auth', 'status'], { timeout: 8000 }));
   return { repo: true, root, head, files, remote, log, gh: gh.code === 0 };
 });
+// Cheap check for the rail marker: how many paths have uncommitted changes.
+ipcMain.handle('git:dirty', async (_e, cwd) => {
+  const st = await git(cwd, ['status', '--porcelain=v1', '-unormal'], { timeout: 15000 });
+  if (st.code !== 0) return { repo: false, changes: 0 };
+  return { repo: true, changes: st.stdout.split('\n').filter(Boolean).length };
+});
 ipcMain.handle('git:diff', async (_e, { root, file, staged }) => {
   const r = await git(root, ['diff', ...(staged ? ['--cached'] : []), '--', file]);
   if (r.stdout) return { diff: r.stdout };

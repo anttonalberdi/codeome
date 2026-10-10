@@ -61,7 +61,7 @@ contextBridge.exposeInMainWorld('codeome', {
   },
   preview: { render: invoke('preview:render'), fetchRemote: invoke('preview:fetchRemote'), onLog: on('preview:log') },
   git: {
-    status: invoke('git:status'), diff: invoke('git:diff'), show: invoke('git:show'),
+    status: invoke('git:status'), dirty: invoke('git:dirty'), diff: invoke('git:diff'), show: invoke('git:show'),
     run: (root, args) => ipcRenderer.invoke('git:run', { root, args }),
     gh: (root, args) => ipcRenderer.invoke('gh:run', { root, args })
   },
