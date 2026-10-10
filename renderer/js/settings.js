@@ -1,12 +1,13 @@
 // Settings: a full page over the workspace, showing one section at a time. Changes save as you make them.
-// Sections: HPC, long-term storage, Agents (the chat's model, the project's agents with their engine and
-// model, the command-line agents), accounts and limits, Python, publishing tokens,
+// Sections: HPC, long-term storage, Agents (for all projects: the chat's model, the command-line agents and
+// the global agents and skills; for the open project: its agents with their engine and model, and its skills),
+// accounts and limits, Python, publishing tokens,
 // appearance, and what was found on this Mac.
 (function () {
   const h = App.h;
   const S = { isOpen: false };
   App.views.settings = S;
-  let page, nav, main, savedEl, agentsHost, setupHost, serverList, storageHost, accountsHost;
+  let page, nav, main, savedEl, agentsHost, globalHost, setupHost, serverList, storageHost, accountsHost;
   let sections = {};
   let current = 'hpc'; // the section shown; reopening Settings returns to it
 
@@ -77,7 +78,7 @@
     });
     // Navigating elsewhere closes the page; switching projects refreshes the agents.
     App.listen('view', () => S.close());
-    App.listen('project', () => { if (S.isOpen) renderAgents(); });
+    App.listen('project', () => { if (S.isOpen) { renderGlobal(); renderAgents(); } });
     // The HPC checklist follows the connection, the tunnel and setup steps as they happen.
     for (const ev of ['setup', 'hpc', 'vpn', 'login', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
     for (const ev of ['storage', 'login', 'config']) App.listen(ev, () => { if (S.isOpen) renderStorage(); });
@@ -162,13 +163,13 @@
   async function show(id) {
     current = id;
     markNav(id);
-    agentsHost = setupHost = serverList = storageHost = accountsHost = null;
+    agentsHost = globalHost = setupHost = serverList = storageHost = accountsHost = null;
     sections = {};
     const el = await BUILD[id](App.cfg);
     if (id !== current) return; // another section was picked while this one loaded
     main.replaceChildren(h('div.sp-content', el));
     main.scrollTop = 0;
-    if (id === 'agents') renderAgents();
+    if (id === 'agents') { renderGlobal(); renderAgents(); }
     if (id === 'hpc') { renderSetup(); App.setup.refresh(); }
     if (id === 'storage') renderStorage();
     if (id === 'accounts') { renderAccounts(); findFolders(); }
@@ -392,7 +393,8 @@
   function agentsSection(c) {
     const chatCmd = (c.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
     const fromCmd = (chatCmd.match(/--model(?:=|\s+)(\S+)/) || [])[1];
-    return section('agents', 'Agents', 'The agent chat, the specialists it hands work to, the skills they follow, and the command-line agents offered as terminal sessions.',
+    return section('agents', 'Agents', 'The agent chat, the specialists it hands work to, the skills they follow, and the command-line agents offered as terminal sessions. Some are set once for all projects; the rest belong to the open project.',
+      scopeHead('All projects', 'Kept on this Mac, outside any project.'),
       card('Agent chat (orchestrator)',
         row('AI', h('span.pill.ok', 'Claude Code'), `Runs "${chatCmd}" — the first Claude command below.`),
         row('Model', modelSelect([{ value: '', label: fromCmd ? `From the command (${fromCmd})` : 'Claude Code default' }, ...CLAUDE_MODELS], (App.cfg.chat || {}).model || '',
@@ -402,10 +404,16 @@
           'How much the model thinks before it answers. Higher is slower and uses more of the limits. Default leaves it to the model.'),
         row('Suggest a new chat at', h('div.row', text(() => (App.cfg.chat || {}).contextWarnAt ?? 70, (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), contextWarnAt: Math.min(95, Math.max(20, Number(v) || 70)) }; }, { type: 'number', label: 'Percent' }), h('span.hint', '% of the context window')),
           'Each chat shows how full its context window is. Past this mark the meter turns amber and the chat says so once.')),
-      agentsHost = h('div'),
       card('Command-line agents', cliAgents(),
-        h('div.sp-foot.hint', 'Offered as sessions in terminals and on the HPC. The agent chat runs the first Claude command.')));
+        h('div.sp-foot.hint', 'Offered as sessions in terminals and on the HPC. The agent chat runs the first Claude command.')),
+      globalHost = h('div'),
+      agentsHost = h('div'));
   }
+
+  // The Agents section has two scopes, each under its own heading: all projects, and the open one.
+  const scopeHead = (title, hint) => h('div.sp-scope', h('h3', title), h('span.hint', hint));
+  // A file as the page names it: relative inside the project, ~/… elsewhere.
+  const fileLabel = (p) => (App.project && p.startsWith(App.project + '/') ? p.slice(App.project.length + 1) : App.tildify(p));
 
   function cliAgents() {
     const box = h('div.cli-list');
@@ -429,7 +437,7 @@
     if (!agentsHost) return;
     const project = App.project;
     const host = agentsHost;
-    if (!project) { host.replaceChildren(card('Team', h('div.sp-empty', 'Open a project to see its agents.'))); return; }
+    if (!project) { host.replaceChildren(scopeHead('This project', 'No project is open.'), card('Team', h('div.sp-empty', 'Open a project to see its agents and skills.'))); return; }
     const [res, kit, models, sk] = await Promise.all([codeome.agents.list(project), codeome.kit.status(project), codeome.agents.models(), codeome.skills.list(project)]);
     if (project !== App.project || host !== agentsHost) return;
     codexCatalog = models.codex || { models: [] };
@@ -439,7 +447,7 @@
       h('span.grow', `Team in ${name}`),
       kit.installed ? h('button.btn.small.ghost', { onclick: () => openFile(App.join(project, '.claude/skills/orchestrate/routing.md')) }, 'Routing') : null,
       kit.installed ? h('button.btn.small.ghost', { onclick: () => App.views.agents.install().then(renderAgents) }, kit.outdated ? `Update kit to ${kit.latest}…` : 'Role groups…') : null,
-      h('button.btn.small', { onclick: newAgent }, '+ New agent'));
+      h('button.btn.small', { onclick: () => newAgent(App.join(project, '.claude')) }, '+ New agent'));
     const body = [];
     if (res.error) body.push(h('div.sp-empty', res.error));
     if (!kit.installed) {
@@ -456,26 +464,73 @@
         list.map((a) => agentRow(project, a))));
       body.push(h('div.sp-foot.hint', 'The AI is the default the chat routes each role to (routing.md); it can still override per task. Claude models and effort go in the agent file; Codex ones in .codeome/agents.json. Edits to the files are kept on kit updates.'));
     }
-    host.replaceChildren(h('div.sp-card', head, ...body), skillsCard(project, sk));
+    host.replaceChildren(scopeHead(`This project · ${name}`, 'Kept in its .claude/ folder, and shared with collaborators when committed.'), h('div.sp-card', head, ...body),
+      skillsCard(`Skills in ${name}`, sk, () => newSkill(App.join(project, '.claude')),
+        'Commands are typed in the chat; playbooks are read when a task needs them. Kit skills follow the role groups chosen above. Edits to the files are kept on kit updates.'));
   }
 
-  // The project's skills: commands typed in the chat, and playbooks a role or the chat reads when a task calls for one.
-  function skillsCard(project, res) {
+  // The agents and skills in the Claude account's folder, which every project gets.
+  async function renderGlobal() {
+    if (!globalHost) return;
+    const project = App.project;
+    const host = globalHost;
+    const g = await codeome.global.list(project);
+    if (project !== App.project || host !== globalHost) return;
+    if (g.error) { host.replaceChildren(card('Global agents', h('div.sp-empty', g.error))); return; }
+    const dir = App.tildify(g.dir);
+    const list = g.agents || [];
+    const body = [];
+    if (!list.length) body.push(h('div.sp-empty', `No agents in ${dir}/agents/ yet.`));
+    else body.push(h('div.ag-table', { role: 'table', 'aria-label': 'Global agents' },
+      h('div.ag-row.ag-global.ag-headrow', { role: 'row' }, ['Agent', 'Model', 'Effort', 'Access', ''].map((x) => h('span', { role: 'columnheader' }, x))),
+      list.map((a) => globalAgentRow(project, a))));
+    body.push(h('div.sp-foot.hint', `In ${dir}/agents/. The chat can hand work to them in any project; they run on Claude. A project agent with the same name is used instead in that project.`
+      + (g.accounts > 1 ? ` Each Claude account has its own folder: these are the ones of the active account, ${g.account}.` : '')));
+    host.replaceChildren(
+      h('div.sp-card', h('div.sp-card-h.row', h('span.grow', 'Global agents'), h('button.btn.small', { onclick: () => newAgent(g.dir) }, '+ New agent')), ...body),
+      skillsCard('Global skills', g, () => newSkill(g.dir), `In ${dir}/skills/. Available in every project. A global skill is used instead of a project skill with the same name.`, `No skills in ${dir}/skills/ yet.`));
+  }
+
+  function globalAgentRow(project, a) {
+    const el = h('div.ag-row.ag-global', { role: 'row' });
+    const save = async (patch) => {
+      const r = await codeome.global.setAgent(project, a.name, patch);
+      if (r.error) { App.err(r.error); return renderGlobal(); }
+      Object.assign(a, r.agent);
+      el.replaceWith(globalAgentRow(project, a));
+      flash();
+    };
+    el.append(
+      h('div.ag-name', { role: 'cell' },
+        h('div.row', h('b', a.name), h('span.pill.global', 'global'),
+          a.replacedByProject ? h('span.pill.warn', { title: `${App.basename(project)} has its own ${a.name}, which is used there instead` }, 'replaced in this project') : null),
+        a.description ? h('div.ag-desc', { title: a.description }, a.description) : null),
+      h('div', { role: 'cell' }, modelSelect([{ value: '', label: 'Same as the chat' }, ...CLAUDE_MODELS], a.claudeModel, (v) => save({ claudeModel: v }), `Claude model for ${a.name}`)),
+      h('div', { role: 'cell' }, select(CLAUDE_EFFORTS, a.claudeEffort, (v) => save({ claudeEffort: v }), `Claude effort for ${a.name}`)),
+      h('div', { role: 'cell' }, h('span.ag-access.' + (a.access === 'writes' ? 'w' : 'r'), a.access)),
+      h('div', { role: 'cell' }, h('button.btn.small', { title: `Edit ${fileLabel(a.path)}`, onclick: () => openFile(a.path) }, 'Edit .md')));
+    return el;
+  }
+
+  // A scope's skills: commands typed in the chat, and playbooks a role or the chat reads when a task calls for one.
+  function skillsCard(title, res, create, foot, empty) {
     const list = res.skills || [];
-    const head = h('div.sp-card-h.row', h('span.grow', `Skills in ${App.basename(project)}`), h('button.btn.small', { onclick: newSkill }, '+ New skill'));
+    const head = h('div.sp-card-h.row', h('span.grow', title), h('button.btn.small', { onclick: create }, '+ New skill'));
     const body = [];
     if (res.error) body.push(h('div.sp-empty', res.error));
-    else if (!list.length) body.push(h('div.sp-empty', 'No skills in .claude/skills/ yet.'));
+    else if (!list.length) body.push(h('div.sp-empty', empty || 'No skills in .claude/skills/ yet.'));
     else {
-      body.push(h('div', { role: 'list', 'aria-label': 'Skills' }, list.map((k) => h('div.sk-row', { role: 'listitem' },
+      body.push(h('div', { role: 'list', 'aria-label': title }, list.map((k) => h('div.sk-row', { role: 'listitem' },
         h('div.ag-name',
-          h('div.row', h('b', (k.command ? '/' : '') + k.name), k.kit ? h('span.pill', k.group || 'kit') : h('span.pill.own', 'own'),
+          h('div.row', h('b', (k.command ? '/' : '') + k.name), 'kit' in k ? (k.kit ? h('span.pill', k.group || 'kit') : h('span.pill.own', 'own')) : h('span.pill.global', 'global'),
             h('span.pill', { title: k.command ? 'Type it in the chat' + (k.hint ? `: /${k.name} ${k.hint}` : '') : 'Read by the chat or a role when a task calls for it' }, k.command ? 'command' : 'playbook'),
-            k.edited ? h('span.pill.warn', { title: 'Edited here; kit updates leave the edited files alone' }, 'edited') : null),
+            k.edited ? h('span.pill.warn', { title: 'Edited here; kit updates leave the edited files alone' }, 'edited') : null,
+            k.replacedByGlobal ? h('span.pill.warn', { title: `A global skill is also called ${k.name}; Claude Code uses the global one` }, 'replaced by global') : null,
+            k.replacesProject ? h('span.pill.warn', { title: `${App.basename(App.project)} has its own ${k.name}; Claude Code uses this global one` }, 'replaces this project\'s') : null),
           k.description ? h('div.ag-desc', { title: k.description }, k.description) : null),
-        h('div.sk-files', k.files.slice(1).map((f) => h('button.sk-file' + (f.edited ? '.edited' : ''), { title: `Edit .claude/skills/${k.name}/${f.name}` + (f.edited ? ' (edited here)' : ''), onclick: () => openFile(f.path) }, f.name.replace(/\.md$/, '')))),
-        h('div', h('button.btn.small', { title: `Edit .claude/skills/${k.name}/SKILL.md`, onclick: () => openFile(k.path) }, 'Edit .md'))))));
-      body.push(h('div.sp-foot.hint', 'Commands are typed in the chat; playbooks are read when a task needs them. Kit skills follow the role groups chosen above. Edits to the files are kept on kit updates.'));
+        h('div.sk-files', k.files.slice(1).map((f) => h('button.sk-file' + (f.edited ? '.edited' : ''), { title: `Edit ${fileLabel(f.path)}` + (f.edited ? ' (edited here)' : ''), onclick: () => openFile(f.path) }, f.name.replace(/\.md$/, '')))),
+        h('div', h('button.btn.small', { title: `Edit ${fileLabel(k.path)}`, onclick: () => openFile(k.path) }, 'Edit .md'))))));
+      body.push(h('div.sp-foot.hint', foot));
     }
     return h('div.sp-card', head, ...body);
   }
@@ -503,7 +558,8 @@
     const changed = a.kit && a.engine !== a.defaultEngine;
     el.append(
       h('div.ag-name', { role: 'cell' },
-        h('div.row', h('b', a.name), a.kit ? h('span.pill', a.group || 'kit') : h('span.pill.own', 'own'), a.edited ? h('span.pill.warn', { title: 'Edited here; kit updates leave it alone' }, 'edited') : null),
+        h('div.row', h('b', a.name), a.kit ? h('span.pill', a.group || 'kit') : h('span.pill.own', 'own'), a.edited ? h('span.pill.warn', { title: 'Edited here; kit updates leave it alone' }, 'edited') : null,
+          a.replacesGlobal ? h('span.pill', { title: `A global agent is also called ${a.name}; in this project this one is used` }, 'replaces global') : null),
         a.description ? h('div.ag-desc', { title: a.description }, a.description) : null),
       h('div', { role: 'cell' }, select(ENGINES, a.engine, (v) => save({ engine: v }), `AI for ${a.name}`),
         changed ? h('div.ag-def', `kit default: ${ENGINE_NAME[a.defaultEngine]}`) : null),
@@ -516,27 +572,28 @@
 
   function openFile(p) { S.close(); App.views.editor.openFile(p); }
 
-  async function newAgent() {
-    const project = App.project;
-    const name = await App.prompt('New agent', 'Name (lowercase, dashes)', '', { placeholder: 'e.g. stats-reviewer', ok: 'Create' });
+  // base: the Claude folder to create it in — the project's .claude, or the account's own for a global one.
+  async function newAgent(base) {
+    const global = !App.project || !base.startsWith(App.project + '/');
+    const name = await App.prompt(global ? 'New global agent' : 'New agent', 'Name (lowercase, dashes)', '', { placeholder: 'e.g. stats-reviewer', ok: 'Create' });
     if (!name) return;
     if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(name)) return App.err('Use lowercase letters, digits and dashes.');
-    const p = App.join(project, `.claude/agents/${name}.md`);
+    const p = App.join(base, `agents/${name}.md`);
     const exists = await codeome.local.read(p);
     if (!exists.error) return App.err(`${name} already exists.`);
-    await codeome.local.mkdir(App.join(project, '.claude/agents'));
+    await codeome.local.mkdir(App.join(base, 'agents'));
     const r = await codeome.local.write(p, `---\nname: ${name}\ndescription: What this agent does and when the orchestrator should use it.\ntools: Read, Grep, Glob, Bash\n---\n\nYou are the ${name}. Describe how to work and what to report.\n`);
     if (r.error) return App.err(r.error);
     App.emit('local-changed');
     openFile(p);
   }
 
-  async function newSkill() {
-    const project = App.project;
-    const name = await App.prompt('New skill', 'Name (lowercase, dashes)', '', { placeholder: 'e.g. lab-report', ok: 'Create' });
+  async function newSkill(base) {
+    const global = !App.project || !base.startsWith(App.project + '/');
+    const name = await App.prompt(global ? 'New global skill' : 'New skill', 'Name (lowercase, dashes)', '', { placeholder: 'e.g. lab-report', ok: 'Create' });
     if (!name) return;
     if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(name)) return App.err('Use lowercase letters, digits and dashes.');
-    const dir = App.join(project, `.claude/skills/${name}`);
+    const dir = App.join(base, `skills/${name}`);
     const p = App.join(dir, 'SKILL.md');
     const exists = await codeome.local.read(p);
     if (!exists.error) return App.err(`${name} already exists.`);

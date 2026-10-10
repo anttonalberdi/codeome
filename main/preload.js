@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('codeome', {
   rpkg: { list: invoke('rpkg:list') },
   kit: { status: invoke('kit:status'), install: (project, groups) => ipcRenderer.invoke('kit:install', { project, groups }) },
   skills: { list: invoke('skills:list') },
+  global: { list: invoke('global:list'), setAgent: (project, name, patch) => ipcRenderer.invoke('global:setAgent', { project, name, patch }) },
   agents: {
     list: invoke('agents:list'), models: invoke('agents:models'),
     set: (project, name, patch) => ipcRenderer.invoke('agents:set', { project, name, patch })

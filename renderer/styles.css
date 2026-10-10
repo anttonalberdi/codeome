@@ -810,6 +810,12 @@ input.mono { font-family: var(--mono); font-size: 12px; }
 .ag-access.w { color: var(--pend); }
 .ag-access.r { color: var(--muted); }
 .pill.own { background: var(--sel); color: var(--text); }
+.pill.global { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text); }
+.ag-row.ag-global { grid-template-columns: minmax(180px, 1fr) minmax(170px, 230px) 100px 70px 72px; }
+/* The two scopes of the Agents section: all projects, and the open one */
+.sp-scope { display: flex; align-items: baseline; gap: 8px; margin: 22px 0 8px; }
+.sp-intro + .sp-scope { margin-top: 4px; }
+.sp-scope h3 { font-size: 13px; font-weight: 650; margin: 0; }
 .sk-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 1fr) 72px; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
 .sk-row:first-of-type { border-top: 0; }
 .sk-files { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -819,4 +825,7 @@ input.mono { font-family: var(--mono); font-size: 12px; }
 @media (max-width: 1180px) {
   .ag-row { grid-template-columns: 1fr 130px 180px 96px 72px; }
   .ag-row > :nth-child(5) { display: none; }
+  .ag-row.ag-global { grid-template-columns: 1fr 180px 96px 72px; }
+  .ag-row.ag-global > :nth-child(4) { display: none; }
+  .ag-row.ag-global > :nth-child(5) { display: block; }
 }

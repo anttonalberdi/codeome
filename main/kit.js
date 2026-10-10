@@ -10,6 +10,9 @@
 //   .codeome/kit.json                  version, groups and hashes of installed files
 //   .codeome/agents.json               engine and model chosen per agent in Settings
 // Files the user has edited since installation are never overwritten or removed.
+//
+// Global agents and skills live in the Claude account's folder (~/.claude/agents, ~/.claude/skills) and apply in
+// every project. The kit never writes there; Settings lists them beside the project's and marks name clashes.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -267,6 +270,14 @@ function setFrontmatter(text, key, value) {
 }
 
 const agentPath = (project, name) => path.join(project, '.claude', 'agents', name + '.md');
+// The agents and skills in one Claude folder: a project's .claude, or the account's own (global).
+const agentNames = (base) => { try { return fs.readdirSync(path.join(base, 'agents')).filter((f) => /^[\w.-]+\.md$/.test(f)).map((f) => f.slice(0, -3)).sort(); } catch { return []; } };
+const skillNames = (base) => { try { return fs.readdirSync(path.join(base, 'skills')).filter((d) => /^\w[\w.-]*$/.test(d) && read(path.join(base, 'skills', d, 'SKILL.md')) !== null).sort(); } catch { return []; } };
+const skillFilesIn = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort((a, b) => (b === 'SKILL.md') - (a === 'SKILL.md') || a.localeCompare(b));
+const checkPatch = (patch) => {
+  for (const k of ['claudeModel', 'codexModel']) if (k in patch && !MODEL_RE.test(String(patch[k] || '').trim())) throw new Error('Not a model name: ' + patch[k]);
+  for (const k of Object.keys(EFFORTS)) if (k in patch && patch[k] && !EFFORTS[k].includes(patch[k])) throw new Error('Unknown effort ' + patch[k]);
+};
 const accessOf = (tools) => (!tools || /Edit|Write/.test(tools) ? 'writes' : 'read-only');
 
 // The project's own agents whose engine was set here: they get a row in routing.md.
@@ -280,15 +291,15 @@ function customRouted(project, overrides) {
   }).filter(Boolean);
 }
 
-function agents(project) {
+// globalDir: the Claude account's folder; an agent here replaces the global one of the same name.
+function agents(project, globalDir) {
   const st = readState(project);
+  const global = new Set(globalDir ? agentNames(globalDir) : []);
   const ov = readOverrides(project);
   const kitRoles = new Map(roles().map((r) => [r.name, r]));
   const routed = parseRouting(read(path.join(project, ROUTING)));
-  let names = [];
-  try { names = fs.readdirSync(path.join(project, '.claude', 'agents')).filter((f) => /^[\w.-]+\.md$/.test(f)); } catch {}
-  return names.sort().map((f) => {
-    const name = f.slice(0, -3), rel = `.claude/agents/${f}`;
+  return agentNames(path.join(project, '.claude')).map((name) => {
+    const rel = `.claude/agents/${name}.md`;
     const text = read(path.join(project, rel)) || '';
     const { meta } = parseFrontmatter(text);
     const k = kitRoles.get(name);
@@ -300,7 +311,7 @@ function agents(project) {
       engine: routed[name] || o.engine || (fromKit ? k.engine : 'claude'), defaultEngine: fromKit ? k.engine : 'claude',
       claudeModel: meta.model || '', defaultClaudeModel: fromKit ? k.model || '' : '',
       claudeEffort: meta.effort || '', codexModel: o.codexModel || '', codexEffort: o.codexEffort || '', access: accessOf(meta.tools),
-      edited: !!(fromKit && sha(text) !== st.files[rel])
+      edited: !!(fromKit && sha(text) !== st.files[rel]), replacesGlobal: global.has(name)
     };
   });
 }
@@ -313,8 +324,7 @@ function setAgent(project, name, patch = {}) {
   const text = read(abs);
   if (text === null) throw new Error('No agent ' + name + ' in .claude/agents/');
   if ('engine' in patch && !ENGINES.includes(patch.engine)) throw new Error('Unknown engine ' + patch.engine);
-  for (const k of ['claudeModel', 'codexModel']) if (k in patch && !MODEL_RE.test(String(patch[k] || '').trim())) throw new Error('Not a model name: ' + patch[k]);
-  for (const k of Object.keys(EFFORTS)) if (k in patch && patch[k] && !EFFORTS[k].includes(patch[k])) throw new Error('Unknown effort ' + patch[k]);
+  checkPatch(patch);
   const st = readState(project);
   const k = roles().find((r) => r.name === name && st && st.files && `.claude/agents/${name}.md` in st.files);
   const ov = readOverrides(project);
@@ -348,28 +358,66 @@ function setAgent(project, name, patch = {}) {
 // ---------- skills ----------
 // Every skill in .claude/skills/ (kit skills and the project's own) with its Markdown files, SKILL.md first.
 // A skill is a command unless its frontmatter says `user-invocable: false`; then it is reference a role or the chat reads.
-function skillList(project) {
+// globalDir: the Claude account's folder; a global skill of the same name is the one Claude Code uses.
+function skillList(project, globalDir) {
   const st = readState(project);
   const known = (st && st.files) || {};
   const kitSkills = new Map(skills().map((s) => [s.name, s]));
-  const base = path.join(project, '.claude', 'skills');
-  let names = [];
-  try { names = fs.readdirSync(base).filter((d) => /^[\w.-]+$/.test(d) && read(path.join(base, d, 'SKILL.md')) !== null); } catch {}
-  return names.sort().map((name) => {
+  const global = new Set(globalDir ? skillNames(globalDir) : []);
+  return skillNames(path.join(project, '.claude')).map((name) => {
     const rel = `.claude/skills/${name}`;
     const { meta } = parseFrontmatter(read(path.join(project, rel, 'SKILL.md')));
     const k = kitSkills.get(name);
     const fromKit = !!(k && `${rel}/SKILL.md` in known);
-    const files = fs.readdirSync(path.join(project, rel)).filter((f) => f.endsWith('.md')).sort((a, b) => (b === 'SKILL.md') - (a === 'SKILL.md') || a.localeCompare(b)).map((f) => {
+    const files = skillFilesIn(path.join(project, rel)).map((f) => {
       const h = known[`${rel}/${f}`];
       return { name: f, path: path.join(project, rel, f), edited: !!(fromKit && h && sha(read(path.join(project, rel, f)) || '') !== h) };
     });
     return {
       name, path: path.join(project, rel, 'SKILL.md'), description: meta.description || '', hint: meta['argument-hint'] || '',
       kit: fromKit, group: fromKit ? k.group : null, command: meta['user-invocable'] !== 'false',
-      files, edited: files.some((f) => f.edited)
+      files, edited: files.some((f) => f.edited), replacedByGlobal: global.has(name)
     };
   });
 }
 
-module.exports = { install, status, plan, roles, skills, skillList, parseFrontmatter, agents, setAgent, parseRouting, setFrontmatter, MANIFEST, HOOK_CMD };
+// ---------- global agents and skills ----------
+// Those in the Claude account's folder, which Claude Code offers in every project. They run on Claude: routing to
+// Codex is a project's choice (routing.md). project: the open one, to mark the names it also has. Claude Code's
+// rule differs by kind: a project agent replaces the global one, a global skill replaces the project's.
+function globalAgents(dir, project) {
+  const local = new Set(project ? agentNames(path.join(project, '.claude')) : []);
+  return agentNames(dir).map((name) => {
+    const p = path.join(dir, 'agents', name + '.md');
+    const { meta } = parseFrontmatter(read(p) || '');
+    return { name, path: p, description: meta.description || '', claudeModel: meta.model || '', claudeEffort: meta.effort || '', access: accessOf(meta.tools), replacedByProject: local.has(name) };
+  });
+}
+
+// patch: { claudeModel?, claudeEffort? }, written to the agent file's frontmatter.
+function setGlobalAgent(dir, name, patch = {}, project) {
+  if (!/^[\w.-]+$/.test(name || '')) throw new Error('Bad agent name');
+  const p = path.join(dir, 'agents', name + '.md');
+  const text = read(p);
+  if (text === null) throw new Error('No global agent ' + name);
+  checkPatch(patch);
+  let next = text;
+  if ('claudeModel' in patch) next = setFrontmatter(next, 'model', String(patch.claudeModel || '').trim());
+  if ('claudeEffort' in patch) next = setFrontmatter(next, 'effort', patch.claudeEffort || '');
+  if (next !== text) fs.writeFileSync(p, next);
+  return globalAgents(dir, project).find((a) => a.name === name);
+}
+
+function globalSkills(dir, project) {
+  const local = new Set(project ? skillNames(path.join(project, '.claude')) : []);
+  return skillNames(dir).map((name) => {
+    const base = path.join(dir, 'skills', name);
+    const { meta } = parseFrontmatter(read(path.join(base, 'SKILL.md')));
+    return {
+      name, path: path.join(base, 'SKILL.md'), description: meta.description || '', hint: meta['argument-hint'] || '',
+      command: meta['user-invocable'] !== 'false', files: skillFilesIn(base).map((f) => ({ name: f, path: path.join(base, f) })), replacesProject: local.has(name)
+    };
+  });
+}
+
+module.exports = { install, status, plan, roles, skills, skillList, globalAgents, setGlobalAgent, globalSkills, parseFrontmatter, agents, setAgent, parseRouting, setFrontmatter, MANIFEST, HOOK_CMD };

@@ -382,3 +382,47 @@ test('skills follow the role groups, and list with their files and edits', () =>
   assert.ok(r.removed.includes('.claude/skills/release/pypi.md'));
   assert.ok(r.kept.includes('.claude/skills/release/cran.md'));
 });
+
+test('global agents and skills list apart from the project\'s, with name clashes marked both ways', () => {
+  const p = tmp(), g = tmp();
+  kit.install(p);
+  assert.deepStrictEqual([kit.globalAgents(g, p), kit.globalSkills(g, p)], [[], []]);
+  fs.mkdirSync(path.join(g, 'agents'));
+  fs.writeFileSync(path.join(g, 'agents/tester.md'), '---\nname: tester\ndescription: My own tester.\ntools: Read, Grep\nmodel: haiku\n---\n\nBody.\n');
+  fs.writeFileSync(path.join(g, 'agents/tidy.md'), '---\nname: tidy\ndescription: Tidies up.\n---\n\nBody.\n');
+  for (const n of ['delegate', 'thesis', '.trash']) fs.mkdirSync(path.join(g, 'skills', n), { recursive: true });
+  fs.writeFileSync(path.join(g, 'skills/delegate/SKILL.md'), '---\nname: delegate\ndescription: Mine.\n---\n');
+  fs.writeFileSync(path.join(g, 'skills/thesis/SKILL.md'), '---\nname: thesis\ndescription: House style.\nuser-invocable: false\n---\n');
+  fs.writeFileSync(path.join(g, 'skills/thesis/figures.md'), 'Figures.\n');
+  fs.writeFileSync(path.join(g, 'skills/.trash/SKILL.md'), '---\nname: old\n---\n');
+
+  const ga = Object.fromEntries(kit.globalAgents(g, p).map((a) => [a.name, a]));
+  assert.deepStrictEqual(Object.keys(ga), ['tester', 'tidy']);
+  assert.deepStrictEqual([ga.tester.claudeModel, ga.tester.access, ga.tester.replacedByProject], ['haiku', 'read-only', true]);
+  assert.deepStrictEqual([ga.tidy.access, ga.tidy.replacedByProject, ga.tidy.path], ['writes', false, path.join(g, 'agents/tidy.md')]);
+  const gs = Object.fromEntries(kit.globalSkills(g, p).map((s) => [s.name, s]));
+  assert.deepStrictEqual(Object.keys(gs), ['delegate', 'thesis']);
+  assert.deepStrictEqual([gs.delegate.replacesProject, gs.delegate.command], [true, true]);
+  assert.deepStrictEqual([gs.thesis.replacesProject, gs.thesis.command, gs.thesis.files.map((f) => f.name)], [false, false, ['SKILL.md', 'figures.md']]);
+  // Without a project nothing clashes.
+  assert.ok(kit.globalAgents(g).every((a) => !a.replacedByProject) && kit.globalSkills(g).every((s) => !s.replacesProject));
+
+  // The project's lists say which of theirs meet a global one: its agent wins, its skill loses.
+  const pa = Object.fromEntries(kit.agents(p, g).map((a) => [a.name, a]));
+  assert.deepStrictEqual([pa.tester.replacesGlobal, pa.planner.replacesGlobal], [true, false]);
+  const ps = Object.fromEntries(kit.skillList(p, g).map((s) => [s.name, s]));
+  assert.deepStrictEqual([ps.delegate.replacedByGlobal, ps.orchestrate.replacedByGlobal], [true, false]);
+  assert.ok(kit.agents(p).every((a) => !a.replacesGlobal));
+
+  // Model and effort go into the global file's frontmatter; the project and its kit record are untouched.
+  const a = kit.setGlobalAgent(g, 'tidy', { claudeModel: 'opus', claudeEffort: 'high' }, p);
+  assert.deepStrictEqual([a.claudeModel, a.claudeEffort], ['opus', 'high']);
+  assert.match(fs.readFileSync(path.join(g, 'agents/tidy.md'), 'utf8'), /\nmodel: opus\neffort: high\n---/);
+  kit.setGlobalAgent(g, 'tester', { claudeModel: '' });
+  assert.doesNotMatch(fs.readFileSync(path.join(g, 'agents/tester.md'), 'utf8'), /^model:/m);
+  assert.deepStrictEqual(kit.status(p).modified, []);
+  assert.ok(!fs.existsSync(path.join(p, '.codeome/agents.json')));
+  assert.throws(() => kit.setGlobalAgent(g, 'nobody', {}), /No global agent/);
+  assert.throws(() => kit.setGlobalAgent(g, 'tidy', { claudeEffort: 'minimal' }), /Unknown effort/);
+  assert.throws(() => kit.setGlobalAgent(g, '../x', {}), /Bad agent/);
+});

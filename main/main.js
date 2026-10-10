@@ -571,8 +571,16 @@ ipcMain.handle('pypi:hasToken', (_e, which) => config.hasSecret('pypi:' + which)
 // ---------- agent kit & jobs ----------
 ipcMain.handle('kit:status', (_e, project) => { try { return kit.status(project); } catch (e) { return { error: e.message }; } });
 ipcMain.handle('kit:install', (_e, { project, groups }) => { try { return kit.install(project, { groups }); } catch (e) { return { error: e.message }; } });
-ipcMain.handle('skills:list', (_e, project) => { try { return { skills: kit.skillList(project) }; } catch (e) { return { error: e.message }; } });
-ipcMain.handle('agents:list', (_e, project) => { try { return { agents: kit.agents(project) }; } catch (e) { return { error: e.message }; } });
+// Global agents and skills are the ones in the active Claude account's folder (each account has its own).
+const claudeAccount = () => { const c = cfg.accounts.claude; return c.list.find((a) => a.name === c.active) || c.list[0] || { name: 'Default', dir: '' }; };
+const claudeDir = () => expandHome(claudeAccount().dir || usage.DEFAULT_DIR.claude);
+ipcMain.handle('skills:list', (_e, project) => { try { return { skills: kit.skillList(project, claudeDir()) }; } catch (e) { return { error: e.message }; } });
+ipcMain.handle('agents:list', (_e, project) => { try { return { agents: kit.agents(project, claudeDir()) }; } catch (e) { return { error: e.message }; } });
+ipcMain.handle('global:list', (_e, project) => {
+  try { const dir = claudeDir(); return { dir, account: claudeAccount().name, accounts: cfg.accounts.claude.list.length, agents: kit.globalAgents(dir, project), skills: kit.globalSkills(dir, project) }; }
+  catch (e) { return { error: e.message }; }
+});
+ipcMain.handle('global:setAgent', (_e, { project, name, patch }) => { try { return { agent: kit.setGlobalAgent(claudeDir(), name, patch, project) }; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('agents:set', (_e, { project, name, patch }) => { try { return { agent: kit.setAgent(project, name, patch) }; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('agents:models', () => {
   const c = cfg.accounts.codex;
