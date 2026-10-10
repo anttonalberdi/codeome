@@ -229,6 +229,8 @@
             'Optional: host or host:port, only reachable on the VPN; the title bar shows whether it answers. Not the VPN server itself, which is public. Empty: your HPC login is checked.')
         ])),
       card('Login',
+        row('Name', text(() => (App.cfg.ui.panes.remote || {}).title || '', (v) => { const p = App.cfg.ui.panes.remote = App.cfg.ui.panes.remote || {}; if (v.trim() && v.trim() !== 'HPC') p.title = v.trim().slice(0, 40); else delete p.title; }, { placeholder: 'e.g. MyCluster', label: 'HPC name' }),
+          'Shown in the title bar and on the HPC files pane. Empty: the title bar shows your login.'),
         row('Login', text(() => App.cfg.hpc.host, (v) => { App.cfg.hpc.host = v.trim(); }, { placeholder: 'myhpc  or  user@login.cluster.example.org', apply: { host: true, setup: true }, label: 'HPC login' }),
           'A Host alias from ~/.ssh/config, or user@host.'),
         row('Password', savedPassword('hpc:password', 'HPC password', 'Asked for when connecting'),

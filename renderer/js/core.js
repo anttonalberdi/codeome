@@ -230,6 +230,8 @@ App.shPath = (p) => (/^~(\/|$)/.test(p) ? '"$HOME' + p.slice(1).replace(/(["\\$`
 
 // ---------- misc ----------
 App.saveConfig = async () => { App.cfg = await codeome.config.set(App.cfg); App.emit('config', App.cfg); };
+// The HPC as the user named it (Settings → HPC, or the title of its files pane); its login until then.
+App.hpcName = () => ((App.cfg.ui.panes || {}).remote || {}).title || App.cfg.hpc.host;
 App.requireHpc = () => {
   if (!App.cfg.hpc.host) { App.toast('Set your HPC host in Settings first.', { action: { label: 'Open Settings', run: () => App.views.settings.open() } }); return false; }
   if (!App.hpcConnected) { App.toast('Not connected to the HPC.', { action: { label: 'Connect', run: () => App.connectHpc() } }); return false; }

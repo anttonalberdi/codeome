@@ -7,7 +7,7 @@
   const L = { state: { hpc: { phase: 'stopped' }, storage: { phase: 'stopped' } } };
   const timers = {};
   const owner = (t) => 'login:' + t;
-  const name = (t) => (t === 'storage' ? App.views.files.title('storage') : App.cfg.hpc.host);
+  const name = (t) => (t === 'storage' ? App.views.files.title('storage') : App.hpcName());
   L.busy = (t) => ['starting', 'prompt', 'waiting'].includes(L.state[t].phase);
 
   // Starts connecting, or shows the current step again if it already is.

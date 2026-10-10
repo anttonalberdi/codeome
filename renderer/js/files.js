@@ -137,7 +137,7 @@
   F.stateNote = (side) => {
     if (side === 'remote') {
       if (!App.cfg.hpc.host) return h('div.empty', 'Add your cluster login in Settings to browse HPC files.', h('br'), h('button.btn.small', { onclick: () => App.views.settings.open('hpc') }, 'Open Settings'));
-      return h('div.empty', `Not connected to ${App.cfg.hpc.host}. Make sure the VPN is on, then connect.`, h('br'), h('button.btn.small.primary', { onclick: () => App.connectHpc() }, 'Connect'));
+      return h('div.empty', `Not connected to ${App.hpcName()}. Make sure the VPN is on, then connect.`, h('br'), h('button.btn.small.primary', { onclick: () => App.connectHpc() }, 'Connect'));
     }
     if (!App.cfg.storage.host) return h('div.empty', `Add an SFTP login (for example ERDA, io.erda.dk) in Settings to browse ${F.title(side)} here.`, h('br'), h('button.btn.small', { onclick: () => App.views.settings.open('storage') }, 'Set up storage'));
     return h('div.empty', `Not connected to ${App.cfg.storage.host}.`, h('br'), h('button.btn.small.primary', { onclick: () => App.connectStorage() }, 'Connect'));
@@ -224,7 +224,7 @@
       side !== 'storage' ? { label: 'R console here', disabled: !dir, run: () => App.views.terminals.rConsole({ remote, cwd: dir }) } : null,
       ...(remote ? App.cfg.agents.map((a) => ({ label: `${a.name} here`, disabled: !dir, run: () => App.views.terminals.agentHpc(a, dir) })) : []),
       local ? { label: 'Ask the agent about this folder', disabled: !dir, run: () => App.views.chat.ask(`About ${F.relRef(dir)}: `) } : null,
-      remote ? { label: 'Storage quota', run: async () => { const r = await codeome.hpc.quota(); App.modal({ title: 'Storage on ' + App.cfg.hpc.host, body: h('pre.logbox', r.text || 'No quota information.'), cancel: null }); } } : null,
+      remote ? { label: 'Storage quota', run: async () => { const r = await codeome.hpc.quota(); App.modal({ title: 'Storage on ' + App.hpcName(), body: h('pre.logbox', r.text || 'No quota information.'), cancel: null }); } } : null,
       remote && dir ? { label: 'Set as HPC start folder', run: () => { App.cfg.hpc.remoteRoot = dir; App.saveConfig(); App.toast('HPC start folder set.'); } } : null,
       side === 'storage' && dir ? { label: `Set as ${F.title(side)} start folder`, run: () => { App.cfg.storage.root = dir; App.saveConfig(); App.toast('Start folder set.'); } } : null,
       { label: 'Open in the Transfer view', disabled: !dir, run: () => App.views.transfer.open({ host: side, dir }) },

@@ -66,6 +66,7 @@
   App.listen('jobs', (j) => { jobs = j; paint(); });
   App.listen('vpn', () => paint());
   App.listen('login', () => paint());
+  App.listen('config', () => paint());
 
   function paint() {
     const v = document.getElementById('c-vpn'), hp = document.getElementById('c-hpc'), jb = document.getElementById('c-jobs');
@@ -76,7 +77,8 @@
       : (vpn.up ? 'VPN reachable' : 'VPN not reachable — the cluster may be unreachable');
     const connecting = App.login.busy('hpc');
     hp.className = 'c-seg ' + (connecting ? 'busy' : App.hpcConnected ? 'ok' : (App.cfg.hpc.host ? 'bad' : ''));
-    document.getElementById('c-hpc-label').textContent = !App.cfg.hpc.host ? 'Set up HPC' : (connecting ? 'Connecting…' : (App.hpcConnected ? App.cfg.hpc.host : 'Connect ' + App.cfg.hpc.host));
+    document.getElementById('c-hpc-label').textContent = !App.cfg.hpc.host ? 'Set up HPC' : (connecting ? 'Connecting…' : (App.hpcConnected ? App.hpcName() : 'Connect ' + App.hpcName()));
+    hp.title = App.cfg.hpc.host;
     jb.innerHTML = '';
     if (App.hpcConnected && jobs) {
       jb.append(h('span', h('b.r', String(jobs.running)), ' running'), ' ', h('span', h('b.p', String(jobs.pending)), ' waiting'));
@@ -96,9 +98,9 @@
         '-',
         { label: 'Disconnect', run: () => App.disconnectHpc() }
       ] : App.login.busy('hpc') ? [
-        { label: 'Connecting to ' + App.cfg.hpc.host + '…', run: () => App.connectHpc() },
+        { label: 'Connecting to ' + App.hpcName() + '…', run: () => App.connectHpc() },
         { label: 'Cancel connecting', run: () => App.login.stop('hpc') }
-      ] : [{ label: 'Connect to ' + App.cfg.hpc.host, run: () => App.connectHpc() }]),
+      ] : [{ label: 'Connect to ' + App.hpcName(), run: () => App.connectHpc() }]),
       ...(tunnel ? [{ label: 'Stop the VPN tunnel', run: () => App.setup.stopVpn() }] : []),
       '-',
       { label: 'HPC settings…', run: () => App.views.settings.open('hpc') }
