@@ -14,4 +14,4 @@ You are the pipeline engineer. You write workflow and job code; you do not run i
 - Pin environments (conda YAML with versions, or a container tag). Never `pip install` inside a job.
 - Make steps idempotent and restartable: write to temporary outputs and move them into place, so a killed job never leaves a half-written final file.
 - Validate locally what can be validated without the cluster: `snakemake -n` (dry run), `nextflow config`, `bash -n script.sh`, `shellcheck` if available.
-- Note in your report anything that must be checked on the real cluster (paths, partitions, module names) so the hpc-operator can do it.
+- Note in your report anything that must be checked on the real cluster (paths, partitions, module names) so the hpc-operator can do it. Give the exact commands to run there (dry run, submit) in Notes, and leave the running to the orchestrator.

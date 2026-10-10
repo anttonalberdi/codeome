@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const usage = require('./usage');
+const ssh = require('./ssh');
 const { Meter } = require('./stats');
 
 const PROMPT = path.join(__dirname, '..', 'kit', 'chat.md');
@@ -55,25 +56,43 @@ function linkedPrompt(linked, kitInstalled, engine = 'claude') {
   ].filter((l) => l !== null).join('\n') + '\n';
 }
 
-// What the orchestrator is told about the HPC: the login, and the folder its projects go in
-// (Settings → HPC → Agent projects). '' when no folder is set.
-function hpcPrompt(hpc) {
+// What the orchestrator is told about the HPC: how to reach it through the connection
+// Codeome keeps open (its ssh control socket), and the folder its projects go in
+// (Settings → HPC → Agent projects). '' when neither a host nor a folder is set.
+function hpcPrompt(hpc, engine = 'claude') {
+  const host = String((hpc && hpc.host) || '').trim();
   const root = String((hpc && hpc.agentRoot) || '').trim().replace(/(.)\/+$/, '$1');
-  if (!root) return '';
-  return ['', '## Projects on the HPC', '',
-    `Work that you or your team run on the HPC${hpc.host ? ` (\`ssh ${hpc.host}\`)` : ''} goes in one folder per project under \`${root}/\`, named after the project in lowercase words joined by hyphens.`,
-    '',
-    '- Before creating a folder, list the ones there and reuse the one this project already has.',
-    '- Keep scripts, environments, logs and results inside that folder, and give its path in every HPC brief.',
-    '- Use another place only when the user or the project\'s `CLAUDE.md` names one for this project.'
-  ].join('\n') + '\n';
+  if (!host && !root) return '';
+  const out = [];
+  if (host) {
+    const via = `${ssh.rsyncSshCommand()} -o BatchMode=yes ${host}`;
+    out.push('', '## Reaching the HPC', '',
+      `Codeome keeps one authenticated connection to the HPC open (an ssh control socket in \`${ssh.CONTROL_PATH}\`). The user has already logged in through it, with their password or one-time code, so you can use it without prompting.`,
+      '',
+      `- Run commands on the HPC with \`${via} '<command>'\`. Use exactly that host name: the socket is keyed by it.`,
+      `- To check the connection: \`ssh -o ControlPath=${ssh.CONTROL_PATH} -O check ${host}\` (it prints "Master running" when it is up).`,
+      '- Never say there is no connection to the HPC because a plain `ssh` or a Codex sandbox failed. Try the command above first, and report "not connected" only when `-O check` fails; then ask the user to connect from Codeome\'s HPC tab.',
+      '- Keep the `ControlMaster=no` option: it makes ssh use the open connection and never start a login of its own.',
+      engine === 'codex'
+        ? '- Give this command in every HPC brief. If the sandbox refuses the socket or the network, say so in one line and tell the user that a Claude chat can do the HPC work; don\'t work around the sandbox.'
+        : '- Give this command in every HPC brief, and tell the specialist to use it. Codex jobs have no network, so HPC work goes to a Claude role such as the hpc-operator.');
+  }
+  if (root) {
+    out.push('', '## Projects on the HPC', '',
+      `Work that you or your team run on the HPC${host ? ` (\`ssh ${host}\`)` : ''} goes in one folder per project under \`${root}/\`, named after the project in lowercase words joined by hyphens.`,
+      '',
+      '- Before creating a folder, list the ones there and reuse the one this project already has.',
+      '- Keep scripts, environments, logs and results inside that folder, and give its path in every HPC brief.',
+      '- Use another place only when the user or the project\'s `CLAUDE.md` names one for this project.');
+  }
+  return out.join('\n') + '\n';
 }
 
 // The Codex orchestrator's instructions in full: its own prompt, then the same notes on
 // connected projects and the HPC. Codex has no command line to put them on; this is the
 // text CodexSession gets as `instructions`.
 function codexPrompt({ kitInstalled, linked = [], hpc = null } = {}) {
-  return systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8')) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc);
+  return systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8')) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex');
 }
 
 // The configured command's extra words with a value chosen in Settings, which wins

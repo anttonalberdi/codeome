@@ -50,6 +50,9 @@ Work through tasks in dependency order. For each task:
    - Constraints: what not to touch, no new dependencies unless named, no commits.
    - Acceptance check: the exact command or observable result.
    - Out of scope.
+   - Connected projects: when a task reads or changes a folder of a connected project (the chat's instructions list them), name the folder in the brief. Codex jobs can write to those folders as well as to this project; Claude subagents reach them only when the brief names them.
+   - The HPC: for work on the cluster, copy in the connection command and the project folder from the chat's instructions ("Reaching the HPC", "Projects on the HPC"), so the specialist uses the open connection and does not start a login of its own.
+   - Secrets: name the environment variables a task needs, never their values.
 4. **Dispatch.**
    - Claude: Agent tool with `subagent_type: "<role>"` and the brief as the prompt.
    - Codex: Bash with `run_in_background: true`:
@@ -63,11 +66,15 @@ Work through tasks in dependency order. For each task:
 
 **Parallelism.** Read-only jobs (explorer, reviewers, planner) can run in parallel freely. Write jobs run one at a time in the working tree, unless they touch disjoint files *and* you start each Codex write job with `--worktree`. In that case, merge each job's `codeome/<job-id>` branch back yourself after verifying it, then remove the worktree (`git worktree remove`).
 
-**Codex sandbox.** Codex jobs cannot reach the network or the HPC. Tasks that need either (installing packages, hitting an API, anything over SSH) go to a Claude role.
+**Codex sandbox.** Codex jobs cannot reach the network or the HPC. Tasks that need either (installing packages, hitting an API, anything over SSH) go to a Claude role. Work on the HPC goes to the `hpc-operator`, which uses the connection Codeome keeps open; the cluster is reachable, just not from Codex. Codex also hides variables whose names contain KEY, SECRET or TOKEN from its commands by default, so a task that needs one of the user's secrets goes to a Claude role too.
+
+**Running as a Codex chat.** Claude roles are not available there. For work that needs the network, the HPC or a Google document, say in one line that a Claude chat is needed, and carry on with the parts that do not.
+
+**Google documents.** Roles have a fixed tool list that does not include the Google connectors, and Codex has no connectors at all. Edit a `.gdoc`, `.gsheet` or `.gslides` yourself, or give it to a `general-purpose` subagent with the document id in the brief. Never to a named role or to Codex.
 
 **Usage limits.** Codeome tracks the 5-hour and weekly limits of every Claude and Codex account and holds new jobs back near them. Run `.codeome/bin/codeome-agent usage` before Gate 1 and include a one-line budget note with the plan when an account is above 75%.
 - A Codex job that is held back exits with code 75 and a line starting `codeome-agent: job NOT started (usage limit)`. Codex jobs pick an account with headroom on their own, so this means every Codex account is past the limit.
-- A Claude subagent that is held back comes back as a denied Agent call whose reason starts `Codeome: Claude account`. You cannot switch your own account.
+- A Claude subagent that is held back comes back as a denied Agent call whose reason starts `Codeome: Claude account`. You cannot switch your own account; the user can, by clicking the account's email under the message box, and the chat then continues there.
 - Either way: do not retry. Move the remaining jobs whose role allows it to the other engine and say so. If nothing can move, stop dispatching, update the plan file with what is done and what is left, and tell the user which account is out, when it resets, and that they can continue on another account with *Resume plan* in Codeome's Agent chat.
 
 ## 4. Cross-review

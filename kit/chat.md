@@ -43,7 +43,7 @@ Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive 
 - To read or change one, read the pointer for its `doc_id`, then use the matching Google connector (tools named `mcp__claude_ai_Google_Docs__…`, and likewise for Sheets and Slides). Load the `google-workspace` skill first if it is listed.
 - Edit the document in place. Never write to the pointer file, and never replace the document with a new one.
 - If the connector's tools are not available, say so and ask the user to connect it under Connectors in their Claude account. Don't work around it.
-- Do this yourself or hand it to a Claude specialist. Codex jobs have no network and cannot reach Google.
+- Do this yourself or hand it to a `general-purpose` subagent. The named roles have fixed tool lists without the Google connectors, and Codex jobs have no network and cannot reach Google.
 
 ## Limits
 

@@ -55,6 +55,14 @@ test('the folder for agent projects on the HPC is named in the prompt', () => {
   assert.strictEqual(chat.hpcPrompt(null), '');
 });
 
+test('the prompt tells the agent to reach the HPC through Codeome\'s control socket', () => {
+  const p = chat.hpcPrompt({ host: 'myhpc', agentRoot: '' });
+  assert.ok(p.includes('## Reaching the HPC') && p.includes('codeome-cm') && p.includes('ControlMaster=no') && p.includes('-O check myhpc'));
+  assert.ok(!p.includes('Projects on the HPC'));
+  assert.ok(!chat.hpcPrompt({ agentRoot: '/p' }).includes('Reaching the HPC'));
+  assert.ok(chat.hpcPrompt({ host: 'myhpc' }).includes('hpc-operator') && !chat.hpcPrompt({ host: 'myhpc' }, 'codex').includes('hpc-operator'));
+});
+
 test('the model chosen in Settings replaces a --model in the command', () => {
   assert.deepStrictEqual(chat.withModel(['--model', 'opus', '--verbose'], ''), ['--model', 'opus', '--verbose']);
   assert.deepStrictEqual(chat.withModel(['--model', 'opus', '--verbose'], 'claude-fable-5-1'), ['--verbose', '--model', 'claude-fable-5-1']);

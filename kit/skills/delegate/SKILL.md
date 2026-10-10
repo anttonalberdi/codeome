@@ -10,7 +10,9 @@ group: core
 Request: $ARGUMENTS
 
 1. Pick the role and engine. If the user named them, use those. Otherwise choose from [../orchestrate/routing.md](../orchestrate/routing.md) and state the choice in one line.
-2. Write a self-contained brief: goal, context with `path:line`, constraints, acceptance check, out of scope. The specialist has none of your context.
+2. Write a self-contained brief: goal, context with `path:line`, constraints, acceptance check, out of scope. The specialist has none of your context. For work on the HPC, include the connection command and project folder from the chat's instructions; for a connected project, name its folder; for secrets, name the environment variables, never the values.
+   - HPC, network and secret-using work goes to a Claude role (the `hpc-operator` for the cluster). Codex jobs have no network and hide variables named KEY, SECRET or TOKEN.
+   - Google Docs, Sheets and Slides are edited by you or by a `general-purpose` subagent, not by a named role (their tool lists lack the connectors) and not by Codex.
 3. Announce the handoff in one line, then dispatch:
    - Claude: Agent tool, `subagent_type: "<role>"`.
    - Codex: Bash with `run_in_background: true`:

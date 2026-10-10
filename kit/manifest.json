@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
+  "version": "0.6.0",
   "groups": {
     "core": { "label": "Core dev loop", "description": "planner, explorer, implementer, debugger, tester, reviewer", "required": true },
     "research": { "label": "Research computing", "description": "analyst, pipeline-engineer, hpc-operator, report-writer" },

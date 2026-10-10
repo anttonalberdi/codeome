@@ -677,6 +677,8 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     for (const k of acct.unset) delete env[k];
     // The projects connected to this one: their folders, and (Claude) their CLAUDE.md files too.
     const linked = ((cfg.projectLinks || {})[project] || []).filter((d) => d !== project && fs.existsSync(d));
+    // The job runner makes them writable for the Codex specialists it starts.
+    if (linked.length) env.CODEOME_LINKED = linked.join(path.delimiter);
     const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
     const meterOpt = resume ? { ...(meter || {}), resumed: true } : {};
     let s;

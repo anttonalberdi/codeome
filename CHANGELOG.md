@@ -8,6 +8,14 @@ What changed in each version of Codeome, newest first. The version is the one in
 - **Install Claude Code and Codex from Codeome**: when the `claude` or `codex` command is not on this Mac, adding or signing in to an account, and starting a chat, offer to install it with the vendor's own installer (`curl -fsSL https://claude.ai/install.sh | bash`, `curl -fsSL https://chatgpt.com/codex/install.sh | sh`) after asking, in a visible terminal, then carry on. *Settings → This Mac* lists both with an *Install…* button, and the start-up notice has an *Install* action.
 - **Weekly update suggestions**: Codeome looks up the latest Codeome (its GitHub releases; *View release* opens the page to download it), Claude Code and Codex versions about once a week and, when yours is older, suggests updating (each way of installing is updated its own way: the vendor script, Homebrew or npm). *Settings → This Mac* shows the versions with a *Check for updates* button.
 
+### Changed
+- **Agent kit 0.6.0**: the team now knows what the app does for it.
+  - The chat and the `hpc-operator` are told about the HPC connection Codeome keeps open and use it, instead of reporting that there is no connection. The agent chat's instructions give the exact command; the `analyst`, `report-writer` and `pipeline-engineer` hand cluster commands to the orchestrator in their notes.
+  - Codex specialists can write to the folders of connected projects: Codeome tells the job runner which they are, and it passes them to Codex as writable. The orchestrator is told to name those folders in briefs.
+  - Google Docs, Sheets and Slides are edited by the orchestrator or a `general-purpose` subagent. Named roles have fixed tool lists without the Google connectors, so they could not do it before.
+  - Roles use the secrets saved in Settings → Secrets by variable name, never print them, and say when one is missing. Work that needs a secret, the network or the HPC goes to a Claude role, as Codex hides such variables and has no network.
+  - A Codex chat says in one line when work needs a Claude chat, instead of trying.
+
 ## 0.3.2
 
 ### Added

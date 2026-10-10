@@ -351,6 +351,34 @@ test('codeome-agent uses the Codex model chosen for the role unless --model is g
   assert.ok(!readJson(path.join(p, 'call.json')).argv.includes('-m'));
 });
 
+test('codeome-agent makes connected projects writable for Codex jobs, and only for fresh write jobs', () => {
+  const p = tmp(), other = tmp();
+  kit.install(p);
+  const codex = fakeCodex(p);
+  const env = { CODEOME_CODEX: codex, CODEOME_LINKED: [other, path.join(p, 'missing'), p].join(path.delimiter) };
+  let r = runAgent(p, ['codex', '--role', 'implementer'], 'x', env);
+  assert.strictEqual(r.status, 0, r.stderr);
+  let argv = readJson(path.join(p, 'call.json')).argv;
+  const dirs = argv.map((a, i) => (a === '--add-dir' ? argv[i + 1] : null)).filter(Boolean);
+  assert.deepStrictEqual(dirs, [other]);
+  runAgent(p, ['codex', '--role', 'reviewer'], 'x', env);
+  assert.ok(!readJson(path.join(p, 'call.json')).argv.includes('--add-dir'));
+  runAgent(p, ['codex', '--role', 'implementer'], 'x', { CODEOME_CODEX: codex });
+  assert.ok(!readJson(path.join(p, 'call.json')).argv.includes('--add-dir'));
+});
+
+test('the kit tells the team about the open HPC connection, secrets and Google documents', () => {
+  const read = (...f) => fs.readFileSync(path.join(__dirname, '..', 'kit', ...f), 'utf8');
+  const orch = read('skills', 'orchestrate', 'SKILL.md');
+  assert.ok(/Reaching the HPC/.test(orch) && /Connected projects:/.test(orch) && /general-purpose/.test(orch) && /Running as a Codex chat/.test(orch));
+  assert.ok(/general-purpose/.test(read('skills', 'delegate', 'SKILL.md')));
+  assert.ok(/general-purpose/.test(read('chat.md')) && !/hand it to a Claude specialist/.test(read('chat.md')));
+  assert.ok(/codeome-cm/.test(read('roles', 'hpc-operator.md')) && /Settings → Secrets/.test(read('roles', 'hpc-operator.md')));
+  for (const r of ['release-manager', 'backend']) assert.ok(/environment variable/.test(read('roles', r + '.md')), r);
+  for (const r of ['analyst', 'report-writer', 'pipeline-engineer']) assert.ok(/hpc-operator/.test(read('roles', r + '.md')), r);
+  assert.ok(/network, the HPC/.test(read('chat-codex.md')));
+});
+
 test('skills follow the role groups, and list with their files and edits', () => {
   const groups = Object.keys(kit.MANIFEST.groups);
   for (const s of kit.skills()) {

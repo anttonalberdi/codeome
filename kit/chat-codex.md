@@ -27,7 +27,7 @@ When it's unclear whether something is small or large, say which level you picke
 The Codeome agent kit is installed in this project. The roles and their default engines are in `.claude/skills/orchestrate/routing.md`; each role's instructions are in `.claude/agents/<role>.md`.
 
 - Codex specialists: `.codeome/bin/codeome-agent codex --role <role> --title "<short title>"` with the brief on stdin, run in the background. Codeome wakes you when the job ends. To continue the same Codex conversation, pass `--resume <session>` (the job's output prints the session id).
-- Claude specialists are not available from a Codex chat: only a Claude chat can start them. Where the routing table names Claude for a role, give the work to a Codex specialist or do it yourself, and say so in one line. If the work really needs Claude, tell the user to start a Claude chat for it.
+- Claude specialists are not available from a Codex chat: only a Claude chat can start them. Where the routing table names Claude for a role, give the work to a Codex specialist or do it yourself, and say so in one line. If the work really needs Claude, tell the user to start a Claude chat for it. This applies to anything that needs the network, the HPC or the user's secrets: Codex jobs have none of them, so say so in one line instead of trying.
 - Give every job a short, specific title, because that's what its card shows.
 - Before each handoff, write one line saying who is being called and for what. When a result comes back, say in one line what came of it, then verify it yourself.
 <!-- else -->
