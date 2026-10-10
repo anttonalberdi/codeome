@@ -73,6 +73,7 @@ function buildMenu() {
       { label: 'Publish (Zenodo, PyPI)', accelerator: 'CmdOrCtrl+5', click: cmd('view-publish') },
       { label: 'Packages', accelerator: 'CmdOrCtrl+6', click: cmd('view-packages') },
       { label: 'Plots', accelerator: 'CmdOrCtrl+7', click: cmd('view-plots') },
+      { label: 'File Transfer', accelerator: 'CmdOrCtrl+8', click: cmd('transfer') },
       { label: 'New Agent Chat', accelerator: 'CmdOrCtrl+Shift+N', click: cmd('new-chat') },
       { label: 'Next Agent Chat', accelerator: 'CmdOrCtrl+Shift+]', click: cmd('next-chat') },
       { label: 'Previous Agent Chat', accelerator: 'CmdOrCtrl+Shift+[', click: cmd('prev-chat') },
@@ -124,6 +125,8 @@ function ptySpec(spec) {
       return { file: 'ssh', args: ssh.shellArgs(host, remote), cwd: os.homedir() };
     }
     case 'hpc-task': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${q(spec.cwd || '~')} 2>/dev/null; ${spec.command}; echo; echo "[process exited with $?]"; exec $SHELL -l`)}`), cwd: os.homedir() };
+    // A queued copy between the HPC and the storage: it ends with the copy, so the queue knows how it went.
+    case 'hpc-transfer': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${q(spec.cwd || '~')} 2>/dev/null; ${finished(spec.command)}`)}`), cwd: os.homedir() };
     // HPC setup steps report how they finished.
     case 'install': {
       const ic = spec.brew ? { command: setup.BREW_INSTALL } : setup.installCommand(spec.tools || []);
@@ -384,34 +387,41 @@ function progressOf(s) {
 }
 
 // Transfers between this Mac and the HPC use rsync over the master connection
-// (resumable and incremental); to and from the storage, sftp.
-// t: {from, to, src, destDir} with from/to in local | remote | storage.
+// (resumable and incremental); to and from the storage, sftp. A copy within this Mac
+// is a local rsync, and one within the HPC a cp there.
+// t: {id, from, to, src, destDir} with from/to in local | remote | storage. The queue
+// (renderer/js/transfer.js) decides when each one starts, and names it.
 ipcMain.handle('transfer:start', (_e, t) => {
-  const id = 'tx' + Date.now() + Math.random().toString(36).slice(2, 6);
+  const id = /^tx\w+$/.test(t.id || '') && !transfers.has(t.id) ? t.id : 'tx' + Date.now() + Math.random().toString(36).slice(2, 6);
   const done = (code, error) => { transfers.delete(id); send('transfer:done', { id, code, error: code ? error : '' }); };
   const pair = [t.from, t.to].sort().join('-');
-  if (pair === 'local-remote') {
-    const host = cfg.hpc.host, up = t.from === 'local';
-    const src = up ? t.src : `${host}:${q(t.src)}`;
-    const dst = up ? `${host}:${q(t.destDir.replace(/\/?$/, '/'))}` : t.destDir.replace(/\/?$/, '/');
-    // macOS ships openrsync, which lacks some GNU rsync flags; Homebrew rsync gets resumable transfers.
-    const args = ['-a', ...(rsyncIsGnu ? ['--partial'] : []), '--progress', '-e', ssh.rsyncSshCommand(), src, dst];
+  const dest = t.destDir.replace(/\/?$/, '/');
+  // A child process whose output carries the progress; its last lines explain a failure.
+  const spawnTx = (cmd, args) => {
     const { spawn } = require('child_process');
-    const child = spawn('rsync', args, { env: augmentedEnv() });
+    const child = spawn(cmd, args, { env: augmentedEnv() });
     transfers.set(id, { kill: (sig) => child.kill(sig) });
-    let lastErr = '';
-    child.stdout.on('data', (d) => { const p = progressOf(String(d)); if (p) send('transfer:progress', { id, ...p }); });
-    child.stderr.on('data', (d) => { lastErr += d; });
-    child.on('close', (code) => done(code, lastErr.trim().split('\n').slice(-2).join(' ')));
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out = (out + d).slice(-2000); const p = progressOf(String(d)); if (p) send('transfer:progress', { id, ...p }); });
+    child.stderr.on('data', (d) => { err = (err + d).slice(-4000); });
+    child.on('close', (code) => done(code == null ? -1 : code, (err.trim() || out.trim()).split(/[\r\n]+/).slice(-2).join(' ')));
     child.on('error', (e) => done(-1, e.message));
     return { id };
+  };
+  if (pair === 'local-remote') {
+    const host = cfg.hpc.host, up = t.from === 'local';
+    // macOS ships openrsync, which lacks some GNU rsync flags; Homebrew rsync gets resumable transfers.
+    return spawnTx('rsync', ['-a', ...(rsyncIsGnu ? ['--partial'] : []), '--progress', '-e', ssh.rsyncSshCommand(), up ? t.src : `${host}:${q(t.src)}`, up ? `${host}:${q(dest)}` : dest]);
   }
+  if (pair === 'local-local') return spawnTx('rsync', ['-a', '--progress', t.src, dest]);
+  // -tt: cancelling the copy here also ends the cp on the HPC.
+  if (pair === 'remote-remote') return spawnTx('ssh', ssh.execArgs(cfg.hpc.host, `cp -a -- ${q(t.src)} ${q(dest)}`, ['-tt']));
   if (pair === 'local-storage') {
     if (!sto()) return { error: 'Set up the storage in Settings first.' };
     let batchFile;
     try {
       batchFile = path.join(cacheDir(), id + '.sftp');
-      fs.writeFileSync(batchFile, sftp.transferBatch(t.from === 'local' ? 'up' : 'down', t.src, t.destDir));
+      fs.writeFileSync(batchFile, sftp.transferBatch(t.from === 'local' ? 'up' : 'down', t.src, dest));
     } catch (e) { return { error: e.message }; }
     const args = sftp.transferArgs(sto(), batchFile);
     let out = '';
@@ -433,7 +443,8 @@ ipcMain.handle('transfer:start', (_e, t) => {
     }
     return { id };
   }
-  return { error: 'Copies between the HPC and the storage run in an HPC terminal.' };
+  if (pair === 'remote-storage') return { error: 'Copies between the HPC and the storage run in an HPC terminal.' };
+  return { error: 'Copying within the storage is not supported: SFTP has no copy.' };
 });
 ipcMain.handle('transfer:cancel', (_e, id) => { const c = transfers.get(id); if (c) c.kill('SIGINT'); return true; });
 

@@ -259,11 +259,68 @@ label.check { display: flex; gap: 6px; align-items: center; font-size: 12px; cur
 body.row-resizing { cursor: row-resize; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .pane-toggle .chev { transition: none; } }
 
-.transfers { border-top: 1px solid var(--line); max-height: 160px; overflow: auto; }
-.tx { padding: 6px 12px; font-size: 12px; }
-.tx .bar { height: 3px; background: var(--line); border-radius: 2px; margin-top: 4px; overflow: hidden; }
-.tx .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
-.tx.err { color: var(--fail); }
+.transfers { border-top: 1px solid var(--line); max-height: 160px; overflow: auto; flex: none; }
+.files-foot { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-top: 1px solid var(--line); }
+.files-foot .btn { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+.files-foot .btn:hover { color: var(--text); }
+.files-foot .btn svg { width: 14px; height: 14px; display: block; }
+.files-foot .hint { text-align: right; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The transfer queue: rows in the Transfer view, and a short form in the Files sidebar. */
+.xq-row { display: grid; grid-template-columns: minmax(110px, 1.3fr) auto minmax(80px, 1.5fr) 64px minmax(120px, 1fr) auto; gap: 2px 12px; align-items: center; padding: 3px 12px 5px; font-size: 12px; border-bottom: 1px solid var(--line); }
+.xq.compact .xq-row { grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; border-bottom: 0; }
+.xq.compact .xq-name { grid-area: 1 / 1; }
+.xq.compact .xq-acts { grid-area: 1 / 2; }
+.xq.compact .xq-status { grid-area: 2 / 1 / 3 / -1; }
+.xq-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xq-name { display: flex; align-items: center; gap: 6px; }
+.xq-name > span:first-child { flex: none; display: grid; }
+.xq-name .ic { width: 14px; height: 14px; color: var(--muted); }
+.xq-name .nm { overflow: hidden; text-overflow: ellipsis; }
+.xq-route, .xq-size, .xq-status { color: var(--muted); font-size: 11.5px; }
+.xq-dest { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.xq-size, .xq-status { font-variant-numeric: tabular-nums; }
+.xq-size { text-align: right; }
+.xq-acts { display: flex; gap: 2px; justify-content: flex-end; overflow: visible !important; }
+.xq-row .bar { grid-column: 1 / -1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.xq-row .bar i { display: block; height: 100%; background: var(--run); width: 0; transition: width .3s; }
+.xq-row:not(.running) .bar { display: none; }
+.xq-row.running .xq-status { color: var(--run); }
+.xq-row.done .xq-status { color: var(--accent); }
+.xq-row.done .bar i { background: var(--accent); }
+.xq-row.failed .xq-status { color: var(--fail); }
+.xq-row.cancelled .xq-name, .xq-row.cancelled .xq-dest { opacity: .6; }
+@media (prefers-reduced-motion: reduce) { .xq-row .bar i { transition: none; } }
+
+/* Transfer view: two panes side by side and the queue below. */
+.xfer { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.xf-panes { flex: 1; min-height: 120px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.xf-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.xf-mid { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 0 4px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); background: var(--surface-2); }
+.xf-mid .icon-btn:disabled { opacity: .3; cursor: default; background: transparent; }
+.xf-mid .icon-btn:last-child { margin-top: 10px; }
+.xf-head { display: flex; align-items: center; gap: 2px; padding: 6px 8px 2px 12px; }
+.xf-seg { display: flex; border: 1px solid var(--line-strong); border-radius: 7px; overflow: hidden; min-width: 0; }
+.xf-seg button { display: flex; align-items: center; gap: 5px; border: 0; border-left: 1px solid var(--line-strong); background: transparent; color: var(--muted); padding: 3px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.xf-seg button:first-child { border-left: 0; }
+.xf-seg button:hover { color: var(--text); background: var(--surface-2); }
+.xf-seg button.on { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+.xf-seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.xf-seg .pane-dot { margin-left: 0; }
+.xf-seg .pane-dot:not(.ok):not(.bad) { display: none; }
+.xf-cols, .fitem.xf-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 68px 84px; gap: 6px; }
+.xf-cols { padding: 0 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.xf-cols button { border: 0; background: transparent; color: var(--muted); font-size: 11px; padding: 3px 0; text-align: right; cursor: pointer; white-space: nowrap; }
+.xf-cols button:first-child { grid-column: 1 / 3; text-align: left; }
+.xf-cols button:hover, .xf-cols button.on { color: var(--text); }
+.xf-row .sz, .xf-row .mt { text-align: right; }
+.xf-row .mt { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.xf-list:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.xf-foot { flex: none; padding: 3px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; min-height: 22px; font-variant-numeric: tabular-nums; }
+.xf-queue { flex: none; display: flex; flex-direction: column; min-height: 72px; }
+.xf-qhead { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: 12px; }
+.xf-qhead select { width: auto; font-size: 12px; padding: 1px 4px; }
+.xf-qbody { flex: 1; overflow: auto; min-height: 0; }
 
 /* ---------- main area ---------- */
 #main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }

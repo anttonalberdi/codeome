@@ -40,6 +40,12 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **Files & transfer** (replaces FileZilla) — three stacked sections: the Mac project folder, the HPC, and long-term storage over SFTP (such as ERDA; set it up in Settings → Storage). Click a section's header to collapse it, drag the line between sections to resize them (double-click to even them out), and right-click a header to rename it or show only that section. Drag between sections, or from Finder, to copy: Mac ↔ HPC with `rsync` (resumable, incremental, with progress), Mac ↔ storage with `sftp`, and HPC ↔ storage directly from the HPC in a terminal there, so the data doesn't pass through the Mac. Rename, delete, folder size, storage quota, "terminal here", "R console here", "Claude here".
 
+**Transfer view** (`⌘8`, or *Transfer view* at the bottom of Files) — two file panes side by side in a tab, with the transfer queue below, FileZilla-style.
+- Each pane shows this Mac, the HPC or the storage: pick the host in the pane's header (the dot shows whether it is connected). A pane remembers the folder it last showed on each host, and the ⇄ button swaps the two panes. Both panes can be on the same host, to copy between two folders on this Mac or on the HPC.
+- Select one or several items (`⌘`-click, `⇧`-click, `⌘A`, or the arrow keys) and use the arrows between the panes, drag them across (onto the list or onto a folder in it), or right-click → *Copy to …*. Files dragged in from Finder or from the Files sidebar are queued too. Click a column title to sort by name, size or date.
+- Every copy is a row in the **queue**: waiting, running with its progress and speed, done, failed with the reason, or cancelled. The queue runs two transfers at a time (1 to 4, your choice); *Pause* starts no new ones. A row can be cancelled, tried again or removed, and *Clear finished* tidies up. Copies started in the Files sidebar join the same queue, and the sidebar shows the ones in progress.
+- A copy between the HPC and the storage runs in a terminal on the HPC, as before, and its row follows how it ends. Copying within the storage is not possible, as SFTP has no copy.
+
 **Slurm** — live `squeue`, recent `sacct` history with exit codes and memory, a log viewer that follows `stdout`/`stderr`, cancel, submit (`sbatch`) from the editor, and a job-script template.
 
 **Reports** — `⇧⌘V` renders `.qmd` (Quarto), `.Rmd` (rmarkdown) and `.ipynb`, and previews HTML, images and PDFs. Re-renders on save. Remote plots and reports are fetched and shown in place.
@@ -131,6 +137,7 @@ Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `sftp`, `quarto`, `R
 | `⌘T` / `⇧⌘T` | New local / HPC terminal |
 | `⌘J` | Show or hide terminal panel |
 | `⌘1`–`⌘7` | Agent chat, Files, Slurm, Git, Publish, Packages, Plots |
+| `⌘8` | Transfer view: two file panes and the queue |
 
 ## Project layout
 
@@ -152,7 +159,7 @@ main/          Electron main process
   preload.js     the bridge the interface is allowed to use
 renderer/      Interface (plain JS, no build step)
   index.html, styles.css
-  js/            one file per area: projects, usage, editor, rmd, terminals, files, slurm, git, publish, packages, plots, chat, agents, settings
+  js/            one file per area: projects, usage, editor, rmd, terminals, files, transfer, slurm, git, publish, packages, plots, chat, agents, settings
                  (stack.js: the stacked sections of Files and Packages)
 kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-agent, manifest.json;
                chat.md, the orchestrator instructions for the Agent chat

@@ -117,7 +117,8 @@
         App.project ? h('button', { onclick: () => App.views.chat.ask('') }, h('b', 'Ask the agent'), h('span', 'Chats in tabs; they hand work to Codex and Claude specialists')) : null,
         h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login, ssh key and VPN')),
         h('button', { onclick: () => App.views.terminals.rConsole() }, h('b', 'R console'), h('span', App.project ? 'Starts in ' + App.basename(App.project) + '; ⌘↩ in R and Rmd files runs code there' : 'R and Rmd code runs here with ⌘↩')),
-        h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts'))),
+        h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts')),
+        h('button', { onclick: () => App.views.transfer.open() }, h('b', 'Transfer files'), h('span', 'Two panes between this Mac, the HPC and the storage, with a queue'))),
       App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null,
       h('div.keys',
         h('kbd', '⌘↩'), h('span', 'Run the current line, statement or selection: R code goes to the R console, the rest to the active terminal'),
@@ -126,6 +127,7 @@
         h('kbd', '⇧⌘V'), h('span', 'Preview or render the current file'),
         h('kbd', '⌘J'), h('span', 'Show or hide the terminal panel'),
         h('kbd', '⌘1–7'), h('span', 'Agent chat, Files, Slurm, Git, Publish, Packages, Plots'),
+        h('kbd', '⌘8'), h('span', 'File transfer: two panes and the queue'),
         h('kbd', '⌃⇥'), h('span', 'Next project (⌃⇧⇥ previous)'))));
   }
   App.listen('hpc', renderWelcome);
@@ -151,6 +153,7 @@
     'new-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.newChat(); },
     'next-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(1); },
     'prev-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(-1); },
+    transfer: () => App.views.transfer.open(),
     'view-publish': () => App.setView('publish'), 'view-packages': () => App.setView('packages'), 'view-plots': () => App.setView('plots'), 'view-agents': () => App.setView('agents'),
     'toggle-panel': () => App.views.terminals.togglePanel(), 'new-terminal': () => App.views.terminals.localShell(),
     'new-hpc-terminal': () => App.views.terminals.hpcShell(), 'r-console': () => App.views.terminals.rConsole(), preview: () => App.views.editor.previewCurrent()
@@ -159,7 +162,7 @@
   App.start = async () => {
     App.cfg = await codeome.config.get();
     App.views.terminals.init();
-    App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.packages.init(); App.views.plots.init(); App.views.agents.init();
+    App.views.transfer.init(); App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.packages.init(); App.views.plots.init(); App.views.agents.init();
     App.views.projects.init();
     App.views.usage.init();
     App.views.editor.initMonaco();

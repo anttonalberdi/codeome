@@ -1,12 +1,13 @@
 // Files view: three stacked sections — this Mac, the HPC and the long-term storage
 // (SFTP, e.g. ERDA) — with transfers at the bottom. Each section can be renamed,
 // collapsed to its header, and resized by dragging the line between two sections.
-// Drag between sections (or use the context menu) to copy.
+// Drag between sections (or use the context menu) to copy; the copies go to the
+// queue of the Transfer view (transfer.js), which the button at the bottom opens.
 (function () {
   const h = App.h;
   const SIDES = ['local', 'remote', 'storage'];
   const DEFAULT_TITLE = { local: 'This Mac', remote: 'HPC', storage: 'ERDA' };
-  const F = { transfers: new Map(), panes: {} };
+  const F = { panes: {} };
   for (const s of SIDES) F[s] = { dir: null, entries: [], sel: null };
   App.views.files = F;
   let root;
@@ -26,10 +27,14 @@
     const sections = SIDES.map((side) => { F.panes[side] = pane(side); return F.panes[side].section; });
     F.stack = App.stack({ key: 'panes', sections });
     for (const side of SIDES) Object.assign(F.panes[side], F.stack.panes[side]);
-    F.txEl = h('div.transfers', { hidden: true });
-    root.append(F.stack.el, F.txEl);
-    codeome.transfer.onProgress(onProgress);
-    codeome.transfer.onDone(onDone);
+    const X = App.views.transfer;
+    F.tx = X.queueList({ compact: true });
+    F.txEl = h('div.transfers', { hidden: true }, F.tx.el);
+    const sum = h('span.hint.grow');
+    root.append(F.stack.el, F.txEl, h('div.files-foot',
+      h('button.btn.ghost.small', { title: 'Two panes side by side, with the transfer queue (⌘8)', onclick: () => X.open() }, h('span', { html: App.icons.swap }), 'Transfer view'), sum));
+    App.listen('transfers', (queue) => { F.txEl.hidden = !F.tx.count(); sum.textContent = X.summary(queue); });
+    App.listen('transferred', (t) => { if (F[t.to].dir === t.destDir) F.refresh(t.to); });
     App.listen('local-changed', () => F.refresh('local'));
     App.listen('remote-changed', () => F.refresh('remote'));
     for (const [ev, side] of [['hpc', 'remote'], ['storage', 'storage']]) {
@@ -128,20 +133,21 @@
     p.dot.className = 'pane-dot ' + (F.isUp(side) ? 'ok' : host(side) ? 'bad' : '');
     p.dot.title = F.isUp(side) ? 'Connected to ' + host(side) : host(side) ? 'Not connected' : 'Not set up';
   }
-  // What a remote section shows while it can't list anything.
+  // What a remote host shows while it can't list anything: how to set it up, or connect.
+  F.stateNote = (side) => {
+    if (side === 'remote') {
+      if (!App.cfg.hpc.host) return h('div.empty', 'Add your cluster login in Settings to browse HPC files.', h('br'), h('button.btn.small', { onclick: () => App.views.settings.open('hpc') }, 'Open Settings'));
+      return h('div.empty', `Not connected to ${App.cfg.hpc.host}. Make sure the VPN is on, then connect.`, h('br'), h('button.btn.small.primary', { onclick: () => App.connectHpc() }, 'Connect'));
+    }
+    if (!App.cfg.storage.host) return h('div.empty', `Add an SFTP login (for example ERDA, io.erda.dk) in Settings to browse ${F.title(side)} here.`, h('br'), h('button.btn.small', { onclick: () => App.views.settings.open('storage') }, 'Set up storage'));
+    return h('div.empty', `Not connected to ${App.cfg.storage.host}.`, h('br'), h('button.btn.small.primary', { onclick: () => App.connectStorage() }, 'Connect'));
+  };
   function renderState(side) {
     const p = F.panes[side]; if (!p || side === 'local') return;
     paintDot(side);
     if (F.isUp(side)) return;
     p.list.innerHTML = '';
-    const name = F.title(side);
-    if (side === 'remote') {
-      if (!App.cfg.hpc.host) p.list.append(h('div.empty', 'Add your cluster login in Settings to browse HPC files.', h('br'), h('button.btn.small', { onclick: () => App.views.settings.open('hpc') }, 'Open Settings')));
-      else p.list.append(h('div.empty', `Not connected to ${App.cfg.hpc.host}. Make sure the VPN is on, then connect.`, h('br'), h('button.btn.small.primary', { onclick: () => App.connectHpc() }, 'Connect')));
-    } else {
-      if (!App.cfg.storage.host) p.list.append(h('div.empty', `Add an SFTP login (for example ERDA, io.erda.dk) in Settings to browse ${name} here.`, h('br'), h('button.btn.small', { onclick: () => App.views.settings.open('storage') }, 'Set up storage')));
-      else p.list.append(h('div.empty', `Not connected to ${App.cfg.storage.host}.`, h('br'), h('button.btn.small.primary', { onclick: () => App.connectStorage() }, 'Connect')));
-    }
+    p.list.append(F.stateNote(side));
   }
 
   function render(side) {
@@ -221,6 +227,7 @@
       remote ? { label: 'Storage quota', run: async () => { const r = await codeome.hpc.quota(); App.modal({ title: 'Storage on ' + App.cfg.hpc.host, body: h('pre.logbox', r.text || 'No quota information.'), cancel: null }); } } : null,
       remote && dir ? { label: 'Set as HPC start folder', run: () => { App.cfg.hpc.remoteRoot = dir; App.saveConfig(); App.toast('HPC start folder set.'); } } : null,
       side === 'storage' && dir ? { label: `Set as ${F.title(side)} start folder`, run: () => { App.cfg.storage.root = dir; App.saveConfig(); App.toast('Start folder set.'); } } : null,
+      { label: 'Open in the Transfer view', disabled: !dir, run: () => App.views.transfer.open({ host: side, dir }) },
       { label: (App.cfg.showHidden ? 'Hide' : 'Show') + ' hidden files', run: () => { App.cfg.showHidden = !App.cfg.showHidden; App.saveConfig(); SIDES.forEach(F.refresh); } },
       '-',
       ...F.stack.items(side)
@@ -259,33 +266,6 @@
   }
 
   // ---------- transfers ----------
-  const requireSide = (side) => side === 'local' || (side === 'remote' ? App.requireHpc() : App.requireStorage());
-
-  F.transfer = async (from, src, to, destDir) => {
-    if (!requireSide(from) || !requireSide(to)) return;
-    if (!destDir) return App.toast('Open a destination folder first.');
-    // Between the HPC and the storage, the copy runs on the HPC so data doesn't pass through this Mac.
-    if ([from, to].includes('remote') && [from, to].includes('storage')) {
-      const r = await codeome.storage.hpcCommand(from === 'remote' ? 'up' : 'down', src, destDir);
-      if (r.error) return App.err(r.error);
-      App.views.terminals.hpcTask(`${App.basename(src)} → ${F.title(to)}`, r.command, from === 'remote' ? App.dirname(src) : destDir);
-      return;
-    }
-    const r = await codeome.transfer.start({ from, to, src, destDir });
-    if (r.error) return App.err(r.error);
-    const label = `${to === 'local' ? 'Downloading' : 'Uploading'} ${App.basename(src)} → ${F.title(to)}`;
-    const bar = h('i'); const meta = h('span.hint', ' starting…');
-    const el = h('div.tx', h('div.row', h('span.grow', label, meta), App.iconBtn('trash', 'Cancel transfer', () => codeome.transfer.cancel(r.id))), h('div.bar', bar));
-    F.transfers.set(r.id, { el, bar, meta, to, destDir, label });
-    F.txEl.hidden = false; F.txEl.prepend(el);
-  };
-  function onProgress({ id, pct, rate }) { const t = F.transfers.get(id); if (!t) return; t.bar.style.width = pct + '%'; t.meta.textContent = ` ${pct}%${rate ? ' · ' + rate : ''}`; }
-  function onDone({ id, code, error }) {
-    const t = F.transfers.get(id); if (!t) return;
-    if (code === 0) {
-      t.bar.style.width = '100%'; t.meta.textContent = ' done';
-      if (F[t.to].dir === t.destDir) F.refresh(t.to);
-      setTimeout(() => { t.el.remove(); F.transfers.delete(id); if (!F.txEl.children.length) F.txEl.hidden = true; }, 4000);
-    } else { t.el.classList.add('err'); t.meta.textContent = ' failed: ' + (error || 'exited with ' + code); }
-  }
+  // Copies join the queue of the Transfer view, which runs them a few at a time.
+  F.transfer = (from, src, to, destDir) => App.views.transfer.enqueue(from, [{ path: src, dir: (F[from].entries.find((e) => App.join(F[from].dir, e.name) === src) || {}).dir }], to, destDir);
 })();

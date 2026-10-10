@@ -137,7 +137,7 @@
   }
 
   // Logins and setup steps: never a target for R code or plots.
-  const SETUP_KINDS = new Set(['hpc-login', 'storage-login', 'install', 'keygen', 'hpc-copy-key']);
+  const SETUP_KINDS = new Set(['hpc-login', 'storage-login', 'install', 'keygen', 'hpc-copy-key', 'hpc-transfer']);
   function tabMenu(t) {
     const rt = T.rFor(t.project);
     return [

@@ -18,6 +18,7 @@ if (storageDir) {
   process.env.PATH = bin + ':' + process.env.PATH;
 }
 const extra = {
+  transfer: { storage: { host: 'erda', root: storageDir || '' } },
   files: { storage: { host: 'erda', root: storageDir || '' }, ui: { panes: { remote: { collapsed: false }, storage: { title: 'ERDA archive', weight: 1.4 }, local: { weight: 1 } } } },
   // SHOT_HOST: the HPC login to check (default myhpc). Uses Codeome's own VPN tunnel.
   'settings-hpc': { hpc: { host: process.env.SHOT_HOST || 'myhpc', vpn: { mode: process.env.SHOT_VPN_MODE || 'tunnel', server: 'vpn.example.org', user: '', port: 11097, args: '' } } },
@@ -54,6 +55,24 @@ const steps = {
       await F.transfer('local', root + '/kit/roles', 'storage', F.storage.dir);
       await F.transfer('storage', F.storage.dir + '/reads_R1.fastq.gz', 'local', dl);
     }
+  })(); 0`],
+  // The Transfer view: this Mac on the left, SHOT_STORAGE (through the stand-in sftp) on the right,
+  // with a few copies queued both ways. SHOT_DARK for the dark theme.
+  transfer: [`(async () => {
+    const root = ${JSON.stringify(path.resolve(__dirname, '..'))};
+    await App.openProject(root);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    App.storageConnected = true; App.emit('storage', true);
+    const X = App.views.transfer;
+    App.cfg.ui.transfer = { left: { host: 'local' }, right: { host: 'storage' }, parallel: 1 };
+    X.open();
+    await new Promise((r) => setTimeout(r, 1500));
+    const { left, right } = X.panes;
+    X.enqueue('local', [{ path: root + '/kit/roles', dir: true }, { path: root + '/LICENSE', size: 1071 }, { path: root + '/README.md', size: 20516 }], 'storage', right.dir);
+    X.enqueue('storage', [{ path: right.dir + '/reads_R1.fastq.gz', size: 3e6 }], 'local', ${JSON.stringify(process.env.SHOT_DOWNLOAD || '')} || left.dir);
+    X.enqueue('local', [{ path: root + '/no-such-file', size: 1 }], 'storage', right.dir);
+    if (${JSON.stringify(process.env.SHOT_DOWNLOAD || '')}) X.enqueue('local', [{ path: root + '/kit', dir: true }], 'local', ${JSON.stringify(process.env.SHOT_DOWNLOAD || '')});
+    left.sel = new Set(['main', 'package.json']); document.querySelectorAll('.xf-row')[0].dispatchEvent(new MouseEvent('click', { metaKey: true, bubbles: true }));
   })(); 0`],
   // SHOT_RMD: an R Markdown file. Opens it, then runs its second chunk in a new R console.
   rmd: [`(async () => {

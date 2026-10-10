@@ -43,10 +43,13 @@ async function disconnect(host) {
   return run('ssh', ['-o', `ControlPath=${CONTROL_PATH}`, '-O', 'exit', host], { timeout: 5000 });
 }
 
+// Arguments for a non-interactive remote command over the master connection.
+const execArgs = (host, cmd, extra = []) => [...muxOpts(host), '-o', 'BatchMode=yes', ...extra, host, cmd];
+
 // Run a remote command non-interactively over the master connection.
 async function exec(host, cmd, opts = {}) {
   if (!host) return { code: -1, stdout: '', stderr: 'No HPC host configured' };
-  return run('ssh', [...muxOpts(host), '-o', 'BatchMode=yes', host, cmd], { timeout: opts.timeout || 60000, input: opts.input });
+  return run('ssh', execArgs(host, cmd), { timeout: opts.timeout || 60000, input: opts.input });
 }
 
 // List a remote directory. Uses GNU find (standard on Linux clusters).
@@ -111,4 +114,4 @@ function passwordFiller(password, write) {
   };
 }
 
-module.exports = { CONTROL_PATH, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, disconnect, exec, list, parseListing, readFile, writeFile, rsyncSshCommand };
+module.exports = { CONTROL_PATH, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, disconnect, exec, execArgs, list, parseListing, readFile, writeFile, rsyncSshCommand };
