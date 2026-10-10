@@ -849,6 +849,8 @@ app.whenReady().then(() => {
   cfg = config.load();
   applyProxy();
   app.setName('Codeome');
+  // Packaged, the dock icon comes from build/icon.icns; under `npm start` it would be Electron's.
+  if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png'));
   buildMenu();
   createWindow();
   startUsage();

@@ -28,6 +28,7 @@
     "appId": "dk.ku.codeome",
     "productName": "Codeome",
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.developer-tools",
       "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
       "hardenedRuntime": false,

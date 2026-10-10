@@ -182,6 +182,7 @@ renderer/      Interface (plain JS, no build step)
                  (stack.js: the stacked sections of Files and Packages)
 kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-agent, manifest.json;
                chat.md, the orchestrator instructions for the Agent chat
+build/         the app icon: icon.icns for the packaged app, icon.png for the dock under npm start, and the SVGs they were drawn from
 test/          parser tests (npm test) and a screenshot helper
 ```
 
