@@ -277,7 +277,7 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 #stage { flex: 1; position: relative; min-height: 0; }
 #monaco-host, #alt-host, #welcome { position: absolute; inset: 0; }
 #alt-host { display: flex; flex-direction: column; background: var(--surface); }
-#welcome { display: grid; place-items: center; background: var(--surface); }
+#welcome { display: grid; place-items: safe center; overflow: auto; background: var(--surface); }
 .welcome-inner { max-width: 560px; padding: 24px; }
 .welcome-inner h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -.01em; }
 .welcome-inner p { color: var(--muted); margin: 0 0 18px; }
@@ -468,6 +468,8 @@ button.cs:hover { text-decoration-color: currentColor; }
 .group-label { padding: 10px 12px 4px; font-size: 12px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
 
 /* ---------- Git ---------- */
+/* Sections keep their height and the view scrolls, instead of squeezing them over each other. */
+.view[data-view="git"] > * { flex: none; }
 .gitfile { display: grid; grid-template-columns: 18px 1fr auto; gap: 6px; align-items: center; padding: 2px 12px; cursor: pointer; }
 .gitfile:hover { background: var(--surface-2); }
 .gitfile .st { font-family: var(--mono); font-size: 11px; font-weight: 600; text-align: center; }
@@ -477,7 +479,7 @@ button.cs:hover { text-decoration-color: currentColor; }
 .commit .h { font-family: var(--mono); color: var(--muted); font-size: 11px; }
 .commit .s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .commit .w { grid-column: 2; color: var(--muted); font-size: 11px; }
-.branch { font-family: var(--mono); font-size: 12px; padding: 2px 12px 8px; color: var(--muted); }
+.branch { font-family: var(--mono); font-size: 12px; padding: 2px 12px 8px; color: var(--muted); overflow-wrap: anywhere; }
 
 /* ---------- Publish / pip ---------- */
 .card { border: 1px solid var(--line); border-radius: 8px; margin: 6px 12px; padding: 8px 10px; background: var(--surface); }

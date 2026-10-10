@@ -29,7 +29,13 @@ const steps = {
   welcome: [],
   editor: [`App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../main/slurm.js'))})`],
   slurm: [`App.hpcConnected = true; App.emit('hpc', true); App.views.slurm.queue = [{id:'4810231',name:'metaspades_assembly',state:'RUNNING',elapsed:'5:12:40',limit:'1-00:00:00',cpus:'32',partition:'gpu',reason:'node-a17',workdir:'/projects/holo/asm'},{id:'4810240',name:'kraken2_classify',state:'PENDING',elapsed:'0:00',limit:'8:00:00',cpus:'16',partition:'standard',reason:'(Priority)'}]; App.views.slurm.history=[{id:'4810101',name:'fastp_qc',state:'COMPLETED',elapsed:'00:42:10',exitcode:'0:0',maxrss:'3.1G',end:new Date(Date.now()-3600e3).toISOString()},{id:'4810099',name:'bowtie2_map',state:'OUT_OF_MEMORY',elapsed:'01:02:00',exitcode:'0:125',maxrss:'64G',end:new Date(Date.now()-7200e3).toISOString()}]; App.emit('jobs',{running:1,pending:1,failed:1}); App.setView('slurm'); App.views.slurm.refresh = ()=>{}; document.querySelector('[data-view=slurm] .jobs') && App.setView('slurm');`],
-  git: [`App.setView('git')`],
+  // SHOT_PROJECT: a repository to show (e.g. one with many changed files).
+  // SHOT_SIDE / SHOT_PANEL: sidebar width and terminal panel height in px, to check tight layouts.
+  git: [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => {
+    if (${JSON.stringify(process.env.SHOT_SIDE || '')}) document.documentElement.style.setProperty('--side-w', ${JSON.stringify(process.env.SHOT_SIDE || '')} + 'px');
+    if (${JSON.stringify(process.env.SHOT_PANEL || '')}) document.documentElement.style.setProperty('--panel-h', ${JSON.stringify(process.env.SHOT_PANEL || '')} + 'px');
+    App.setView('git');
+  }); 0`],
   // Three file sections; the storage one lists SHOT_STORAGE through the stand-in sftp.
   files: [`(async () => {
     await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
