@@ -43,6 +43,7 @@ App.icons = {
   folder: '<svg class="ic" viewBox="0 0 16 16"><path d="M1.5 4h4.5l1.5 1.5h7v8h-13z" fill="currentColor" opacity=".85"/></svg>',
   file: '<svg class="ic" viewBox="0 0 16 16"><path d="M3.5 1.5h6l3 3v10h-9z M9.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>',
   up: '<svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+  history: '<svg viewBox="0 0 16 16"><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5V5h2.5M8 5.5V8l2 1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
   refresh: '<svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.5h-2.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
   plus: '<svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   dots: '<svg viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.5" cy="8" r="1.3" fill="currentColor"/></svg>',

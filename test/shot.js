@@ -10,6 +10,8 @@ app.setPath('userData', path.join(out, 'profile'));
 fs.mkdirSync(path.join(out, 'profile'), { recursive: true });
 // SHOT_STORAGE: a local folder the storage section browses through a stand-in sftp
 // that talks to this Mac's own sftp-server instead of a real host.
+// SHOT_HISTORY saves made-up chats, so that run keeps Codeome's own files in the output folder.
+if (process.env.SHOT_HISTORY) process.env.CODEOME_HOME = path.join(out, 'home');
 const storageDir = process.env.SHOT_STORAGE;
 if (storageDir) {
   const bin = path.join(out, 'bin');
@@ -122,8 +124,16 @@ const steps = {
     // SHOT_QUICK: also attach two files and open the saved-messages menu.
     if (${JSON.stringify(process.env.SHOT_QUICK || '')}) { d.items.push({ t: 'user', text: 'Does this match the README?', files: [P + '/README.md'] }); d.attach.push(P + '/package.json', P + '/main/chat.js'); }
     C.activate(d);
+    if (${JSON.stringify(process.env.SHOT_SIDE || '')}) document.documentElement.style.setProperty('--side-w', ${JSON.stringify(process.env.SHOT_SIDE || '')} + 'px');
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
     if (${JSON.stringify(process.env.SHOT_QUICK || '')}) setTimeout(() => document.querySelector('.chat-row .icon-btn:last-child').click(), 300);
+    // SHOT_HISTORY: save a few made-up chats and open the history.
+    if (${JSON.stringify(process.env.SHOT_HISTORY || '')}) {
+      const id = (n) => '00000000-0000-4000-8000-00000000000' + n;
+      for (const [n, title] of ['Why is the Slurm queue empty?', 'Write the 0.3 release notes', 'Explain the transfer queue'].entries()) await codeome.chat.save(P, { id: id(n), title, started: true, items: [{ t: 'user', text: title }, { t: 'text', text: 'Done.' }] });
+      await codeome.chat.save(P, { id: d.id, title: d.title, started: true, items: d.items });
+      setTimeout(() => document.querySelector('.agent-head [aria-label="Chat history"]').click(), 300);
+    }
   })(); 0`],
   // A chat whose context is filling up, and the Statistics tab. The meter's messages are sent
   // from here as a session would send them. CODEOME_HOME: a folder with stats/turns.jsonl to show.

@@ -90,6 +90,7 @@ test('conversations are saved per project and listed newest first', () => {
   chat.saveChat(p, { id: other, title: 'Second', items: [] });
   const list = chat.listChats(p);
   assert.deepStrictEqual(list.map((c) => c.id).sort(), [ID, other].sort());
+  assert.strictEqual(list.find((c) => c.id === ID).messages, 1);
   assert.strictEqual(chat.loadChat(p, ID).items[0].text, 'hello');
   assert.strictEqual(chat.loadChat(p, '../../etc/passwd'), null);
   assert.ok(chat.saveChat(p, { id: 'nope' }).error);

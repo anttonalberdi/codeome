@@ -180,6 +180,53 @@
 
   C.remove = async (id) => { await codeome.chat.delete(App.project, id); };
 
+  // ---------- history ----------
+  // Every saved conversation of the project, newest first, behind the clock button in the
+  // Agent header. Picking one opens it in a tab; one that is not open can be deleted.
+  const DAY = 86400000;
+  function dayGroup(ms) {
+    const d = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / DAY + 0.5);
+    return d <= 0 ? 'Today' : d === 1 ? 'Yesterday' : d < 7 ? 'This week' : d < 30 ? 'This month' : 'Older';
+  }
+
+  C.openHistory = async (anchor) => {
+    if (App.pop && App.pop.hist) return App.closePopover();
+    const project = App.project;
+    if (!project) return App.toast('Open a project folder first.');
+    let list = await codeome.chat.list(project), q = '', arming = null;
+    if (project !== App.project) return;
+    const multi = App.cfg.accounts.claude.list.length > 1;
+    const listEl = h('div.hist-list'), countEl = h('span.hint');
+    const pick = (c) => { App.closePopover(); if (project === App.project) C.open(c.id); };
+    const shown = () => list.filter((c) => !q || c.title.toLowerCase().includes(q));
+    const draw = () => {
+      const open = new Set(tabsOf(project).map((c) => c.id)), rows = shown();
+      countEl.textContent = list.length ? `${list.length} chat${list.length > 1 ? 's' : ''}` : '';
+      listEl.innerHTML = '';
+      if (!rows.length) return listEl.append(h('div.empty', list.length ? 'No chat matches.' : 'No saved chats in this project yet. A chat is saved with its first message.'));
+      let group = null;
+      for (const c of rows) {
+        const g = dayGroup(c.updatedAt);
+        if (g !== group) { group = g; listEl.append(h('div.hist-day', g)); }
+        const live = C.byId[c.id], title = (live && open.has(c.id) && live.title) || c.title;
+        const sub = [App.fmtAgo(c.updatedAt), c.messages ? `${c.messages} message${c.messages > 1 ? 's' : ''}` : null, multi && c.account && c.account !== 'auto' ? c.account : null].filter(Boolean).join(' · ');
+        listEl.append(h('div.hist-row',
+          h('button.hist-open', { title, onclick: () => pick(c) }, h('span.hist-t', title), h('span.hist-s', sub)),
+          open.has(c.id) ? h('span.pill.ok', 'open')
+            : arming === c.id ? h('button.btn.small.danger', { onclick: async () => { await codeome.chat.delete(project, c.id); delete C.byId[c.id]; list = list.filter((x) => x !== c); arming = null; draw(); } }, 'Delete')
+              : h('button.icon-btn.small', { title: 'Delete this chat', 'aria-label': 'Delete ' + title, onclick: () => { arming = c.id; draw(); listEl.querySelector('.btn.danger')?.focus(); }, html: App.icons.trash })));
+      }
+    };
+    const search = h('input', { type: 'text', placeholder: 'Search chats', 'aria-label': 'Search chats',
+      oninput: (e) => { q = e.target.value.trim().toLowerCase(); arming = null; draw(); },
+      onkeydown: (e) => { if (e.key === 'Enter' && shown()[0]) pick(shown()[0]); } });
+    draw();
+    App.popover(anchor, h('div.u-pop.hist',
+      h('div.u-pop-head', h('h3', 'Chat history'), countEl),
+      h('div.hist-search', search), listEl,
+      h('div.u-pop-foot', h('button.btn.small', { onclick: () => { App.closePopover(); C.newChat(); } }, 'New chat'))), 'Chat history').hist = true;
+  };
+
   // Put text in the composer (from the editor or file browser) and focus it.
   C.ask = (text) => {
     App.setView('agents');
@@ -777,7 +824,7 @@
     tabsEl = h('div.chat-tabs', { role: 'tablist', 'aria-label': 'Chats' });
     sumEl = h('div.chat-sum', { 'aria-live': 'polite' });
     host.append(h('div.chat-tabbar', tabsEl, h('button.chat-tab-new', { title: 'New chat (each tab is its own agent session)', 'aria-label': 'New chat', onclick: () => C.newChat(), html: App.icons.plus })),
-      sumEl, logEl, h('div.chat-compose', attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, stopBtn, sendBtn)));
+      sumEl, logEl, h('div.chat-compose', attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, h('span.chat-go', stopBtn, sendBtn))));
     const restoring = {};
     App.listen('project', async (p) => {
       if (p && !C.byProject[p]) {
@@ -796,6 +843,10 @@
     document.addEventListener('visibilitychange', markSeen);
     window.addEventListener('focus', markSeen);
     ta.addEventListener('input', () => { const c = cur(); if (c) c.draft = ta.value; });
+    // The section's width changed: refit the message box and stay at the newest message.
+    let pinned = true;
+    logEl.addEventListener('scroll', () => { pinned = atBottom(); });
+    new ResizeObserver(() => { if (!host.clientWidth) return; autosize(); if (pinned) scrollEnd(); }).observe(host);
     setInterval(() => { const c = cur(); if (c && logEl.isConnected) for (const it of c.items) if (it.t === 'job' && it.status === 'running') update(c, it); }, 5000);
     paint();
   };

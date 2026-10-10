@@ -215,7 +215,8 @@ function listChats(project) {
     if (!n.endsWith('.json')) continue;
     try {
       const c = JSON.parse(fs.readFileSync(path.join(chatsDir(project), n), 'utf8'));
-      out.push({ id: c.id, title: c.title || 'Untitled chat', account: c.account, started: !!c.started, updatedAt: c.updatedAt || 0 });
+      out.push({ id: c.id, title: c.title || 'Untitled chat', account: c.accountName || c.account, started: !!c.started, updatedAt: c.updatedAt || 0,
+        messages: (c.items || []).filter((x) => x.t === 'user').length });
     } catch {}
   }
   return out.sort((a, b) => b.updatedAt - a.updatedAt);

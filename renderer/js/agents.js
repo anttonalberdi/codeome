@@ -25,7 +25,8 @@
       listEl);
     root.append(
       h('div.side-head.agent-head', titleEl, tabsEl,
-        App.iconBtn('plus', 'New chat', () => App.views.chat.newChat()),
+        App.iconBtn('plus', 'New chat', () => App.views.chat.newChat(), '.agent-new'),
+        App.iconBtn('history', 'Chat history', (e) => App.views.chat.openHistory(e.currentTarget)),
         App.iconBtn('dots', 'More', (e) => moreMenu(e.currentTarget))),
       kitEl, usageEl, chatEl, jobsEl);
     App.views.chat.mount(chatEl);
@@ -74,6 +75,7 @@
       { label: 'New chat', key: '⇧⌘N', run: () => C.newChat() },
       past.length ? { header: 'Reopen a recent chat' } : null,
       ...past.map((c) => ({ label: (c.title || 'Untitled chat').slice(0, 48), key: App.fmtAgo(c.updatedAt), run: () => C.open(c.id) })),
+      { label: 'Chat history…', run: () => C.openHistory(anchor) },
       '-',
       { label: 'Continue this chat in a terminal', disabled: !C.current() || !C.current().started, run: () => C.toTerminal() },
       { label: 'Specialist jobs', run: () => A.show('jobs') },
