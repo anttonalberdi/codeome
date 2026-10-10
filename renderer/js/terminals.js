@@ -12,8 +12,9 @@
   function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
   function theme() {
     const dark = matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light' || document.documentElement.dataset.theme === 'dark';
+    const bg = cssVar(dark ? '--bg' : '--surface-2');
     return {
-      background: cssVar('--surface-2'), foreground: cssVar('--text'), cursor: cssVar('--accent'), cursorAccent: cssVar('--surface-2'),
+      background: bg, foreground: cssVar('--text'), cursor: cssVar('--accent'), cursorAccent: bg,
       selectionBackground: cssVar('--sel'),
       ...(dark ? {
         black: '#1a1f26', red: '#ec8478', green: '#9cc59f', yellow: '#e0b45a', blue: '#7fa8d8', magenta: '#c49bd6', cyan: '#6cc4bb', white: '#d9dee5',
@@ -25,6 +26,17 @@
     };
   }
 
+  // One text size for every terminal, kept across restarts; the A−/A+ buttons step it.
+  T.fontSize = () => {
+    const v = parseInt(localStorage.getItem('terminalFontSize'), 10);
+    return v >= 8 && v <= 32 ? v : (App.cfg.editor.fontSize || 13);
+  };
+  T.bumpFont = (d) => {
+    const n = Math.max(8, Math.min(32, T.fontSize() + d));
+    localStorage.setItem('terminalFontSize', String(n));
+    for (const t of T.list) { t.term.options.fontSize = n; if (!t.el.hidden) { try { t.fit.fit(); } catch {} } }
+  };
+
   // spec: {kind, title, command, cwd, session, badge, secretEnv, engine, account, project}
   T.open = async function (spec) {
     App.views.terminals.showPanel();
@@ -32,7 +44,7 @@
     const el = h('div.term', { hidden: true });
     host().append(el);
     const term = new Terminal({
-      fontFamily: '"SF Mono", Menlo, ui-monospace, monospace', fontSize: App.cfg.editor.fontSize || 13, lineHeight: 1.15,
+      fontFamily: '"SF Mono", Menlo, ui-monospace, monospace', fontSize: T.fontSize(), lineHeight: 1.15,
       cursorBlink: true, allowProposedApi: true, macOptionIsMeta: true, scrollback: 20000, theme: theme()
     });
     const fit = new FitAddon.FitAddon();
@@ -260,6 +272,8 @@
 
   T.init = () => {
     document.getElementById('term-new').onclick = (e) => T.newMenu(e.currentTarget);
+    document.getElementById('term-smaller').onclick = () => T.bumpFont(-1);
+    document.getElementById('term-larger').onclick = () => T.bumpFont(1);
     document.getElementById('term-hide').onclick = () => T.togglePanel();
     document.querySelector('#panel .panel-bar').addEventListener('dblclick', (e) => { if (e.target.closest('.panel-bar') && !e.target.closest('.tab,button')) T.togglePanel(); });
     showEmpty();
