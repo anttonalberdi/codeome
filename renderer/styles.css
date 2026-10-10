@@ -194,6 +194,10 @@ svg { width: 18px; height: 18px; display: block; }
 .project-tag:hover { border-color: var(--p-strong); }
 .project-tag.empty { background: transparent; color: var(--muted); border: 1px dashed var(--line-strong); font-weight: 500; }
 .project-tag.empty:hover { color: var(--text); border-color: var(--accent); }
+.tag-links { display: flex; align-items: center; gap: 3px; min-width: 0; margin-left: -6px; overflow: hidden; }
+.tag-chain { flex: none; display: flex; color: var(--muted); }
+.tag-chain svg { width: 11px; height: 11px; }
+.project-tag.sub { flex: 0 1 auto; font-size: 10.5px; line-height: 14px; padding: 1px 7px; border-radius: 5px; max-width: 140px; }
 
 .cluster { display: flex; align-items: stretch; height: 26px; border: 1px solid var(--line-strong); border-radius: 13px; overflow: hidden; background: var(--surface); cursor: pointer; font-size: 12px; font-variant-numeric: tabular-nums; }
 .c-seg { display: flex; align-items: center; gap: 6px; padding: 0 11px; border-right: 1px solid var(--line); white-space: nowrap; }

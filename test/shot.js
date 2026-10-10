@@ -212,6 +212,8 @@ const steps = {
     setTimeout(() => { App.views.usage.snap = fake; App.views.usage.paint(); App.emit('usage', fake); }, 1800);
     await App.openProject(${JSON.stringify(process.env.SHOT_PROJECT2 || path.resolve(__dirname, '../kit'))});
     await App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../kit/manifest.json'))});
+    // SHOT_LINK: connect this project to the other one and to a closed one, shown as chained tags in the title bar.
+    if (${JSON.stringify(process.env.SHOT_LINK || '')}) App.cfg.projectLinks[${JSON.stringify(path.resolve(__dirname, '..'))}] = [${JSON.stringify(process.env.SHOT_PROJECT2 || path.resolve(__dirname, '../kit'))}, ${JSON.stringify(path.resolve(__dirname, '../renderer'))}];
     await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
     await App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../main/usage.js'))});
     App.views.projects.state[${JSON.stringify(process.env.SHOT_PROJECT2 || path.resolve(__dirname, '../kit'))}] = { jobs: 2 };

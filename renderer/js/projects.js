@@ -5,7 +5,8 @@
 // Cards can be put in named groups, which fold to their header. The groups come first,
 // in their own order, and the projects in no group follow.
 // Projects can also be connected to each other: the agent chat of a project works across
-// the folders of the projects connected to it. The card shows a chain and how many.
+// the folders of the projects connected to it. The card shows a chain and how many, and
+// the tag in the title bar is followed by a smaller tag for each of them.
 (function () {
   const h = App.h;
   const P = { list: [], state: {} }; // state[dir] = { remoteDir, jobs }
@@ -215,6 +216,7 @@
     }
     App.saveConfig();
     render();
+    paintTag();
   }
   const LINK_ICON = '<svg viewBox="0 0 16 16"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l.9-.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
@@ -292,6 +294,16 @@
     if (dir) tag.style.setProperty('--ph', colorOf(dir)); else tag.style.removeProperty('--ph');
     tag.title = dir ? App.tildify(dir) : 'Open a project folder (⌘O)';
     tag.setAttribute('aria-label', dir ? `Project ${App.basename(dir)}` : 'Open a project folder');
+    // The projects connected to it follow as smaller tags, each after a chain link.
+    const links = document.getElementById('project-links');
+    links.innerHTML = '';
+    for (const d of dir ? linksOf(dir) : []) {
+      links.append(h('span.tag-chain', { html: LINK_ICON }),
+        h('button.project-tag.sub.ptint', {
+          style: '--ph: ' + colorOf(d), title: App.tildify(d), 'aria-label': `Connected project ${App.basename(d)}`,
+          onclick: () => P.open(d)
+        }, App.basename(d)));
+    }
   }
 
   // Swatches and a hue slider under the card or tag; changes show as you pick.
