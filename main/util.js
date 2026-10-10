@@ -43,6 +43,7 @@ function run(cmd, args, opts = {}) {
       return resolve({ code: -1, stdout: '', stderr: String(e.message || e) });
     }
     const timer = opts.timeout ? setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, opts.timeout) : null;
+    child.stdin.on('error', () => {});
     if (opts.input != null) { child.stdin.write(opts.input); }
     child.stdin.end();
     child.stdout.on('data', (d) => { stdout += d; if (opts.onStdout) opts.onStdout(String(d)); });

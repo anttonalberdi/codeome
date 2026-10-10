@@ -170,6 +170,9 @@ function queryCodex(dir, codexCmd = 'codex', timeoutMs = 20000) {
         if (out.account !== undefined && (out.limits || out.error)) finish(out);
       }
     });
+    // A Codex that cannot start (e.g. a broken install) closes the pipe: EPIPE is reported as an
+    // event, not thrown, so it needs a listener or it takes the whole app down.
+    child.stdin.on('error', () => {});
     const send = (o) => { try { child.stdin.write(JSON.stringify(o) + '\n'); } catch {} };
     send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'codeome', version: '0.1.0' } } });
     send({ jsonrpc: '2.0', method: 'initialized' });
