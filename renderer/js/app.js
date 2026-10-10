@@ -5,7 +5,7 @@
 
   App.setView = (v) => {
     App.currentView = v;
-    document.querySelectorAll('#rail button').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+    document.querySelectorAll('#rail button[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
     document.querySelectorAll('#sidebar .view').forEach((s) => { s.hidden = s.dataset.view !== v; });
     App.emit('view', v);
   };
@@ -168,7 +168,8 @@
     App.views.editor.initMonaco();
     App.applyTheme();
     initResize();
-    document.querySelectorAll('#rail button').forEach((b) => { b.onclick = () => App.setView(b.dataset.view); });
+    // Rail buttons switch the sidebar; the Transfer one opens its tab instead.
+    document.querySelectorAll('#rail button').forEach((b) => { b.onclick = () => (b.dataset.view ? App.setView(b.dataset.view) : commands[b.dataset.action]()); });
     document.getElementById('settings-btn').onclick = () => App.views.settings.toggle();
     const cl = document.getElementById('cluster');
     cl.onclick = () => clusterMenu(cl);
