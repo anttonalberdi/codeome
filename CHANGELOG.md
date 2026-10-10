@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Fixed
+- The Claude and Codex usage card in the title bar stays under its button. It used to jump to the top-left corner of the window whenever the usage was refreshed while it was open.
+
 ## 0.2.0
 
 ### Added

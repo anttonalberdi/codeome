@@ -89,14 +89,20 @@
     const el = document.getElementById('usage');
     if (!el) return;
     el.innerHTML = '';
+    let popAnchor = null;
     for (const [engine, label] of ENGINES) {
       const a = U.active(engine);
       const many = U.accounts(engine).length > 1;
-      el.append(h('button.u-eng', { title: summary(engine, label, a), 'aria-label': summary(engine, label, a), 'aria-haspopup': 'dialog', onclick: (e) => open(engine, e.currentTarget) },
+      const btn = h('button.u-eng', { title: summary(engine, label, a), 'aria-label': summary(engine, label, a), 'aria-haspopup': 'dialog', onclick: (e) => open(engine, e.currentTarget) },
         h('span.u-name', label, many ? h('span.u-acct', a ? U.short(a.name) : '') : null),
-        h('span.u-bars', U.windows(a).map(([k, short]) => meter(a, k, short)))));
+        h('span.u-bars', U.windows(a).map(([k, short]) => meter(a, k, short))));
+      el.append(btn);
+      if (App.pop && App.pop.engine === engine) popAnchor = btn;
     }
-    if (App.pop && App.pop.engine) App.pop.set(popContent(App.pop.engine));
+    if (App.pop && App.pop.engine) {
+      if (popAnchor) App.pop.reanchor(popAnchor); // the buttons were rebuilt; keep the card under the new one
+      App.pop.set(popContent(App.pop.engine));
+    }
   }
 
   function open(engine, anchor) {

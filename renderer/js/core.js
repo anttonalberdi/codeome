@@ -198,16 +198,18 @@ App.popover = (anchor, content, label) => {
   App.closePopover();
   const pop = h('div.popover', { role: 'dialog', 'aria-label': label || '' }, content);
   document.body.append(pop);
+  let at = anchor;
   const place = () => {
-    const r = anchor.getBoundingClientRect(), { width: w, height: ph } = pop.getBoundingClientRect();
+    if (!at.isConnected) return; // the anchor was rebuilt under us: stay where we are
+    const r = at.getBoundingClientRect(), { width: w, height: ph } = pop.getBoundingClientRect();
     pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
     pop.style.top = (r.bottom + 6 + ph > innerHeight - 8 && r.top - ph - 6 >= 8 ? r.top - ph - 6 : r.bottom + 6) + 'px';
   };
   place();
-  const outside = (e) => { if (!pop.contains(e.target) && !anchor.contains(e.target)) close(); };
-  const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); anchor.focus(); } };
+  const outside = (e) => { if (!pop.contains(e.target) && !at.contains(e.target)) close(); };
+  const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); if (at.isConnected) at.focus(); } };
   function close() { pop.remove(); document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', key, true); if (App.pop === p) App.pop = null; }
-  const p = { pop, anchor, close, set: (c) => { pop.innerHTML = ''; pop.append(c); place(); } };
+  const p = { pop, anchor, close, set: (c) => { pop.innerHTML = ''; pop.append(c); place(); }, reanchor: (el) => { at = el; place(); } };
   setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', key, true); });
   App.pop = p;
   setTimeout(() => { const f = pop.querySelector('button,select,input'); if (f) f.focus(); });
