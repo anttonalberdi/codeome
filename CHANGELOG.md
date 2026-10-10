@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 0.2.0
 
 ### Added
 - **Secrets**: Settings → *Secrets* saves your own access tokens, API keys and passwords, encrypted with the macOS Keychain. Each is named as an environment variable and is never shown again once saved. *Copy* puts it on the clipboard for 30 seconds; *Terminals* and *Agents* set it as an environment variable in terminals and in agent sessions on this Mac, in every project or only in the ones you pick.
@@ -18,13 +18,14 @@ What changed in each version of Codeome, newest first. The version is the one in
 - **Agent projects on the HPC**: Settings → *HPC* → *Agent projects* names the folder where the agents put the projects they run on the HPC, each in its own folder named after the project. The agent chat is told the folder when it starts, and reuses a project's folder if it is already there.
 - **HPC name**: Settings → *HPC* → *Name* gives the cluster a name, such as MyCluster. The title bar and the HPC files pane show it instead of the login; hover the title bar's HPC segment to see the login.
 - In a narrow window (under 1160 px) the title bar drops the Slurm job counts, and the Claude and Codex meters shrink to the name over its weekly bar.
-- **App icon**: a pair of braces around four coloured lines, in the Dock, the app switcher and Finder.
+- **App icon**: a pair of braces around four coloured lines, in the Dock, the app switcher and Finder, and in the title bar next to the window buttons.
 - The version number next to CODEOME in the title bar.
 - This changelog.
 
 ### Changed
 - Kit skills now belong to a role group, like roles. Deselecting a group removes its skills too, except files you have edited.
 - The release-manager asks for approval before opening a pull request or issue on someone else's repository, submitting to CRAN, or uploading a package to win-builder or R-hub. Package recipes for Bioconda and conda-forge are routed to it instead of the pipeline-engineer.
+- The packaged app is signed ad hoc, so macOS knows it as Codeome instead of as Electron.
 
 ### Fixed
 - Connecting to the HPC with the VPN tunnel off no longer fails the first time with *Connection closed by UNKNOWN port 65535*. After the VPN sign-in, Codeome now waits until the HPC login answers through the tunnel before it connects.
