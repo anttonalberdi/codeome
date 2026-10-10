@@ -166,7 +166,7 @@ function summary(turns, { days = 30, now = Date.now() } = {}) {
     add(byDay[dayOf(t.at)] || (byDay[dayOf(t.at)] = { day: dayOf(t.at), ...blank() }), t);
     const p = byProject[t.project] || (byProject[t.project] = { project: t.project, sessions: new Set(), ...blank() });
     add(p, t); p.sessions.add(t.session);
-    const s = bySession[t.session] || (bySession[t.session] = { session: t.session, project: t.project, account: t.account, first: t.at, peakPct: null, compactions: 0, ...blank() });
+    const s = bySession[t.session] || (bySession[t.session] = { session: t.session, project: t.project, account: t.account, engine: t.engine || 'claude', first: t.at, peakPct: null, compactions: 0, ...blank() });
     add(s, t);
     s.last = t.at; s.model = t.model || s.model; s.compactions += t.compactions || 0;
     if (t.window) {

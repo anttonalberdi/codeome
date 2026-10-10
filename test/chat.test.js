@@ -186,3 +186,27 @@ test('moving a conversation copies its transcript and subagent files into the ot
   assert.throws(() => chat.moveSession(a, b, '1f8fad5b-d9cb-469f-a165-70867728950e'), /no transcript/);
   assert.throws(() => chat.moveSession(a, b, '../x'), /Bad chat/);
 });
+
+test('a Codex chat has its own prompt, with the notes on connected projects and the HPC', () => {
+  const p = chat.codexPrompt({ kitInstalled: true, linked: ['/w/api'], hpc: { host: 'myhpc', agentRoot: '/projects/lab/projects' } });
+  assert.ok(!/<!--/.test(p));
+  assert.ok(p.includes('running on Codex') && p.includes('codeome-agent codex'));
+  assert.ok(/Claude specialists are not available/.test(p));
+  assert.ok(/cannot read or edit a Google Doc/.test(p) && p.includes('.gdoc'));
+  assert.ok(p.includes('- `api`: /w/api') && p.includes('AGENTS.md') && !p.includes('which are loaded'));
+  assert.ok(p.includes('## Projects on the HPC'));
+  const solo = chat.codexPrompt({ kitInstalled: false });
+  assert.ok(!solo.includes('codeome-agent codex') && !solo.includes('## Connected projects'));
+  // The Claude prompt is unchanged by the engine.
+  assert.ok(chat.systemPrompt(true).includes('Agent tool'));
+});
+
+test('a saved chat remembers its engine, and older ones are Claude', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-proj-'));
+  const id2 = '1f8fad5b-d9cb-469f-a165-70867728950e';
+  chat.saveChat(project, { id: ID, title: 'A', engine: 'codex', items: [] });
+  chat.saveChat(project, { id: id2, title: 'B', items: [] });
+  const by = Object.fromEntries(chat.listChats(project).map((c) => [c.id, c.engine]));
+  assert.deepStrictEqual(by, { [ID]: 'codex', [id2]: 'claude' });
+  assert.strictEqual(chat.engineOf('bogus'), 'claude');
+});

@@ -8,7 +8,7 @@
   const C = { byProject: {}, byId: {} }; // byProject[dir] = { tabs: [chat], active: chat }
   App.views.chat = C;
   const dom = new WeakMap(); // item → element
-  let logEl, ta, attEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl;
+  let logEl, ta, attEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl, noticeEl;
 
   const MODES = [
     { value: 'default', label: 'Ask before changes' },
@@ -18,6 +18,9 @@
   ];
   const EXAMPLES = ['How is this project organised?', 'Find out why the tests fail and fix it', 'Review my uncommitted changes'];
   const ENGINE = { claude: 'Claude', codex: 'Codex' };
+  // Google Docs, Sheets and Slides go through Claude's connectors, which a Codex chat doesn't have.
+  const GDOC_RE = /\.(gdoc|gsheet|gslides)\b/i;
+  const engineOf = (chat) => (chat && chat.engine === 'codex' ? 'codex' : 'claude');
   const store = { get: (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
   function uuid() {
@@ -29,7 +32,7 @@
 
   // ---------- conversations ----------
   function blank(project, opts = {}) {
-    const chat = { id: uuid(), project, title: '', account: opts.account || 'auto', accountName: null, mode: store.get('codeome.chat.mode', 'default'),
+    const chat = { id: uuid(), project, title: '', engine: opts.engine === 'codex' ? 'codex' : 'claude', account: opts.account || 'auto', accountName: null, mode: store.get('codeome.chat.mode', 'default'),
       started: false, items: [], createdAt: Date.now() };
     return live(chat);
   }
@@ -98,7 +101,7 @@
     clearTimeout(saveTimers[chat.id]);
     const run = () => {
       const items = chat.items.map((it) => (it.result && it.result.length > 4000 ? { ...it, result: it.result.slice(0, 4000) + '\n…' } : it));
-      codeome.chat.save(chat.project, { id: chat.id, title: chat.title, account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
+      codeome.chat.save(chat.project, { id: chat.id, title: chat.title, engine: engineOf(chat), account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
     };
     if (now) run(); else saveTimers[chat.id] = setTimeout(run, 800);
   }
@@ -109,7 +112,7 @@
     if (!project) return App.toast('Open a project folder first.');
     const t = C.byProject[project] || (C.byProject[project] = { tabs: [], active: null });
     let chat = t.tabs.find((c) => !c.started && !c.items.length && !c.running);
-    if (chat) { if (opts.account) chat.account = opts.account; }
+    if (chat) { if (opts.engine) { chat.engine = opts.engine === 'codex' ? 'codex' : 'claude'; chat.account = 'auto'; } if (opts.account) chat.account = opts.account; }
     else { chat = blank(project, opts); t.tabs.push(chat); }
     C.activate(chat);
     if (opts.send) C.send(opts.send); else focus();
@@ -195,7 +198,7 @@
     if (!project) return App.toast('Open a project folder first.');
     let list = await codeome.chat.list(project), q = '', arming = null;
     if (project !== App.project) return;
-    const multi = App.cfg.accounts.claude.list.length > 1;
+    const multi = App.cfg.accounts.claude.list.length + App.cfg.accounts.codex.list.length > 2;
     const listEl = h('div.hist-list'), countEl = h('span.hint');
     const pick = (c) => { App.closePopover(); if (project === App.project) C.open(c.id); };
     const shown = () => list.filter((c) => !q || c.title.toLowerCase().includes(q));
@@ -209,7 +212,7 @@
         const g = dayGroup(c.updatedAt);
         if (g !== group) { group = g; listEl.append(h('div.hist-day', g)); }
         const live = C.byId[c.id], title = (live && open.has(c.id) && live.title) || c.title;
-        const sub = [App.fmtAgo(c.updatedAt), c.messages ? `${c.messages} message${c.messages > 1 ? 's' : ''}` : null, multi && c.account && c.account !== 'auto' ? c.account : null].filter(Boolean).join(' · ');
+        const sub = [c.engine === 'codex' ? 'Codex' : null, App.fmtAgo(c.updatedAt), c.messages ? `${c.messages} message${c.messages > 1 ? 's' : ''}` : null, multi && c.account && c.account !== 'auto' ? c.account : null].filter(Boolean).join(' · ');
         listEl.append(h('div.hist-row',
           h('button.hist-open', { title, onclick: () => pick(c) }, h('span.hist-t', title), h('span.hist-s', sub)),
           open.has(c.id) ? h('span.pill.ok', 'open')
@@ -232,6 +235,7 @@
     App.setView('agents');
     App.views.agents.show('chat');
     if (ta) { ta.value = (ta.value ? ta.value.replace(/\s*$/, '\n') : '') + text; autosize(); }
+    paintNotice();
     focus();
   };
   function focus() { setTimeout(() => { if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }, 0); }
@@ -264,15 +268,16 @@
 
   async function start(chat) {
     // A conversation lives in its account's config folder, so it resumes there.
-    const r = await codeome.chat.start({ id: chat.id, project: chat.project, account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
+    const r = await codeome.chat.start({ id: chat.id, project: chat.project, engine: engineOf(chat), account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
       meter: chat.usage ? { context: chat.usage.context, run: chat.usage.run } : null });
     if (r.error) { note(chat, r.error, 'error'); return false; }
     chat.running = true;
     const a = r.account;
     if (a && a.name) {
       chat.accountName = a.name;
-      if (a.blocked) App.toast(`Every Claude account is near its usage limit. The chat runs on ${a.name} anyway.`, { error: true });
-      else if (a.switched) App.toast(`Claude account ${a.from} is near its limit, so this chat runs on ${a.name}.`);
+      const E = ENGINE[engineOf(chat)];
+      if (a.blocked) App.toast(`Every ${E} account is near its usage limit. The chat runs on ${a.name} anyway.`, { error: true });
+      else if (a.switched) App.toast(`${E} account ${a.from} is near its limit, so this chat runs on ${a.name}.`);
     }
     paintState();
     App.emit('sessions');
@@ -288,10 +293,10 @@
   };
 
   function accountMenu(chat, anchor) {
-    const U = App.views.usage, r = anchor.getBoundingClientRect();
+    const U = App.views.usage, r = anchor.getBoundingClientRect(), eng = engineOf(chat);
     const on = chat.accountName || chat.account;
-    App.menu(r.left, r.bottom + 4, [{ header: 'Claude account for this chat' }, ...App.cfg.accounts.claude.list.map((a) => {
-      const u = U && U.accounts('claude').find((x) => x.name === a.name), lv = U && U.level(u);
+    App.menu(r.left, r.bottom + 4, [{ header: ENGINE[eng] + ' account for this chat' }, ...App.cfg.accounts[eng].list.map((a) => {
+      const u = U && U.accounts(eng).find((x) => x.name === a.name), lv = U && U.level(u);
       return { label: (a.name === on ? '✓ ' : '') + a.name + (lv != null ? ` (${Math.round(lv)}%)` : ''), disabled: a.name === on || !!(u && !U.ready(u)), run: () => switchAccount(chat, a.name) };
     })]);
   }
@@ -302,7 +307,7 @@
     if (chat.busy && !(await App.confirm('Switch this chat to ' + name + '?', 'The agent is still working. It will be stopped, and the conversation continues on ' + name + ' with your next message.', 'Switch', true))) return;
     if (chat.running) { chat.stopping = true; await codeome.chat.stop(chat.id); for (let i = 0; chat.running && i < 50; i++) await new Promise((res) => setTimeout(res, 100)); }
     if (chat.running) { chat.stopping = false; return App.err('The session did not stop, so the account was not changed.'); }
-    const r = await codeome.chat.move({ id: chat.id, from, to: name });
+    const r = await codeome.chat.move({ id: chat.id, engine: engineOf(chat), from, to: name });
     if (r.error) return App.err(r.error);
     chat.account = chat.accountName = name;
     note(chat, `This chat now runs on ${name}.`);
@@ -314,7 +319,7 @@
     store.set('codeome.chat.mode', v);
     if (!chat) return;
     chat.mode = v;
-    if (chat.running) codeome.chat.control(chat.id, { subtype: 'set_permission_mode', mode: v }).then((r) => { if (r.error) App.err(r.error); });
+    if (chat.running) codeome.chat.control(chat.id, { subtype: 'set_permission_mode', mode: v }).then((r) => { if (r.error && engineOf(chat) === 'claude') App.err(r.error); });
     save(chat);
   }
 
@@ -322,6 +327,7 @@
   C.toTerminal = async () => {
     const chat = cur();
     if (!chat || !chat.started) return App.toast('Send a message first.');
+    if (engineOf(chat) === 'codex') return App.toast('Codex chats can\'t continue in a terminal yet.');
     if (chat.busy && !(await App.confirm('Move this chat to a terminal?', 'The agent is still working. It will be stopped here and the conversation reopened in a terminal.', 'Move', true))) return;
     if (chat.running) { chat.stopping = true; await codeome.chat.stop(chat.id); }
     let cmd = (App.cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
@@ -823,8 +829,9 @@
     sendBtn = h('button.btn.small.primary', { onclick: submit }, 'Send');
     tabsEl = h('div.chat-tabs', { role: 'tablist', 'aria-label': 'Chats' });
     sumEl = h('div.chat-sum', { 'aria-live': 'polite' });
+    noticeEl = h('div.chat-notice', { role: 'status', hidden: true });
     host.append(h('div.chat-tabbar', tabsEl, h('button.chat-tab-new', { title: 'New chat (each tab is its own agent session)', 'aria-label': 'New chat', onclick: () => C.newChat(), html: App.icons.plus })),
-      sumEl, logEl, h('div.chat-compose', attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, h('span.chat-go', stopBtn, sendBtn))));
+      sumEl, logEl, noticeEl, h('div.chat-compose', attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, h('span.chat-go', stopBtn, sendBtn))));
     const restoring = {};
     App.listen('project', async (p) => {
       if (p && !C.byProject[p]) {
@@ -837,12 +844,14 @@
         paint(); App.emit('chat');
       }
     });
+    App.listen('tab', () => paintNotice());
+    App.listen('sessions', () => paintNotice());
     App.listen('usage', () => paintState());
     App.listen('config', () => paintState());
     App.listen('view', () => markSeen());
     document.addEventListener('visibilitychange', markSeen);
     window.addEventListener('focus', markSeen);
-    ta.addEventListener('input', () => { const c = cur(); if (c) c.draft = ta.value; });
+    ta.addEventListener('input', () => { const c = cur(); if (c) { c.draft = ta.value; paintNotice(); } });
     // The section's width changed: refit the message box and stay at the newest message.
     let pinned = true;
     logEl.addEventListener('scroll', () => { pinned = atBottom(); });
@@ -946,22 +955,46 @@
     scrollEnd();
   }
 
+  // In a Codex chat: said when the user is looking at, or writing about, a Google document.
+  function paintNotice() {
+    if (!noticeEl) return;
+    const chat = cur(), E = App.views.editor, tab = E && E.cur && E.cur();
+    const lastUser = chat && [...chat.items].reverse().find((x) => x.t === 'user');
+    const on = !!chat && engineOf(chat) === 'codex' && App.project === chat.project
+      && ((tab && E.isGdoc && tab.kind !== 'file' && String(tab.key || '').startsWith('gdoc:')) || GDOC_RE.test((ta && ta.value) || '') || !!(lastUser && GDOC_RE.test(lastUser.text || '')));
+    noticeEl.hidden = !on;
+    if (!on) return noticeEl.replaceChildren();
+    if (noticeEl.firstChild) return;
+    noticeEl.append(h('span', 'Codex can\'t edit Google Docs, Sheets or Slides. Start a Claude chat to edit this document.'),
+      h('button.btn.small', { onclick: () => C.newChat({ engine: 'claude' }) }, 'New Claude chat'));
+  }
+
   function paintState() {
     if (!stateEl) return;
     const chat = cur();
     if (chat) modeSel.value = chat.mode;
     modeSel.disabled = !chat;
-    const accts = App.cfg.accounts.claude.list;
+    const eng = engineOf(chat), accts = App.cfg.accounts[eng].list;
     acctEl.innerHTML = '';
+    if (chat) {
+      // The engine is chosen with the first message and stays.
+      if (chat.started || chat.running || chat.items.length) acctEl.append(h('span.pill' + (eng === 'codex' ? '.codex' : '.ok'), { title: ENGINE[eng] + ' chat' }, ENGINE[eng]));
+      else acctEl.append(h('select', { 'aria-label': 'AI for this chat', onchange: (e) => { chat.engine = e.target.value; chat.account = 'auto'; paintState(); } },
+        Object.entries(ENGINE).map(([k, v]) => h('option', { value: k, selected: eng === k }, v))));
+    }
     if (chat && accts.length > 1) {
-      if (chat.started || chat.running) acctEl.append(h('button.chat-acct-btn', { title: 'Switch this chat to another Claude account', 'aria-haspopup': 'menu', onclick: (e) => accountMenu(chat, e.currentTarget) }, chat.accountName || chat.account));
-      else {
+      if (chat.started || chat.running) {
+        acctEl.append(eng === 'codex'
+          ? h('span.hint', { title: 'Codex chats can\'t change account yet' }, chat.accountName || chat.account)
+          : h('button.chat-acct-btn', { title: 'Switch this chat to another Claude account', 'aria-haspopup': 'menu', onclick: (e) => accountMenu(chat, e.currentTarget) }, chat.accountName || chat.account));
+      } else {
         const U = App.views.usage;
-        acctEl.append(h('select', { 'aria-label': 'Claude account for this chat', onchange: (e) => { chat.account = e.target.value; } },
+        acctEl.append(h('select', { 'aria-label': ENGINE[eng] + ' account for this chat', onchange: (e) => { chat.account = e.target.value; } },
           h('option', { value: 'auto', selected: chat.account === 'auto' }, 'Account: auto'),
-          accts.map((a) => { const lv = U && U.level(U.accounts('claude').find((x) => x.name === a.name)); return h('option', { value: a.name, selected: chat.account === a.name }, a.name + (lv != null ? ` (${Math.round(lv)}%)` : '')); })));
+          accts.map((a) => { const lv = U && U.level(U.accounts(eng).find((x) => x.name === a.name)); return h('option', { value: a.name, selected: chat.account === a.name }, a.name + (lv != null ? ` (${Math.round(lv)}%)` : '')); })));
       }
     }
+    paintNotice();
     stateEl.innerHTML = '';
     const waiting = chat && Object.keys(chat.requests).length;
     if (chat && chat.busy) stateEl.append(waiting ? h('span.hint', 'Waiting for you') : h('span.hint', h('span.spinner'), ' Working…'));
@@ -998,7 +1031,7 @@
       const jobs = runningJobs(c);
       const active = c === t.active;
       const title = c.title || 'New chat';
-      const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, c.accountName && App.cfg.accounts.claude.list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
+      const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
       const el = h('div.ctab.' + st + (active ? '.active' : ''), {
         role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
         onclick: () => C.activate(c),
@@ -1010,6 +1043,7 @@
         }
       },
       st === 'working' ? h('span.spinner.cdot') : h('i.cdot'),
+      engineOf(c) === 'codex' ? h('span.ceng', 'Codex') : null,
       h('span.ct', title),
       jobs.length ? h('span.cjobs', { title: `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` }, String(jobs.length)) : null,
       h('button.cx', { title: 'Close chat', 'aria-label': 'Close ' + title, tabindex: '-1', onclick: (e) => { e.stopPropagation(); C.closeTab(c); } }, '×'));

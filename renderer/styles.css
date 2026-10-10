@@ -602,6 +602,10 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .cx-row span { color: var(--muted); }
 .cx-row b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note .btn { margin-left: 2px; }
+.chat-notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 10px 6px; padding: 6px 9px; font-size: 12px; border-left: 3px solid var(--line-strong); background: var(--surface-2); border-radius: 4px; }
+.chat-notice[hidden] { display: none; }
+.chat-notice span { flex: 1; min-width: 160px; }
+.ctab .ceng { flex: none; font-size: 10px; padding: 0 5px; border-radius: 8px; background: var(--sel); color: var(--text); }
 .stats-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 20px; background: var(--surface); }
 .st-bar select { width: auto; flex: none; }
 .st-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }

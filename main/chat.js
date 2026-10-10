@@ -21,6 +21,9 @@ const usage = require('./usage');
 const { Meter } = require('./stats');
 
 const PROMPT = path.join(__dirname, '..', 'kit', 'chat.md');
+const PROMPT_CODEX = path.join(__dirname, '..', 'kit', 'chat-codex.md');
+const ENGINES = ['claude', 'codex'];
+const engineOf = (e) => (ENGINES.includes(e) ? e : 'claude');
 const MODES = ['default', 'acceptEdits', 'auto', 'plan'];
 // System messages the panel has no use for.
 const QUIET = new Set(['hook_started', 'hook_response', 'hook_progress', 'thinking_tokens', 'status']);
@@ -34,8 +37,15 @@ function systemPrompt(kitInstalled, text = fs.readFileSync(PROMPT, 'utf8')) {
 
 // What the orchestrator is told about the projects connected to this one (see projects.js),
 // whose folders it gets with --add-dir. '' when there are none.
-function linkedPrompt(linked, kitInstalled) {
+function linkedPrompt(linked, kitInstalled, engine = 'claude') {
   if (!linked || !linked.length) return '';
+  if (engine === 'codex') return ['', '## Connected projects', '',
+    'The user has connected this project to the folders below. Treat them and this project as parts of one larger project: read and search them as the task needs, and follow their `AGENTS.md` and `CLAUDE.md` files.',
+    '', ...linked.map((d) => `- \`${path.basename(d)}\`: ${d}`), '',
+    '- Relative paths are in this project. Name a connected project when you mean a file there.',
+    '- Each folder can be its own git repository, so check and commit them one at a time.',
+    '- The sandbox may refuse writes outside this project. If it does, say so and let the user decide; don\'t work around it.'
+  ].join('\n') + '\n';
   return ['', '## Connected projects', '',
     'The user has connected this project to the folders below. Treat them and this project as parts of one larger project: read, search and edit them as the task needs, and follow their `CLAUDE.md` files, which are loaded.',
     '', ...linked.map((d) => `- \`${path.basename(d)}\`: ${d}`), '',
@@ -57,6 +67,13 @@ function hpcPrompt(hpc) {
     '- Keep scripts, environments, logs and results inside that folder, and give its path in every HPC brief.',
     '- Use another place only when the user or the project\'s `CLAUDE.md` names one for this project.'
   ].join('\n') + '\n';
+}
+
+// The Codex orchestrator's instructions in full: its own prompt, then the same notes on
+// connected projects and the HPC. Codex has no command line to put them on; this is the
+// text CodexSession gets as `instructions`.
+function codexPrompt({ kitInstalled, linked = [], hpc = null } = {}) {
+  return systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8')) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc);
 }
 
 // The configured command's extra words with a value chosen in Settings, which wins
@@ -229,7 +246,7 @@ function listChats(project) {
     if (!n.endsWith('.json')) continue;
     try {
       const c = JSON.parse(fs.readFileSync(path.join(chatsDir(project), n), 'utf8'));
-      out.push({ id: c.id, title: c.title || 'Untitled chat', account: c.accountName || c.account, started: !!c.started, updatedAt: c.updatedAt || 0,
+      out.push({ id: c.id, title: c.title || 'Untitled chat', account: c.accountName || c.account, engine: engineOf(c.engine), started: !!c.started, updatedAt: c.updatedAt || 0,
         messages: (c.items || []).filter((x) => x.t === 'user').length });
     } catch {}
   }
@@ -261,4 +278,4 @@ function moveSession(fromDir, toDir, id) {
   if (fs.existsSync(path.join(root, folder, id))) fs.cpSync(path.join(root, folder, id), path.join(dest, id), { recursive: true });
 }
 
-module.exports = { Session, systemPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };
+module.exports = { Session, ENGINES, engineOf, systemPrompt, codexPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };
