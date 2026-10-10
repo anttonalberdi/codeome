@@ -267,6 +267,8 @@ const steps = {
 app.whenReady().then(() => {
   setTimeout(async () => {
     const win = BrowserWindow.getAllWindows()[0];
+    // SHOT_W: window width in px, to check the title bar in a narrow window.
+    if (process.env.SHOT_W) win.setSize(Number(process.env.SHOT_W), win.getSize()[1]);
     win.webContents.on('console-message', (_e, level, msg) => { if (level >= 1) console.log('[renderer]', msg); });
     for (const s of steps[scenario] || []) { try { await win.webContents.executeJavaScript(s); } catch (e) { console.log('step error', e.message); } }
     await new Promise((r) => setTimeout(r, Number(process.env.SHOT_WAIT) || 2500));

@@ -65,7 +65,7 @@
   function meter(a, k, short) {
     const p = a && a.asOf ? U.pct(a, k) : null;
     const tone = fresh(a) ? U.tone(p) : (p == null ? 'none' : 'old');
-    return h('span.u-row.' + tone,
+    return h('span.u-row.k-' + k + '.' + tone,
       h('span.u-k', short),
       h('span.u-bar', h('i', { style: { width: Math.min(100, p || 0) + '%' } })),
       h('span.u-v', p == null ? '–' : Math.round(p) + '%'));

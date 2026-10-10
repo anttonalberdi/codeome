@@ -17,6 +17,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 - **Switch a chat's Claude account**: click the account's email under the message box and pick another account. The conversation moves with its history and continues there with your next message.
 - **Agent projects on the HPC**: Settings → *HPC* → *Agent projects* names the folder where the agents put the projects they run on the HPC, each in its own folder named after the project. The agent chat is told the folder when it starts, and reuses a project's folder if it is already there.
 - **HPC name**: Settings → *HPC* → *Name* gives the cluster a name, such as MyCluster. The title bar and the HPC files pane show it instead of the login; hover the title bar's HPC segment to see the login.
+- In a narrow window (under 1160 px) the title bar drops the Slurm job counts, and the Claude and Codex meters shrink to the name over its weekly bar.
 - **App icon**: a pair of braces around four coloured lines, in the Dock, the app switcher and Finder.
 - The version number next to CODEOME in the title bar.
 - This changelog.
