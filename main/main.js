@@ -1,5 +1,5 @@
 // Codeome — main process.
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard, ClipboardItem } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -12,6 +12,7 @@ const kit = require('./kit');
 const jobs = require('./jobs');
 const usage = require('./usage');
 const chat = require('./chat');
+const rtools = require('./rtools');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -67,7 +68,8 @@ function buildMenu() {
       { label: 'Slurm Jobs', accelerator: 'CmdOrCtrl+3', click: cmd('view-slurm') },
       { label: 'Git & GitHub', accelerator: 'CmdOrCtrl+4', click: cmd('view-git') },
       { label: 'Publish (Zenodo, PyPI)', accelerator: 'CmdOrCtrl+5', click: cmd('view-publish') },
-      { label: 'Python Packages', accelerator: 'CmdOrCtrl+6', click: cmd('view-pip') },
+      { label: 'Packages', accelerator: 'CmdOrCtrl+6', click: cmd('view-packages') },
+      { label: 'Plots', accelerator: 'CmdOrCtrl+7', click: cmd('view-plots') },
       { label: 'New Agent Chat', accelerator: 'CmdOrCtrl+Shift+N', click: cmd('new-chat') },
       { label: 'Next Agent Chat', accelerator: 'CmdOrCtrl+Shift+]', click: cmd('next-chat') },
       { label: 'Previous Agent Chat', accelerator: 'CmdOrCtrl+Shift+[', click: cmd('prev-chat') },
@@ -169,6 +171,10 @@ ipcMain.handle('dialog:folder', async (_e, opts = {}) => {
 ipcMain.handle('dialog:files', async (_e, opts = {}) => {
   const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], defaultPath: expandHome(opts.defaultPath) });
   return r.canceled ? [] : r.filePaths;
+});
+ipcMain.handle('dialog:save', async (_e, opts = {}) => {
+  const r = await dialog.showSaveDialog(win, { defaultPath: opts.defaultPath ? expandHome(opts.defaultPath) : undefined, filters: opts.filters });
+  return r.canceled ? null : r.filePath;
 });
 ipcMain.handle('dialog:confirm', async (_e, { message, detail, ok }) => {
   const r = await dialog.showMessageBox(win, { type: 'question', buttons: [ok || 'OK', 'Cancel'], defaultId: 1, cancelId: 1, message, detail });
@@ -398,6 +404,32 @@ ipcMain.handle('pip:list', async (_e, { where, python, cwd }) => {
   const r = where === 'hpc' ? await ssh.exec(cfg.hpc.host, `bash -lc ${q(cmd)}`, { timeout: 60000 })
     : await run(loginShell(), ['-l', '-c', cmd], { cwd: expandHome(cwd), timeout: 60000 });
   try { return { packages: JSON.parse(r.stdout.trim().split('\n').pop()) }; } catch { return { error: (r.stderr || r.stdout || 'pip failed').trim() }; }
+});
+
+// ---------- R: plots and packages ----------
+const rWhere = (where) => (where === 'hpc' ? cfg.hpc.host : null);
+ipcMain.handle('plots:install', async (_e, where) => { try { return await rtools.install(where, rWhere(where)); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('plots:canvas', async (_e, { where, text }) => { try { return await rtools.setCanvas(where, rWhere(where), text); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('plots:render', async (_e, o) => {
+  try {
+    const d = path.join(cacheDir(), 'plots'); fs.mkdirSync(d, { recursive: true });
+    return await rtools.render(o, { host: rWhere(o.where), cacheDir: d, shell: loginShell(), rcmd: o.where === 'hpc' ? cfg.r.remote : cfg.r.local });
+  } catch (e) { return { error: e.message }; }
+});
+ipcMain.handle('plots:copy', async (_e, p) => {
+  try {
+    if (path.extname(p).toLowerCase() !== '.png') return { error: 'Only PNG images can be copied.' };
+    await clipboard.write([new ClipboardItem({ 'image/png': new Blob([fs.readFileSync(p)], { type: 'image/png' }) })]);
+    return { ok: true };
+  } catch (e) { return { error: 'Could not copy the image: ' + e.message }; }
+});
+ipcMain.handle('rpkg:list', async (_e, { where, cwd, outdated }) => {
+  try {
+    const inst = await rtools.install(where, rWhere(where));
+    if (inst.error) return inst;
+    return await rtools.listPackages({ where, outdated, cwd: where === 'hpc' ? cwd : expandHome(cwd), host: rWhere(where), shell: loginShell(),
+      rcmd: (where === 'hpc' ? cfg.r.remote : cfg.r.local) || 'R --no-save --quiet' });
+  } catch (e) { return { error: e.message }; }
 });
 ipcMain.handle('pypi:hasToken', (_e, which) => config.hasSecret('pypi:' + which));
 

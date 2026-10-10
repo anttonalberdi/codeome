@@ -493,6 +493,73 @@ button.cs:hover { text-decoration-color: currentColor; }
 .pkg .v { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .pkg .icon-btn { opacity: 0; }
 .pkg:hover .icon-btn { opacity: 1; }
+.pkg-form { padding-top: 0; }
+.pkg-form .row > select { flex: none; width: auto; }
+.r-ver { flex: 1; text-align: right; font-variant-numeric: tabular-nums; }
+.rpkg .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rpkg .src { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+.rpkg .newer { color: var(--pend); font-weight: 600; }
+.lib-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-top: 1px solid var(--line); background: var(--surface-2); padding: 4px 12px 4px 8px; cursor: pointer; text-align: left; font-size: 11.5px; color: var(--muted); }
+.lib-head:first-child { border-top: 0; }
+.lib-head:hover { color: var(--text); }
+.lib-head .chev { flex: none; transition: transform .12s; }
+.lib-head .chev svg { width: 12px; height: 12px; }
+.lib-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.lib-name { font-weight: 600; color: var(--text); white-space: nowrap; }
+.lib-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-family: var(--mono); font-size: 10.5px; }
+.lib-ro { font-size: 10px; border-radius: 4px; padding: 0 4px; background: var(--line); }
+.lib-n { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .lib-head .chev { transition: none; } }
+
+/* ---------- plots ---------- */
+.view[data-view="plots"] { overflow: hidden; }
+.plots-view { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--surface); }
+.plot-bar { display: flex; align-items: center; gap: 2px; padding: 6px 8px 4px 12px; flex: none; }
+.plot-bar .grow { flex: 1; }
+.plot-h { font-size: 12px; font-weight: 600; margin: 0 8px 0 0; color: var(--muted); }
+.plots-view.large { display: grid; grid-template-columns: 1fr 300px; grid-template-rows: auto auto 1fr; }
+.plots-view.large .plot-bar { grid-column: 1 / -1; border-bottom: 1px solid var(--line); background: var(--surface-2); padding: 5px 12px; }
+.plots-view.large .plot-stage { grid-column: 1; grid-row: 2 / 4; border: 0; border-right: 1px solid var(--line); }
+.plots-view.large .plot-form { grid-column: 2; grid-row: 2; padding: 12px; }
+.plots-view.large .plot-thumbs { grid-column: 2; grid-row: 3; flex-wrap: wrap; align-content: start; overflow: auto; padding: 4px 12px 12px; }
+.plots-view.large .plot-h { color: var(--text); }
+.plot-count { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
+.plot-bar .icon-btn:disabled { opacity: .35; cursor: default; background: transparent; }
+.plot-bar .icon-btn.on { background: var(--accent-soft); color: var(--text); }
+.plot-stage { flex: 1; min-height: 120px; position: relative; overflow: hidden; display: grid; place-items: center; background: var(--surface-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); outline: none; }
+.plot-stage:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.plot-stage.fit { background: #fff; }
+.plot-stage.actual { overflow: auto; place-items: start center; padding: 12px; }
+.plot-frame { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.18), 0 0 0 1px var(--line); flex: none; }
+.plot-stage.fit .plot-frame { box-shadow: none; }
+.plot-frame.clear { background: repeating-conic-gradient(#eceef0 0 25%, #fff 0 50%) 0 0/14px 14px; }
+.plot-frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.plot-busy { position: absolute; top: 8px; right: 8px; font-size: 11px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; display: flex; align-items: center; gap: 4px; }
+.plot-busy .spinner { width: 10px; height: 10px; border-width: 1.5px; }
+.plot-msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; text-align: center; color: var(--muted); font-size: 12px; background: var(--surface-2); }
+.plot-msg p { margin: 0; max-width: 300px; }
+.plot-msg b { color: var(--text); }
+.plot-msg.err { background: color-mix(in srgb, var(--surface) 88%, transparent); }
+.plot-msg.err b { color: var(--fail); }
+.plot-msg pre { margin: 0; max-width: 100%; overflow: auto; text-align: left; font: 11px/1.45 var(--mono); white-space: pre-wrap; color: var(--text); }
+.plot-form { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; }
+.plot-form .row > select { flex: 1; min-width: 0; }
+.plot-form .row > .btn { flex: none; }
+.plot-size .x { color: var(--muted); flex: none; }
+.plot-size > select { flex: none !important; width: auto; }
+.plot-size .icon-btn { flex: none; }
+.pf { flex: 1; min-width: 0; display: flex; align-items: center; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); padding-left: 7px; gap: 4px; }
+.pf:focus-within { border-color: var(--focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+.pf > span { font-size: 11px; color: var(--muted); flex: none; }
+.pf input[type=number] { border: 0; box-shadow: none !important; padding: 3px 6px 3px 0; font-variant-numeric: tabular-nums; background: transparent; }
+.pf input.auto { color: var(--muted); }
+.pf.dpi { flex: 0 1 110px; }
+.plot-info { font-size: 11px; font-variant-numeric: tabular-nums; }
+.plot-thumbs { flex: none; display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 10px; }
+.plot-thumb { position: relative; flex: none; width: 64px; height: 48px; padding: 0; border: 1px solid var(--line-strong); border-radius: 5px; background: #fff; cursor: pointer; overflow: hidden; display: grid; place-items: center; }
+.plot-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.plot-thumb.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.plot-thumb .n { position: absolute; left: 2px; bottom: 2px; font-size: 9.5px; line-height: 12px; padding: 0 3px; border-radius: 3px; background: rgba(0,0,0,.55); color: #fff; font-variant-numeric: tabular-nums; }
 
 /* ---------- overlay / modal / menus / toasts ---------- */
 #overlay { position: fixed; inset: 0; background: rgba(15, 20, 26, .35); display: grid; place-items: center; z-index: 50; }

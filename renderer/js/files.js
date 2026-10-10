@@ -11,12 +11,10 @@
   App.views.files = F;
   let root;
 
-  const CHEVRON = '<svg viewBox="0 0 16 16"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
   const api = (side) => ({ local: codeome.local, remote: codeome.remote, storage: codeome.storage })[side];
   const host = (side) => (side === 'remote' ? App.cfg.hpc.host : side === 'storage' ? App.cfg.storage.host : 'this Mac');
-  // Layout and names live in App.cfg.ui.panes[side]: { title, collapsed, weight }.
-  const paneCfg = (side) => { const p = (App.cfg.ui.panes = App.cfg.ui.panes || {}); return (p[side] = p[side] || {}); };
-  F.title = (side) => paneCfg(side).title || DEFAULT_TITLE[side];
+  // Layout and names live in App.cfg.ui.panes[side]: { title, collapsed, weight } (see stack.js).
+  F.title = (side) => (F.stack ? F.stack.title(side) : (App.cfg.ui.panes || {})[side]?.title || DEFAULT_TITLE[side]);
   F.isUp = (side) => side === 'local' || (side === 'remote' ? App.hpcConnected : App.storageConnected);
   F.startDir = (side) => (side === 'local' ? (App.project || '~') : side === 'remote' ? (App.cfg.hpc.remoteRoot || '~') : (App.cfg.storage.root || '.'));
   const where = (side) => ({ remote: side === 'remote', storage: side === 'storage' });
@@ -25,15 +23,11 @@
     root = document.querySelector('.view[data-view="files"]');
     root.innerHTML = '';
     root.classList.add('files-view');
-    F.stack = h('div.pane-stack');
-    SIDES.forEach((side, i) => {
-      if (i) F.stack.append(resizer(i));
-      F.panes[side] = pane(side);
-      F.stack.append(F.panes[side].el);
-    });
+    const sections = SIDES.map((side) => { F.panes[side] = pane(side); return F.panes[side].section; });
+    F.stack = App.stack({ key: 'panes', sections });
+    for (const side of SIDES) Object.assign(F.panes[side], F.stack.panes[side]);
     F.txEl = h('div.transfers', { hidden: true });
-    root.append(F.stack, F.txEl);
-    layout();
+    root.append(F.stack.el, F.txEl);
     codeome.transfer.onProgress(onProgress);
     codeome.transfer.onDone(onDone);
     App.listen('local-changed', () => F.refresh('local'));
@@ -42,7 +36,7 @@
       App.listen(ev, (up) => { if (up) { paintDot(side); F.go(side, F[side].dir || F.startDir(side)); } else renderState(side); });
     }
     App.listen('project', (dir) => F.go('local', dir));
-    App.listen('config', () => { for (const s of SIDES) F.panes[s].titleEl.textContent = F.title(s); renderState('remote'); renderState('storage'); });
+    App.listen('config', () => { F.stack.retitle(); renderState('remote'); renderState('storage'); });
     renderState('remote'); renderState('storage');
   };
 
@@ -50,18 +44,17 @@
     const pathInput = h('input', { type: 'text', spellcheck: 'false', 'aria-label': F.title(side) + ' folder',
       onkeydown: (e) => { if (e.key === 'Enter') F.go(side, pathInput.value.trim()); } });
     const list = h('div.flist', { tabindex: '0', role: 'listbox', 'aria-label': F.title(side) + ' files' });
-    const titleEl = h('span.pane-title', F.title(side));
     const dot = side === 'local' ? null : h('i.pane-dot');
-    const toggle = h('button.pane-toggle', { title: 'Collapse or expand (right-click to rename)', onclick: () => F.toggle(side) },
-      h('span.chev', { html: CHEVRON }), titleEl, dot);
-    const tools = h('div.pane-tools',
-      App.iconBtn('up', 'Parent folder', () => F.go(side, App.dirname(F[side].dir || '/'))),
-      App.iconBtn('home', side === 'local' ? 'Project folder' : 'Start folder', () => F.go(side, F.startDir(side))),
-      App.iconBtn('refresh', 'Refresh', () => F.refresh(side)));
-    const head = h('div.side-head.pane-head', { oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, sectionItems(side)); } },
-      toggle, tools, App.iconBtn('dots', 'More', (e) => App.menuAt(e.currentTarget, folderMenu(side))));
-    const body = h('div.pane-body', h('div.pathbar', pathInput), list);
-    const el = h('div.side-section.split-pane', { 'data-side': side }, head, body);
+    const section = {
+      id: side, title: DEFAULT_TITLE[side], dot,
+      tools: [
+        App.iconBtn('up', 'Parent folder', () => F.go(side, App.dirname(F[side].dir || '/'))),
+        App.iconBtn('home', side === 'local' ? 'Project folder' : 'Start folder', () => F.go(side, F.startDir(side))),
+        App.iconBtn('refresh', 'Refresh', () => F.refresh(side))],
+      menu: () => folderMenu(side), items: () => sectionItems(side),
+      body: [h('div.pathbar', pathInput), list],
+      onExpand: () => { if (F.isUp(side) && !F[side].dir) F.go(side, F.startDir(side)); }
+    };
 
     // Drop target: dragging from another section copies into this folder (or onto a sub-folder).
     const sourceOf = (dt) => SIDES.find((s) => s !== side && dt.types.includes('codeome/' + s));
@@ -80,98 +73,19 @@
       if (side !== 'local') for (const f of e.dataTransfer.files) { const fp = codeome.pathForFile(f); if (fp) F.transfer('local', fp, side, dest); }
     });
     list.addEventListener('keydown', (e) => keyNav(side, e));
-    return { el, head, body, list, pathInput, titleEl, toggle, tools, dot };
+    return { section, list, pathInput, dot };
   }
 
-  // ---------- section layout ----------
-  function layout() {
-    for (const side of SIDES) {
-      const p = F.panes[side], c = paneCfg(side);
-      p.el.classList.toggle('collapsed', !!c.collapsed);
-      p.body.hidden = p.tools.hidden = !!c.collapsed;
-      p.toggle.setAttribute('aria-expanded', String(!c.collapsed));
-      p.el.style.flex = c.collapsed ? '0 0 auto' : `${c.weight || 1} 1 0px`;
-    }
-    // A handle only works with an open section on both sides of it.
-    F.stack.querySelectorAll('.pane-resizer').forEach((rz) => {
-      const i = Number(rz.dataset.i);
-      rz.classList.toggle('inert', !neighbour(i, -1) || !neighbour(i, 1));
-    });
-  }
-  // The nearest open section above (dir -1) or below (dir 1) the handle in front of SIDES[i].
-  function neighbour(i, dir) {
-    for (let j = dir < 0 ? i - 1 : i; j >= 0 && j < SIDES.length; j += dir) if (!paneCfg(SIDES[j]).collapsed) return SIDES[j];
-    return null;
-  }
-
-  function resizer(i) {
-    const rz = h('div.pane-resizer', { 'data-i': i, role: 'separator', 'aria-orientation': 'horizontal', title: 'Drag to resize · double-click to even out' });
-    rz.addEventListener('mousedown', (e) => {
-      const a = neighbour(i, -1), b = neighbour(i, 1);
-      if (!a || !b) return;
-      e.preventDefault();
-      const ha = F.panes[a].el.getBoundingClientRect().height, hb = F.panes[b].el.getBoundingClientRect().height;
-      const w = (paneCfg(a).weight || 1) + (paneCfg(b).weight || 1), total = ha + hb, min = 64, y0 = e.clientY;
-      document.body.classList.add('row-resizing');
-      const move = (ev) => {
-        const na = Math.max(min, Math.min(total - min, ha + ev.clientY - y0));
-        paneCfg(a).weight = w * na / total; paneCfg(b).weight = w * (total - na) / total;
-        layout();
-      };
-      const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); document.body.classList.remove('row-resizing'); App.saveConfig(); };
-      addEventListener('mousemove', move); addEventListener('mouseup', up);
-    });
-    rz.addEventListener('dblclick', () => { for (const s of SIDES) delete paneCfg(s).weight; layout(); App.saveConfig(); });
-    return rz;
-  }
-
-  F.toggle = (side, open) => {
-    const c = paneCfg(side);
-    c.collapsed = open === undefined ? !c.collapsed : !open;
-    layout(); App.saveConfig();
-    if (!c.collapsed && F.isUp(side) && !F[side].dir) F.go(side, F.startDir(side));
-  };
-  // Only this section open (or all of them again).
-  F.solo = (side) => {
-    const others = SIDES.filter((s) => s !== side);
-    const soloed = !paneCfg(side).collapsed && others.every((s) => paneCfg(s).collapsed);
-    for (const s of others) paneCfg(s).collapsed = !soloed;
-    F.toggle(side, true);
-    if (soloed) for (const s of others) if (F.isUp(s) && !F[s].dir) F.go(s, F.startDir(s));
-  };
+  // ---------- sections ----------
+  F.toggle = (side, open) => F.stack.toggle(side, open);
+  F.solo = (side) => F.stack.solo(side);
+  F.rename = (side) => F.stack.rename(side);
   // Open a folder from elsewhere in the app, expanding its section.
-  F.show = (side, dir) => { App.setView('files'); if (paneCfg(side).collapsed) { paneCfg(side).collapsed = false; layout(); App.saveConfig(); } F.go(side, dir); };
+  F.show = (side, dir) => { App.setView('files'); F.stack.expand(side); F.go(side, dir); };
 
-  F.rename = (side) => {
-    const p = F.panes[side];
-    if (p.head.querySelector('.pane-rename')) return;
-    if (paneCfg(side).collapsed) F.toggle(side, true);
-    const input = h('input.pane-rename', { type: 'text', value: F.title(side), maxlength: '40', spellcheck: 'false', 'aria-label': 'Section name', placeholder: DEFAULT_TITLE[side] });
-    p.toggle.hidden = true; p.head.prepend(input);
-    input.focus(); input.select();
-    const done = (save) => {
-      if (!input.isConnected) return;
-      const v = input.value.trim();
-      input.remove(); p.toggle.hidden = false; p.toggle.focus();
-      if (!save) return;
-      const c = paneCfg(side);
-      if (!v || v === DEFAULT_TITLE[side]) delete c.title; else c.title = v;
-      p.titleEl.textContent = F.title(side);
-      App.saveConfig();
-    };
-    input.onkeydown = (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); done(true); }
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
-    };
-    input.onblur = () => done(true);
-  };
-
+  // Extra items for a section's header menu (after rename / collapse / show only).
   function sectionItems(side) {
-    const c = paneCfg(side);
     return [
-      { label: 'Rename section…', run: () => F.rename(side) },
-      { label: c.collapsed ? 'Expand section' : 'Collapse section', run: () => F.toggle(side) },
-      { label: SIDES.every((s) => s === side || paneCfg(s).collapsed) && !c.collapsed ? 'Show all sections' : 'Show only this section', run: () => F.solo(side) },
       side === 'remote' && App.hpcConnected ? { label: 'Disconnect', run: () => App.disconnectHpc() } : null,
       side === 'storage' && App.storageConnected ? { label: 'Disconnect', run: () => App.disconnectStorage() } : null,
       side === 'storage' ? { label: 'Storage settings…', run: () => App.views.settings.open('storage') } : null
@@ -309,7 +223,7 @@
       side === 'storage' && dir ? { label: `Set as ${F.title(side)} start folder`, run: () => { App.cfg.storage.root = dir; App.saveConfig(); App.toast('Start folder set.'); } } : null,
       { label: (App.cfg.showHidden ? 'Hide' : 'Show') + ' hidden files', run: () => { App.cfg.showHidden = !App.cfg.showHidden; App.saveConfig(); SIDES.forEach(F.refresh); } },
       '-',
-      ...sectionItems(side)
+      ...F.stack.items(side)
     ];
   }
 

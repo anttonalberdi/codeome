@@ -45,6 +45,8 @@
       return true;
     });
     const t = { id, spec, term, fit, el, title: spec.title, alive: true, project: spec.project !== undefined ? spec.project : App.project };
+    // R with plots.R sourced announces its plots in the output (see plots.js).
+    term.parser.registerOscHandler(7337, (data) => { App.views.plots.osc(t, data); return true; });
     // R consoles report when R first shows its prompt, so code isn't typed into a starting shell.
     if (spec.lang === 'r') t.ready = new Promise((res) => { t.onReady = res; setTimeout(res, 20000); });
     T.list.push(t);
@@ -135,6 +137,7 @@
     return [
       t.alive && t.spec.kind !== 'hpc-login' && t.spec.kind !== 'storage-login' ? { label: t === rt ? 'Receives R code ✓' : 'Send R code here', disabled: t === rt, run: () => { T.rTarget[t.project] = t.id; renderTabs(); } } : null,
       t.spec.lang === 'r' ? { label: 'Restart R', run: () => { T.close(t.id); T.rConsole({ remote: isHpc(t), cwd: t.spec.cwd }); } } : null,
+      t.alive && !t.plots && !/login$/.test(t.spec.kind) ? { label: 'Show R plots in Codeome', run: () => App.views.plots.enable(t) } : null,
       { label: 'Close', run: () => T.close(t.id) }
     ];
   }
@@ -176,6 +179,12 @@
     const command = (remote ? App.cfg.r.remote : App.cfg.r.local) || 'R --no-save --quiet';
     const t = await T.open({ kind: remote ? 'hpc-console' : 'console', lang: 'r', title: 'R · ' + (App.basename(dir) || '~'), command, cwd: dir, badge: remote ? 'HPC' : 'R' });
     if (t && t.alive) { T.rTarget[t.project] = t.id; renderTabs(); }
+    // Plots go to the Plots view: plots.R is sourced before any code is sent.
+    if (t && t.alive && App.cfg.plots.capture !== false) {
+      codeome.plots.install(remote ? 'hpc' : 'local'); // in parallel with R starting
+      const ready = t.ready;
+      t.ready = ready.then(() => App.views.plots.enable(t));
+    }
     return t;
   };
 

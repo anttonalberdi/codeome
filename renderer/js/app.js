@@ -124,7 +124,7 @@
         h('kbd', '⌥⌘R  ⌥⌘P'), h('span', 'Rmd: run all chunks · run the chunks above'),
         h('kbd', '⇧⌘V'), h('span', 'Preview or render the current file'),
         h('kbd', '⌘J'), h('span', 'Show or hide the terminal panel'),
-        h('kbd', '⌘1–6'), h('span', 'Agent chat, Files, Slurm, Git, Publish, Python packages'),
+        h('kbd', '⌘1–7'), h('span', 'Agent chat, Files, Slurm, Git, Publish, Packages, Plots'),
         h('kbd', '⌃⇥'), h('span', 'Next project (⌃⇧⇥ previous)'))));
   }
   App.listen('hpc', renderWelcome);
@@ -150,7 +150,7 @@
     'new-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.newChat(); },
     'next-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(1); },
     'prev-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(-1); },
-    'view-publish': () => App.setView('publish'), 'view-pip': () => App.setView('pip'), 'view-agents': () => App.setView('agents'),
+    'view-publish': () => App.setView('publish'), 'view-packages': () => App.setView('packages'), 'view-plots': () => App.setView('plots'), 'view-agents': () => App.setView('agents'),
     'toggle-panel': () => App.views.terminals.togglePanel(), 'new-terminal': () => App.views.terminals.localShell(),
     'new-hpc-terminal': () => App.views.terminals.hpcShell(), 'r-console': () => App.views.terminals.rConsole(), preview: () => App.views.editor.previewCurrent()
   };
@@ -158,7 +158,7 @@
   App.start = async () => {
     App.cfg = await codeome.config.get();
     App.views.terminals.init();
-    App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.pip.init(); App.views.agents.init();
+    App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.packages.init(); App.views.plots.init(); App.views.agents.init();
     App.views.projects.init();
     App.views.usage.init();
     App.views.editor.initMonaco();

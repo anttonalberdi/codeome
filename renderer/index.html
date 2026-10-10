@@ -32,7 +32,8 @@
     <button data-view="slurm" title="Slurm jobs (⌘3)"><svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="3" y="8.4" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="3" y="12.8" width="14" height="3.2" rx=".8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5.4" cy="5.6" r=".8" fill="currentColor"/><circle cx="5.4" cy="10" r=".8" fill="currentColor"/><circle cx="5.4" cy="14.4" r=".8" fill="currentColor"/></svg></button>
     <button data-view="git" title="Git & GitHub (⌘4)"><svg viewBox="0 0 20 20"><circle cx="6" cy="5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="15" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="14" cy="8" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 6.8v6.4M14 9.8c0 2.5-3 2.6-8 3.6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
     <button data-view="publish" title="Publish: Zenodo & PyPI (⌘5)"><svg viewBox="0 0 20 20"><path d="M10 13V3.5M6.5 7 10 3.5 13.5 7M4 12.5v4h12v-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
-    <button data-view="pip" title="Python packages (⌘6)"><svg viewBox="0 0 20 20"><path d="M10 2.8 16.5 6.5v7L10 17.2 3.5 13.5v-7Z M3.5 6.5 10 10.2l6.5-3.7M10 10.2v7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
+    <button data-view="packages" title="Packages: Python and R (⌘6)"><svg viewBox="0 0 20 20"><path d="M10 2.8 16.5 6.5v7L10 17.2 3.5 13.5v-7Z M3.5 6.5 10 10.2l6.5-3.7M10 10.2v7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
+    <button data-view="plots" title="Plots (⌘7)"><svg viewBox="0 0 20 20"><rect x="3" y="3.5" width="14" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m5.5 13.5 3-4 2.5 2.5 3.5-5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></button>
   </nav>
 
   <aside id="sidebar">
@@ -41,7 +42,8 @@
     <section class="view" data-view="slurm" hidden></section>
     <section class="view" data-view="git" hidden></section>
     <section class="view" data-view="publish" hidden></section>
-    <section class="view" data-view="pip" hidden></section>
+    <section class="view" data-view="packages" hidden></section>
+    <section class="view" data-view="plots" hidden></section>
   </aside>
   <div id="sidebar-resizer" class="resizer v"></div>
 
@@ -72,6 +74,7 @@
 <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
 <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 <script src="js/core.js"></script>
+<script src="js/stack.js"></script>
 <script src="js/terminals.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/rmd.js"></script>
@@ -79,7 +82,8 @@
 <script src="js/slurm.js"></script>
 <script src="js/git.js"></script>
 <script src="js/publish.js"></script>
-<script src="js/pip.js"></script>
+<script src="js/packages.js"></script>
+<script src="js/plots.js"></script>
 <script src="js/md.js"></script>
 <script src="js/chat.js"></script>
 <script src="js/agents.js"></script>

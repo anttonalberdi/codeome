@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('codeome', {
   pathForFile: (f) => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
   config: { get: invoke('config:get'), set: invoke('config:set') },
   secret: { set: (key, value) => ipcRenderer.invoke('secret:set', { key, value }), has: invoke('secret:has') },
-  dialog: { folder: invoke('dialog:folder'), files: invoke('dialog:files'), confirm: invoke('dialog:confirm') },
+  dialog: { folder: invoke('dialog:folder'), files: invoke('dialog:files'), save: invoke('dialog:save'), confirm: invoke('dialog:confirm') },
   shell: { open: invoke('shell:open'), reveal: invoke('shell:reveal'), openPath: invoke('shell:openPath') },
   pty: {
     spawn: invoke('pty:spawn'),
@@ -57,6 +57,11 @@ contextBridge.exposeInMainWorld('codeome', {
     onProgress: on('zenodo:progress')
   },
   pip: { list: invoke('pip:list'), hasToken: invoke('pypi:hasToken') },
+  plots: {
+    install: invoke('plots:install'), render: invoke('plots:render'), copy: invoke('plots:copy'),
+    canvas: (where, text) => ipcRenderer.invoke('plots:canvas', { where, text })
+  },
+  rpkg: { list: invoke('rpkg:list') },
   kit: { status: invoke('kit:status'), install: (project, groups) => ipcRenderer.invoke('kit:install', { project, groups }) },
   agents: {
     list: invoke('agents:list'), models: invoke('agents:models'),

@@ -77,6 +77,41 @@ const steps = {
     C.activate(d);
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
   })(); 0`],
+  // SHOT_PROJECT: an R project. Starts an R console there and draws a few plots.
+  // SHOT_PLOTS: also pick a journal size and open the plots in a tab ('tab').
+  plots: [`(async () => {
+    const P = ${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))};
+    await App.openProject(P);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); }
+    document.documentElement.style.setProperty('--side-w', '380px');
+    await App.views.terminals.sendR('plot(1:10, main = "Base graphics"); abline(h = 5, col = "tomato")');
+    await App.views.terminals.sendR('hist(rnorm(500), col = "grey80", main = "Histogram")');
+    await App.views.terminals.sendR('library(ggplot2); ggplot(mtcars, aes(wt, mpg, colour = factor(cyl))) + geom_point(size = 2) + theme_minimal()');
+    const mode = ${JSON.stringify(process.env.SHOT_PLOTS || '')};
+    if (mode) setTimeout(() => {
+      const v = App.views.plots.viewers[0];
+      v.preset.value = 'col1'; v.preset.dispatchEvent(new Event('change'));
+      if (mode === 'tab') App.views.plots.openTab();
+    }, 5000);
+    // SHOT_EXPORT: a folder to export the current plot to, in every format, and copy it.
+    const ex = ${JSON.stringify(process.env.SHOT_EXPORT || '')};
+    if (ex) setTimeout(async () => {
+      const e = App.views.plots.current(), cv = App.views.plots.canvas();
+      for (const fmt of ['png', 'pdf', 'svg', 'tiff', 'jpeg', 'eps']) {
+        const r = await codeome.plots.render({ where: e.where, dir: e.dir, id: e.id, rev: e.rev, fmt, w: cv.w, h: cv.h, res: cv.dpi, bg: cv.bg, out: ex + '/plot.' + fmt });
+        console.warn('export', fmt, JSON.stringify(r));
+      }
+      await App.views.plots.copy();
+      console.warn('code', App.views.plots.code('ggsave'), '|', App.views.plots.code('device'));
+    }, 7000);
+  })(); 0`],
+  // SHOT_PROJECT: an R project; the Packages view with its Python and R sections.
+  packages: [`(async () => {
+    await App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))});
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    document.documentElement.style.setProperty('--side-w', '380px');
+    App.setView('packages');
+  })(); 0`],
   // Two project cards, a file in each, and usage bars from made-up readings.
   projects: [`(async () => {
     const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });

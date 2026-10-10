@@ -202,7 +202,11 @@
         row('On this Mac', text(() => App.cfg.r.local, (v) => { App.cfg.r.local = v.trim() || 'R --no-save --quiet'; }, { label: 'R command on this Mac' }),
           'Starts in the project folder, so .Rprofile and renv load as in RStudio.'),
         row('On the HPC', text(() => App.cfg.r.remote, (v) => { App.cfg.r.remote = v.trim() || 'R --no-save --quiet'; }, { placeholder: 'module load R && R --no-save --quiet', label: 'R command on the HPC' }),
-          'Runs in a login shell. Load modules or a conda environment here if R needs them.')));
+          'Runs in a login shell. Load modules or a conda environment here if R needs them.'),
+        row('Plots', h('div.form',
+          check('Show plots from R consoles in Plots (⌘7)', () => App.cfg.plots.capture !== false, (v) => { App.cfg.plots.capture = v; }),
+          check('Switch to Plots when a plot is drawn', () => App.cfg.plots.show !== false, (v) => { App.cfg.plots.show = v; })),
+          'R consoles started from here draw off-screen, so plots open in Codeome instead of a separate window. For R started some other way, right-click its terminal tab → Show R plots in Codeome.')));
   }
 
   // ---------- agents ----------

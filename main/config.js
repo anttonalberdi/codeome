@@ -21,6 +21,9 @@ const DEFAULTS = {
   },
   // The R console: a command on this Mac, and one on the HPC (e.g. "module load R && R …").
   r: { local: 'R --no-save --quiet', remote: 'R --no-save --quiet' },
+  // The Plots view: capture plots from R consoles, and the canvas they are drawn and exported at.
+  // fit: draw at the size of the panel; otherwise w × h in `unit` (in, cm, mm, px) at dpi.
+  plots: { capture: true, show: true, fit: true, w: 7, h: 5, unit: 'in', dpi: 300, bg: 'white', format: 'pdf' },
   agents: [
     { name: 'Claude Code', cmd: 'claude' },
     { name: 'Codex', cmd: 'codex' }
@@ -40,8 +43,9 @@ const DEFAULTS = {
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   activeProject: null,
-  // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight }
-  ui: { projectsCollapsed: false, panes: {} },
+  // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight };
+  // pkgPanes: the same for the Packages view (python / r), plus shown: true|false for R.
+  ui: { projectsCollapsed: false, panes: {}, pkgPanes: {} },
   recentFolders: []
 };
 

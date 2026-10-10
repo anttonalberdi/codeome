@@ -15,6 +15,12 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **Terminals** — tabs in the bottom panel (`⌘J`): local shells, HPC shells, R consoles (on the Mac or the HPC; the command is set in Settings → R), and Claude Code / Codex sessions on the cluster. Right-click any terminal → *Send R code here* to make it the one R code goes to, e.g. R inside an interactive job. HPC agent sessions run inside `tmux`, so they keep working if the VPN drops and reattach when you reopen them.
 
+**Plots** (`⌘7`) — plots from R consoles started in Codeome (on the Mac or the HPC) open in the Plots view instead of a separate window, RStudio-style. Each plot is kept with its recording, so it can be redrawn at any size afterwards.
+- **Canvas**: *Fit to panel* draws at the panel's size and redraws when you resize it. Presets cover journal widths (89, 120 and 183 mm), a 16:9 slide, a square and A4, or you can type a width and height in in, cm, mm or px. Set the dpi and a white or transparent background. The panel shows the plot at the chosen size, so text and point sizes look as they will in the file. *Actual size* (the magnifier) shows it at print size.
+- **Export** to PNG, PDF, SVG, TIFF, JPEG or EPS at that size and dpi (raster files carry the dpi), or **Copy** it as a PNG. The ⋯ menu copies the matching `ggsave()` call or device code (`pdf(...)` … `dev.off()`) for your script.
+- History: ‹ › or the arrow keys step through plots, the thumbnails jump to one, ⌫ removes one. *Open in a tab* gives a large view with the controls beside it.
+- Redrawing runs in a separate R process with the session's R and libraries, so the console is never interrupted. For R started another way (say, inside an interactive job), right-click its terminal tab → *Show R plots in Codeome*. Settings → R turns this off.
+
 **Agent chat** (`⌘1`) — agent chats per project, instead of separate Claude Code and Codex windows. Behind each chat is a headless Claude Code session acting as the orchestrator. It answers questions and makes small changes itself. For anything bigger it plans the work, checks with you, and hands it to specialists, whether Claude subagents or Codex jobs.
 - Replies are rendered as Markdown. Tool calls appear as one-line entries you can expand. Each specialist job appears as a card with live status; open a card for the job's brief, log and result.
 - Permission prompts, questions and the approval gates appear as buttons in the chat. The selector under the message box sets what the agent may do without asking: *Ask before changes*, *Accept edits*, *Auto* or *Plan only*.
@@ -41,7 +47,10 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **Zenodo** — create drafts, edit metadata, upload files, publish and create new versions (sandbox supported). Tip: link a GitHub repo in Zenodo's GitHub settings and every GitHub release from Codeome gets a DOI.
 
-**Python packages** — list, install, upgrade and remove packages on the Mac or the HPC; build your package and upload it to TestPyPI or PyPI.
+**Packages** (`⌘6`) — stacked sections, like Files: *Python* (pip) and, in R projects, *R libraries*. Each works on the Mac or the HPC.
+- Python: list, install, upgrade and remove packages; build your package and upload it to TestPyPI or PyPI (Publish).
+- R: every library in `.libPaths()` (project renv, user, site, system) as its own group, with each package's version and where it came from (CRAN, Bioconductor, GitHub). Install from CRAN, Bioconductor or GitHub (`user/repo`), update, remove, or load one into the R console. *Check for updates* (⋯) marks outdated packages, and you can update them all at once. R runs in the project folder, so renv projects install into their own library.
+- A project counts as an R project if it has an `.Rproj`, `DESCRIPTION`, `renv.lock`, `.Rprofile` or R / R Markdown files at the top. Right-click a section header to show or hide R libraries anywhere.
 
 Tokens for Zenodo and PyPI are stored encrypted with the macOS Keychain and never shown in the interface.
 
@@ -117,7 +126,7 @@ Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `sftp`, `quarto`, `R
 | `⇧⌘V` | Preview or render current file |
 | `⌘T` / `⇧⌘T` | New local / HPC terminal |
 | `⌘J` | Show or hide terminal panel |
-| `⌘1`–`⌘6` | Agent chat, Files, Slurm, Git, Publish, Python packages |
+| `⌘1`–`⌘7` | Agent chat, Files, Slurm, Git, Publish, Packages, Plots |
 
 ## Project layout
 
@@ -133,11 +142,14 @@ main/          Electron main process
   kit.js         installs/updates the agent kit in a project
   jobs.js        reads agent job records from .codeome/jobs/
   usage.js       Claude/Codex accounts and usage limits; writes ~/.codeome/usage.json
+  rtools.js      R plots (redraw, export) and R libraries; puts main/r/*.R in ~/.cache/codeome on each host
+  r/             plots.R (sourced into R consoles), render.R (redraws a recorded plot), packages.R
   codeome-statusline   Claude Code status line that records rate limits
   preload.js     the bridge the interface is allowed to use
 renderer/      Interface (plain JS, no build step)
   index.html, styles.css
-  js/            one file per area: projects, usage, editor, rmd, terminals, files, slurm, git, publish, pip, chat, agents, settings
+  js/            one file per area: projects, usage, editor, rmd, terminals, files, slurm, git, publish, packages, plots, chat, agents, settings
+                 (stack.js: the stacked sections of Files and Packages)
 kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-agent, manifest.json;
                chat.md, the orchestrator instructions for the Agent chat
 test/          parser tests (npm test) and a screenshot helper
