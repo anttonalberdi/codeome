@@ -163,6 +163,14 @@ test('autoAllow answers a request without the panel being asked, as for Claude',
   assert.ok((await done(s)).stderr.includes('decision="accept"'));
 });
 
+test('auto mode allows command approvals without asking the panel', async () => {
+  const s = session({ mode: 'auto' });
+  s.user('runner');
+  await result(s);
+  assert.ok(!s.messages.some((m) => m.type === 'control_request'));
+  assert.ok((await done(s)).stderr.includes('decision="accept"'));
+});
+
 test('file changes show as one Edit or Write per file, with a permission request naming the files', async () => {
   const s = session();
   s.user('edit');

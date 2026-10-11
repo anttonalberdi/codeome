@@ -88,6 +88,7 @@ class CodexSession extends EventEmitter {
     Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow, instructions, model, effort, addDirs });
     this.resume = resume;
     this.threadId = threadId || (typeof resume === 'string' ? resume : null);
+    this.mode = POLICIES[mode] ? mode : 'default';
     this.policy = POLICIES[mode] || POLICIES.default;
     this.meter = new Meter(meter);
     this.stderr = ''; this.seq = 0; this.calls = new Map(); this.asked = new Map(); this.items = new Map();
@@ -304,6 +305,9 @@ class CodexSession extends EventEmitter {
     const reply = (result) => this.write({ id: m.id, result });
     const ask = (kind, request, extra = {}) => {
       this.asked.set(key, { rpc: m.id, kind, params: p, ...extra });
+      // Auto mode is Claude's "approve without asking": Codex's own reviewer still escalates some
+      // requests to the client, so the host allows commands, edits and access requests here.
+      if (this.mode === 'auto' && (kind === 'command' || kind === 'file' || kind === 'permissions')) return this.respond(key, { behavior: 'allow', updatedInput: request.input });
       this.handle({ type: 'control_request', request_id: key, request: { subtype: 'can_use_tool', tool_use_id: p.itemId, ...request } });
     };
     switch (m.method) {
@@ -363,6 +367,7 @@ class CodexSession extends EventEmitter {
       const p = POLICIES[request.mode];
       if (!p) return { error: `Codex has no equivalent of the permission mode "${request.mode}".` };
       this.policy = p;
+      this.mode = request.mode;
       return {};
     }
     return { error: `Codex chats do not support ${request.subtype || 'this request'}.` };
