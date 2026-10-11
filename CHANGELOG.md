@@ -5,6 +5,14 @@ What changed in each version of Codeome, newest first. The version is the one in
 ## Unreleased
 
 ### Added
+- **Forum**: a new pane in the Agent view, between *Chat* and *Jobs*, where you moderate a discussion between one Claude and one Codex seat on the same transcript. Both see every message, and the ⋯ menu of the Agent view opens it too.
+  - **Hand-raising.** When you post, each seat is asked privately, with a small one-shot call that is not added to the transcript, whether it has something new to say. Seats that do raise a hand with a short reason, shown as a chip with *Allow* and *Dismiss*. Allowed seats speak one at a time. *Auto-allow* lets a number of raised hands (0 to 20, default 0, so you approve every turn) through per message without asking. Each seat can be muted.
+  - **Shared document.** Attach a local `.md` (or `.txt`) file or a `.gdoc` pointer, and it becomes the subject of the discussion. Seats are read-only by default; *Edit…* on a seat asks that seat alone to edit the document for one turn, after which it is read-only again. Codex cannot edit Google Docs, so its button is disabled for a `.gdoc`.
+  - **Long discussions.** Past a token threshold, older messages are folded into a rolling summary, and only recent messages go into the raise-hand checks.
+  - **Usage per seat.** Each seat shows its tokens (spoken turns and checks), with turns, tokens and cost in the tooltip.
+  - Forums are saved under `~/.codeome/forums/`, separate from chat history, and *Forums* lists, reopens and deletes them. A dot on the *Forum* tab marks activity you have not seen.
+- **Settings → Agents → Forum**: the default auto-allow rounds, how large the discussion grows before it is summarised (1,000 to 50,000 tokens, default 6,000), and the models of the raise-hand checks (Claude: Haiku by default; Codex: its own default). Changes apply to forums opened afterwards.
+
 - **Collapsible sidebar and editor**: dragging the separator between the sidebar and the editor past either limit folds that side into a thin band at the edge, which opens it again when clicked. Dragging back also reopens it, and so does picking a view in the left rail while the sidebar is folded away. Only one side folds at a time.
 
 ### Fixed
