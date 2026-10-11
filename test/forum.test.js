@@ -64,6 +64,18 @@ test('parseRaise accepts only a first-line pass or raise and trims reasons', () 
   for (const [input, want] of cases) assert.deepEqual(parseRaise(input), want, input);
 });
 
+test('a seat named at the start of a sentence raises a hand even when its check would pass', async () => {
+  const { forum, calls } = setup();
+  await forum.post('Bob, do you see anything I missed in the IPC handlers?');
+  assert.equal(forum.hands.length, 1);
+  assert.equal(forum.hands[0].seatId, 'b');
+  assert.match(forum.hands[0].reason, /Addressed/);
+  assert.ok(calls.every((call) => call.seat.id !== 'b'));
+  await forum.post('I think Bob has a point, but Alice is right.');
+  assert.equal(forum.hands.length, 0);
+  forum.dispose();
+});
+
 test('post records a message, checks seats in parallel, and cancels stale checks and hands', async () => {
   const pending = [];
   const { forum, calls, events } = setup({ check: (_seat, _prompt, signal) => {

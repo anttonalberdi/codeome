@@ -59,6 +59,14 @@ function parseRaise(text) {
   return reason ? { raise: true, reason } : { raise: false };
 }
 
+const escapeRe = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// True when a message speaks to the seat by name: "@Codex ..." or "Codex, ..." opening a sentence.
+function addresses(text, name) {
+  const n = escapeRe(String(name || '').trim());
+  if (!n) return false;
+  return new RegExp(`(?:@${n}\\b|(?:^|[\\n.!?:]\\s*)${n}\\s*[,:\u2014-])`, 'i').test(String(text || ''));
+}
+
 class Forum extends EventEmitter {
   constructor({ id, project, title, seats = [], makeSession, check, settings = {}, now = Date.now }) {
     super();
@@ -259,9 +267,16 @@ class Forum extends EventEmitter {
       const controller = new AbortController(); controller.seatId = seat.id; this.controllers.add(controller);
       this.seatState(seat, 'checking');
       try {
-        const result = await this.runCheck(seat, this.raisePrompt(seat), controller.signal);
+        // Being asked by name always earns a hand; the check only decides for unaddressed seats.
+        const asker = latest && latest.speaker !== 'user' ? String(this.seat(latest.speaker)?.name || latest.speaker) : 'the moderator';
+        let parsed;
+        if (latest && addresses(latest.text, seat.name)) parsed = { raise: true, reason: `Addressed by ${asker}`.slice(0, 200) };
+        else {
+          const result = await this.runCheck(seat, this.raisePrompt(seat), controller.signal);
+          if (controller.signal.aborted || round !== this.round || seat.muted) return;
+          parsed = parseRaise(result.text);
+        }
         if (controller.signal.aborted || round !== this.round || seat.muted) return;
-        const parsed = parseRaise(result.text);
         if (!parsed.raise) return;
         const old = this.hands.find((hand) => hand.seatId === seat.id);
         if (old) this.dismiss(old.id);
