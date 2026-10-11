@@ -332,6 +332,16 @@ def hold(why):
     sys.exit(EX_LIMIT)
 
 
+def linked_dirs():
+    """Folders of the projects connected to this one (Codeome sets CODEOME_LINKED), as writable extras."""
+    out = []
+    for d in os.environ.get('CODEOME_LINKED', '').split(os.pathsep):
+        d = d.strip()
+        if d and os.path.isdir(d) and os.path.realpath(d) != os.path.realpath(ROOT) and d not in out:
+            out.append(d)
+    return out
+
+
 def cmd_codex(a):
     brief = read_text(a.brief_file) if a.brief_file else sys.stdin.read()
     if not brief.strip():
@@ -371,6 +381,9 @@ def cmd_codex(a):
         argv = [codex, 'exec', 'resume', a.resume, '-c', 'sandbox_mode="%s"' % sandbox, '-o', result]
     else:
         argv = [codex, 'exec', '-C', workdir, '-s', sandbox, '-o', result]
+        if sandbox == 'workspace-write':
+            for d in linked_dirs():
+                argv += ['--add-dir', d]
     model = a.model or configured_model(role)
     if model:
         argv += ['-m', model]
