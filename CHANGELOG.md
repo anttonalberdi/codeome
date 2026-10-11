@@ -2,6 +2,15 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Collapsible sidebar and editor**: dragging the separator between the sidebar and the editor past either limit folds that side into a thin band at the edge, which opens it again when clicked. Dragging back also reopens it, and so does picking a view in the left rail while the sidebar is folded away. Only one side folds at a time.
+
+### Fixed
+- *Settings → This Mac* no longer shows a stray "null" under the Claude Code and Codex versions.
+- Pop-up messages in the bottom-right corner follow the dark theme instead of showing white.
+
 ## 0.3.3
 
 ### Added

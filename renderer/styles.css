@@ -34,9 +34,11 @@
   }
   :root:not([data-theme="light"]) .ptint { --p-soft: hsl(var(--ph) 22% 27%); --p-ink: hsl(var(--ph) 45% 82%); --p-strong: hsl(var(--ph) 45% 66%); }
   :root:not([data-theme="light"]) :is(.chat-log, #panel, .flist:not(.dropping), .xf-qbody, .transfers) { background: var(--bg); }
+  :root:not([data-theme="light"]) .toast:not(.err) { background: var(--surface-2); color: var(--text); border: 1px solid var(--line-strong); }
 }
 :root[data-theme="dark"] .ptint { --p-soft: hsl(var(--ph) 22% 27%); --p-ink: hsl(var(--ph) 45% 82%); --p-strong: hsl(var(--ph) 45% 66%); }
 :root[data-theme="dark"] :is(.chat-log, #panel, .flist:not(.dropping), .xf-qbody, .transfers) { background: var(--bg); }
+:root[data-theme="dark"] .toast:not(.err) { background: var(--surface-2); color: var(--text); border: 1px solid var(--line-strong); }
 :root[data-theme="dark"] {
   --bg: #1a1f26; --surface: #20262e; --surface-2: #252c35; --line: #2f3742; --line-strong: #3d4754;
   --text: #d9dee5; --muted: #8792a2; --accent: #9cc59f; --accent-soft: #2c3b30;
@@ -59,6 +61,15 @@ svg { width: 18px; height: 18px; display: block; }
   grid-template-areas: "tb tb tb tb tb" "proj rail side rs main";
 }
 #app.proj-collapsed { --proj-w: 56px; }
+/* Dragged past the sidebar's widest, the editor and terminal fold into a thin band at the right edge. */
+#app.main-collapsed { grid-template-columns: var(--proj-w) var(--rail-w) 1fr 4px 22px; }
+#app.main-collapsed #main { display: none; }
+#main-band, #side-band { display: grid; place-items: center; align-content: center; border: 0; background: var(--surface-2); color: var(--muted); cursor: pointer; padding: 0; }
+#main-band { grid-area: main; border-left: 1px solid var(--line); }
+#side-band { grid-area: side; border-right: 1px solid var(--line); }
+#main-band:hover, #side-band:hover { background: var(--accent-soft); color: var(--text); }
+#app.side-collapsed { grid-template-columns: var(--proj-w) var(--rail-w) 22px 4px 1fr; }
+#app.side-collapsed #sidebar { display: none; }
 /* A project's color (--ph, a hue) as a soft fill, the text on it, and a strong mark. */
 .ptint { --p-soft: hsl(var(--ph) 36% 88%); --p-ink: hsl(var(--ph) 45% 27%); --p-strong: hsl(var(--ph) 50% 42%); }
 

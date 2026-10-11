@@ -831,7 +831,8 @@
           up.url ? btn('View release', () => codeome.shell.open(up.url)) : btn('Update…', () => App.setup.updateClis([up]).then((ok) => ok && S.open('mac'))))
           : stepRow('ok', label, r.installed[e] ? `${r.installed[e]}${r.error ? '' : ', up to date'}` : 'Installed');
       });
-      versions.replaceChildren(...rows, r.error ? h('span.hint', 'Lookup failed: ' + r.error) : null);
+      if (r.error) rows.push(h('span.hint', 'Lookup failed: ' + r.error));
+      versions.replaceChildren(...rows);
     };
     App.setup.checkClis().then(showVersions);
     return section('mac', 'This Mac', 'Command-line tools Codeome looked for on your login shell\'s PATH.',

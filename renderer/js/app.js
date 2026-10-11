@@ -136,10 +136,31 @@
 
   // ---------- sidebar resize ----------
   function initResize() {
-    const rz = document.getElementById('sidebar-resizer');
+    const rz = document.getElementById('sidebar-resizer'), app = document.getElementById('app');
+    const mainBand = document.getElementById('main-band'), sideBand = document.getElementById('side-band');
+    const MIN = 220, MAX = 760, SNAP = 70;   // dragging this far past either limit folds that side away
+    const setW = (px) => document.documentElement.style.setProperty('--side-w', px + 'px');
+    // state: 'both' (normal), 'main' (editor and terminal folded away), 'side' (sidebar folded away)
+    const show = (state) => {
+      app.classList.toggle('main-collapsed', state === 'main'); mainBand.hidden = state !== 'main';
+      app.classList.toggle('side-collapsed', state === 'side'); sideBand.hidden = state !== 'side';
+      App.views.editor.layout();
+    };
+    const state = () => app.classList.contains('main-collapsed') ? 'main' : app.classList.contains('side-collapsed') ? 'side' : 'both';
+    mainBand.addEventListener('click', () => { setW(420); show('both'); });
+    sideBand.addEventListener('click', () => { setW(300); show('both'); });
+    // Picking a view in the rail while the sidebar is folded away opens it again.
+    document.getElementById('rail').addEventListener('click', () => { if (state() === 'side') { setW(300); show('both'); } }, true);
     rz.addEventListener('mousedown', (e) => {
-      const start = e.clientX, w = document.getElementById('sidebar').getBoundingClientRect().width;
-      const move = (ev) => document.documentElement.style.setProperty('--side-w', Math.max(220, Math.min(760, w + ev.clientX - start)) + 'px');
+      const start = e.clientX, s0 = state();
+      const w = s0 === 'main' ? MAX : s0 === 'side' ? MIN : document.getElementById('sidebar').getBoundingClientRect().width;
+      const move = (ev) => {
+        const raw = w + ev.clientX - start;
+        if (raw > MAX + SNAP) return show('main');
+        if (raw < MIN - SNAP) return show('side');
+        setW(Math.max(MIN, Math.min(MAX, raw)));
+        show('both');
+      };
       const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); App.views.editor.layout(); };
       addEventListener('mousemove', move); addEventListener('mouseup', up);
     });
