@@ -55,6 +55,7 @@ const DEFAULTS = {
   // codexModel/codexEffort: the same for chats on Codex ('' leaves them to Codex).
   // contextWarnAt: a chat suggests starting a new one once its context window is this full (%).
   chat: { model: 'sonnet', modelPicked: false, effort: '', codexModel: '', codexEffort: '', quick: ['Commit, push and deploy'], contextWarnAt: 70 },
+  forum: { defaultBudget: 0, summaryTokens: 6000, recentMessages: 8, checkModel: 'haiku', codexCheckModel: '', checkEffort: 'low', checkTimeoutMs: 30000 },
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   projectColors: {},      // project → hue (0–359) of its card and title-bar tag; picked when first opened
@@ -78,17 +79,32 @@ function deepMerge(base, over) {
   return out;
 }
 
+function forumSettings(value) {
+  const forum = deepMerge(DEFAULTS.forum, value);
+  for (const [key, lo, hi] of [['defaultBudget', 0, 20], ['summaryTokens', 1000, 50000], ['recentMessages', 2, 30], ['checkTimeoutMs', 1000, 120000]]) {
+    const n = Number(forum[key]);
+    forum[key] = Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.floor(n))) : DEFAULTS.forum[key];
+  }
+  if (!['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(forum.checkEffort)) forum.checkEffort = 'low';
+  for (const key of ['checkModel', 'codexCheckModel'])
+    if (typeof forum[key] !== 'string' || forum[key].length > 100) forum[key] = DEFAULTS.forum[key];
+  return forum;
+}
+
 function load() {
   try {
     const saved = JSON.parse(fs.readFileSync(file('config.json'), 'utf8'));
     // An empty model saved before Sonnet became the default was never a choice.
     if (saved.chat && saved.chat.model === '' && !saved.chat.modelPicked) delete saved.chat.model;
-    return deepMerge(DEFAULTS, saved);
+    const cfg = deepMerge(DEFAULTS, saved);
+    cfg.forum = forumSettings(cfg.forum);
+    return cfg;
   }
   catch { return JSON.parse(JSON.stringify(DEFAULTS)); }
 }
 
 function save(cfg) {
+  cfg.forum = forumSettings(cfg.forum);
   fs.mkdirSync(app.getPath('userData'), { recursive: true });
   fs.writeFileSync(file('config.json'), JSON.stringify(cfg, null, 2));
   return cfg;

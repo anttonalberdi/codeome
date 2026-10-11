@@ -23,6 +23,7 @@ const { Meter } = require('./stats');
 
 const PROMPT = path.join(__dirname, '..', 'kit', 'chat.md');
 const PROMPT_CODEX = path.join(__dirname, '..', 'kit', 'chat-codex.md');
+const PROMPT_FORUM = path.join(__dirname, '..', 'kit', 'forum.md');
 const ENGINES = ['claude', 'codex'];
 const engineOf = (e) => (ENGINES.includes(e) ? e : 'claude');
 const MODES = ['default', 'acceptEdits', 'auto', 'plan'];
@@ -95,6 +96,10 @@ function codexPrompt({ kitInstalled, linked = [], hpc = null } = {}) {
   return systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8')) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex');
 }
 
+function forumPrompt() {
+  return fs.readFileSync(PROMPT_FORUM, 'utf8');
+}
+
 // The configured command's extra words with a value chosen in Settings, which wins
 // over the same flag in the command. '' keeps the command as it is.
 function withFlag(extra, flag, value) {
@@ -112,9 +117,9 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
 // linked: folders of the projects connected to this one. hpc: the HPC settings (host, agentRoot).
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null }) {
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, prompt }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', systemPrompt(kitInstalled) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc)];
+    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', prompt === undefined ? systemPrompt(kitInstalled) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) : prompt];
   for (const d of linked) args.push('--add-dir', d);
   args.push(resume ? '--resume' : '--session-id', id);
   if (mode && mode !== 'default' && MODES.includes(mode)) args.push('--permission-mode', mode);
@@ -297,4 +302,4 @@ function moveSession(fromDir, toDir, id) {
   if (fs.existsSync(path.join(root, folder, id))) fs.cpSync(path.join(root, folder, id), path.join(dest, id), { recursive: true });
 }
 
-module.exports = { Session, ENGINES, engineOf, systemPrompt, codexPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };
+module.exports = { Session, ENGINES, engineOf, systemPrompt, codexPrompt, forumPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };

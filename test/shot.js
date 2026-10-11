@@ -90,6 +90,40 @@ const steps = {
   diff: [`App.views.editor.diff({key:'d',title:'x.R',original:'a <- 1\\nb <- 2\\n',modified:'a <- 1\\nb <- 3\\nc <- 4\\n',lang:'r'}); 0`],
   // SHOT_PROJECT: a folder with the agent kit installed and some jobs recorded.
   agents: [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { App.setView('agents'); setTimeout(() => { const j = App.views.agents.jobs.find((x) => x.engine === 'codex'); if (j) App.views.agents.openJob(j); }, 1200); }); 0`],
+  // Run: npx electron test/shot.js <outdir> forum; use SHOT_DARK=1 for the dark theme.
+  forum: [`(async () => {
+    const project = ${JSON.stringify(path.resolve(__dirname, '..'))};
+    await App.openProject(project);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    document.documentElement.style.setProperty('--side-w', '430px');
+    App.setView('agents'); App.views.agents.show('forum');
+    const now = Date.now(), at = (n) => now - (8 - n) * 60000;
+    App.views.forum.demo({ id: '00000000-0000-4000-8000-000000000001', project, title: 'Release readiness review',
+      seats: [
+        { id: 'claude-1', engine: 'claude', name: 'Claude', muted: false, state: 'speaking' },
+        { id: 'codex-1', engine: 'codex', name: 'Codex', muted: false, state: 'idle' }
+      ],
+      transcript: [
+        { id: 'm1', at: at(1), speaker: 'user', kind: 'message', text: 'Can we ship **v0.4** on Friday? Check the migration and release notes.' },
+        { id: 'm2', at: at(2), speaker: 'claude-1', kind: 'message', text: 'The release notes cover the API changes. The remaining risk is the **database migration** on older projects.' },
+        { id: 'm3', at: at(3), speaker: 'codex-1', kind: 'message', text: 'I ran the migration tests locally. All **42 tests pass**, including the rollback path.' },
+        { id: 's1', at: at(4), speaker: 'system', kind: 'summary', text: 'The team reviewed the API changes and migration. Tests pass; the rollback instructions still need a documentation pass.' },
+        { id: 'm4', at: at(5), speaker: 'user', kind: 'message', text: 'Please check the rollback section in the attached document too.' },
+        { id: 'm5', at: at(6), speaker: 'claude-1', kind: 'message', text: 'I found one gap: the recovery step should mention the backup path. I can edit the document on request.' },
+        { id: 'm6', at: at(7), speaker: 'codex-1', kind: 'message', text: 'Suggested checklist:\\n- Verify the backup\\n- Run the migration\\n- Test a rollback on a copy' }
+      ],
+      hands: [
+        { id: 'h1', seatId: 'claude-1', reason: 'I can tighten the rollback wording.', msgId: 'm6' },
+        { id: 'h2', seatId: 'codex-1', reason: 'I have one extra test case to propose.', msgId: 'm6' }
+      ],
+      budget: 0, budgetLimit: 2, summary: '',
+      usage: {
+        'claude-1': { turns: 3, input: 4920, output: 960, cacheRead: 12000, costUsd: 0.24, checks: 4, checkTokens: 520 },
+        'codex-1': { turns: 2, input: 2860, output: 720, cacheRead: 4000, costUsd: 0.11, checks: 3, checkTokens: 310 }
+      },
+      doc: { kind: 'md', path: project + '/README.md' }
+    });
+  })(); 0`],
   settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(${JSON.stringify(process.env.SHOT_SECTION || '')}); 0`],
   // The HPC setup checklist; SHOT_TEST also runs the key test.
   'settings-hpc': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('hpc').then(() => { if (!${JSON.stringify(process.env.SHOT_TOP || '')}) setTimeout(() => document.querySelector('.su-list').scrollIntoView(), 600); }); if (${JSON.stringify(process.env.SHOT_TEST || '')}) setTimeout(() => App.setup.testLogin(), 800); if (${JSON.stringify(process.env.SHOT_VPN || '')}) setTimeout(() => App.setup.testVpn(), 800); 0`],

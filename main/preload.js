@@ -98,6 +98,23 @@ contextBridge.exposeInMainWorld('codeome', {
     delete: (project, id) => ipcRenderer.invoke('chat:delete', { project, id }),
     onEvent: on('chat:event'), onExit: on('chat:exit')
   },
+  forum: {
+    create: invoke('forum:create'), open: (project, id) => ipcRenderer.invoke('forum:open', { project, id }),
+    list: invoke('forum:list'), close: (id) => ipcRenderer.invoke('forum:close', { id }),
+    delete: (project, id) => ipcRenderer.invoke('forum:delete', { project, id }),
+    rename: (id, title) => ipcRenderer.invoke('forum:rename', { id, title }),
+    post: (id, text) => ipcRenderer.invoke('forum:post', { id, text }),
+    allow: (id, handId) => ipcRenderer.invoke('forum:allow', { id, handId }),
+    dismiss: (id, handId) => ipcRenderer.invoke('forum:dismiss', { id, handId }),
+    mute: (id, seatId, muted) => ipcRenderer.invoke('forum:mute', { id, seatId, muted }),
+    stop: (id) => ipcRenderer.invoke('forum:stop', { id }),
+    setBudget: (id, n) => ipcRenderer.invoke('forum:setBudget', { id, n }),
+    setSettings: (id, settings) => ipcRenderer.invoke('forum:setSettings', { id, settings }),
+    attachDoc: (id, file) => ipcRenderer.invoke('forum:attachDoc', { id, file }),
+    detachDoc: (id) => ipcRenderer.invoke('forum:detachDoc', { id }),
+    grantWrite: (id, seatId, instruction) => ipcRenderer.invoke('forum:grantWrite', { id, seatId, instruction }),
+    onEvent: on('forum:event')
+  },
   stats: { get: invoke('stats:get') },
   usage: {
     get: invoke('usage:get'), refresh: invoke('usage:refresh'), found: invoke('usage:found'),

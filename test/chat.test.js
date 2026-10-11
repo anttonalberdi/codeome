@@ -33,6 +33,14 @@ test('arguments start a new session or resume one, with the configured extras fi
   assert.ok(!chat.buildArgs({ id: ID, mode: 'bogus' }).includes('--permission-mode'));
 });
 
+test('an explicit prompt replaces the chat, connected project and HPC instructions', () => {
+  const options = { id: ID, kitInstalled: true, linked: ['/w/api'], hpc: { host: 'myhpc' } };
+  const appended = (args) => args[args.indexOf('--append-system-prompt') + 1];
+  assert.strictEqual(appended(chat.buildArgs({ ...options, prompt: 'Forum instructions' })), 'Forum instructions');
+  assert.strictEqual(appended(chat.buildArgs({ ...options, prompt: '' })), '');
+  assert.strictEqual(appended(chat.buildArgs(options)), chat.systemPrompt(true) + chat.linkedPrompt(['/w/api'], true) + chat.hpcPrompt({ host: 'myhpc' }));
+});
+
 test('connected projects are added as folders and named in the prompt', () => {
   const plain = chat.buildArgs({ id: ID, kitInstalled: true });
   assert.ok(!plain.includes('--add-dir'));
@@ -207,6 +215,13 @@ test('a Codex chat has its own prompt, with the notes on connected projects and 
   assert.ok(!solo.includes('codeome-agent codex') && !solo.includes('## Connected projects'));
   // The Claude prompt is unchanged by the engine.
   assert.ok(chat.systemPrompt(true).includes('Agent tool'));
+});
+
+test('forum participants have a separate moderated discussion prompt', () => {
+  const prompt = chat.forumPrompt();
+  assert.match(prompt, /moderat/i);
+  assert.match(prompt, /read-only/);
+  assert.doesNotMatch(prompt, /Codeome|\bjobs\b|\bskills\b/i);
 });
 
 test('a saved chat remembers its engine, and older ones are Claude', () => {

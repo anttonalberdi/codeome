@@ -14,6 +14,7 @@ const usage = require('./usage');
 const stats = require('./stats');
 const { CodexSession } = require('./codexchat');
 const chat = require('./chat');
+const { createHost } = require('./forumhost');
 const rtools = require('./rtools');
 const setup = require('./setup');
 const updates = require('./updates');
@@ -668,35 +669,40 @@ const claudeCmd = () => (cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || 
 
 const codexCmd = () => (cfg.agents.find((a) => /^codex(\s|$)/.test(a.cmd)) || { cmd: 'codex' }).cmd;
 
+function createAgentSession({ id, project, engine, account, resume, mode, meter, forum = false }) {
+  let kitInstalled = false;
+  try { kitInstalled = kit.status(project).installed; } catch {}
+  const command = engine === 'codex' ? codexCmd() : claudeCmd();
+  const acct = launchOn(engine, account, command);
+  const dir = (cfg.accounts[engine].list.find((a) => a.name === acct.info.name) || {}).dir || '';
+  const [bin, ...extra] = command.trim().split(/\s+/);
+  const env = augmentedEnv({ ...userSecretEnv('agents', project), ...acct.env, TERM_PROGRAM: 'Codeome' });
+  for (const k of acct.unset) delete env[k];
+  // The projects connected to this one: their folders, and (Claude) their CLAUDE.md files too.
+  const linked = ((cfg.projectLinks || {})[project] || []).filter((d) => d !== project && fs.existsSync(d));
+  // The job runner makes them writable for the Codex specialists it starts.
+  if (linked.length) env.CODEOME_LINKED = linked.join(path.delimiter);
+  const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
+  const meterOpt = resume ? { ...(meter || {}), resumed: true } : {};
+  let s;
+  if (engine === 'codex') {
+    const c = cfg.chat || {};
+    s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked,
+      instructions: forum ? chat.forumPrompt() : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc }), model: c.codexModel || '', effort: c.codexEffort || '' });
+  } else {
+    if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
+    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, ...(forum ? { prompt: chat.forumPrompt() } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt });
+    s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
+  }
+  return { s, acct, dir };
+}
+
 ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, engine: asked }) => {
   if (chats.has(id)) return { ok: true };
   if (!project || !fs.existsSync(project)) return { error: 'Project folder not found.' };
   const engine = chat.engineOf(asked);
   try {
-    let kitInstalled = false;
-    try { kitInstalled = kit.status(project).installed; } catch {}
-    const command = engine === 'codex' ? codexCmd() : claudeCmd();
-    const acct = launchOn(engine, account, command);
-    const dir = (cfg.accounts[engine].list.find((a) => a.name === acct.info.name) || {}).dir || '';
-    const [bin, ...extra] = command.trim().split(/\s+/);
-    const env = augmentedEnv({ ...userSecretEnv('agents', project), ...acct.env, TERM_PROGRAM: 'Codeome' });
-    for (const k of acct.unset) delete env[k];
-    // The projects connected to this one: their folders, and (Claude) their CLAUDE.md files too.
-    const linked = ((cfg.projectLinks || {})[project] || []).filter((d) => d !== project && fs.existsSync(d));
-    // The job runner makes them writable for the Codex specialists it starts.
-    if (linked.length) env.CODEOME_LINKED = linked.join(path.delimiter);
-    const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
-    const meterOpt = resume ? { ...(meter || {}), resumed: true } : {};
-    let s;
-    if (engine === 'codex') {
-      const c = cfg.chat || {};
-      s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked,
-        instructions: chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc }), model: c.codexModel || '', effort: c.codexEffort || '' });
-    } else {
-      if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-      s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc }), env, autoAllow, meter: meterOpt });
-      s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
-    }
+    const { s, acct } = createAgentSession({ id, project, engine, account, resume, mode, meter });
     s.on('message', (msg) => send('chat:event', { id, msg }));
     // Codex limits are read from its app-server by the usage poll, so only Claude's are recorded here.
     s.on('turn', (t) => { try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, engine, ...t }); } catch (e) { console.error('chat stats', e); } });
@@ -706,6 +712,11 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     return { ok: true, account: acct.info };
   } catch (e) { return { error: String(e.message || e) }; }
 });
+
+const forumHost = createHost({ getCfg: () => cfg, send, claudeCmd, codexCmd, launchOn, stats,
+  makeAgentSession: (seat, project) => createAgentSession({ id: seat.sessionId, project, engine: seat.engine,
+    account: seat.account, resume: !!seat.started, mode: 'plan', forum: true }).s });
+forumHost.register(ipcMain);
 // Move a stopped conversation to another Claude account, where its next message resumes it.
 ipcMain.handle('chat:move', (_e, { id, from, to, engine }) => {
   if (chat.engineOf(engine) === 'codex') return { error: 'Codex chats can\'t change account yet.' };
@@ -908,5 +919,5 @@ app.whenReady().then(() => {
   startUsage();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => { clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); });
-app.on('window-all-closed', () => { stopLogins(); if (tunnel) tunnel.stop(); for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { forumHost.disposeAll(); clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); });
+app.on('window-all-closed', () => { forumHost.disposeAll(); stopLogins(); if (tunnel) tunnel.stop(); for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });
