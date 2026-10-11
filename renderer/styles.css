@@ -102,7 +102,7 @@ svg { width: 18px; height: 18px; display: block; }
 .ps-jobs i { width: 6px; height: 6px; border-radius: 50%; background: var(--run); animation: pulse 1.2s ease-in-out infinite; }
 .ps-dirty { color: var(--pend); }
 .ps-wait { color: var(--pend); font-weight: 600; }
-.ps-done { color: var(--accent); }
+.ps-done { color: var(--accent); font-weight: 600; }
 .pg { display: flex; flex-direction: column; gap: 3px; }
 .pg + .pg, .pg + .proj { margin-top: 5px; }
 .pg-head { display: flex; align-items: center; gap: 4px; min-width: 0; height: 24px; padding: 0 6px 0 3px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; text-align: left; }

@@ -566,10 +566,18 @@
     }
   }
 
+  // A specialist that ends after the turn is over (or while the user is elsewhere) leaves
+  // the chat flagged as having news, so the project card can say so.
+  function jobFinished(chat) {
+    if (chat.busy || seen(chat) || chat.unread) return;
+    chat.unread = true;
+    paintState(); App.emit('sessions'); save(chat);
+  }
+
   function taskEnded(chat, toolUseId, status) {
     const it = chat.tools[toolUseId];
     if (!it) return;
-    if (it.t === 'job' && it.status === 'running') { it.status = status === 'completed' ? 'done' : status === 'killed' ? 'cancelled' : 'failed'; it.endedAt = Date.now(); }
+    if (it.t === 'job' && it.status === 'running') { jobFinished(chat); it.status = status === 'completed' ? 'done' : status === 'killed' ? 'cancelled' : 'failed'; it.endedAt = Date.now(); }
     if (it.t === 'tool') it.done = true;
     update(chat, it);
     App.views.agents.refreshSoon();
@@ -590,7 +598,7 @@
       }
       if (j) {
         const status = j.limitHit ? 'held' : j.status;
-        if (status !== it.status && status !== 'stale') { it.status = status; if (status !== 'running') it.endedAt = Date.parse(j.endedAt) || Date.now(); }
+        if (status !== it.status && status !== 'stale') { if (it.status === 'running' && status !== 'running' && status !== 'held') jobFinished(chat); it.status = status; if (status !== 'running') it.endedAt = Date.parse(j.endedAt) || Date.now(); }
         it.account = j.account;
       }
       if (it.status === 'running' || j) update(chat, it);

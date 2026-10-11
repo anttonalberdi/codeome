@@ -384,7 +384,7 @@
       cs.waiting ? h('span.ps-wait', `${cs.waiting > 1 ? cs.waiting + ' chats need' : 'agent needs'} you`) : null,
       working ? h('span.ps-jobs', h('i'), workingText) : null,
       jobs ? h('span.ps-jobs', working ? null : h('i'), `${jobs} job${jobs > 1 ? 's' : ''}`) : null,
-      cs.unread ? h('span.ps-done', `${cs.unread} repl${cs.unread > 1 ? 'ies' : 'y'} ready`) : null,
+      cs.unread ? h('span.ps-done', `✓ ${cs.unread > 1 ? cs.unread + ' tasks' : 'task'} finished`) : null,
       sessions ? h('span', `${sessions} session${sessions > 1 ? 's' : ''}`) : null,
       unsaved ? h('span.ps-dirty', `${unsaved} unsaved`) : null
     ].filter(Boolean);
