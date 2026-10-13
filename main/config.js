@@ -35,6 +35,9 @@ const DEFAULTS = {
   ],
   python: { local: 'python3', remote: 'python3' },
   zenodo: { sandbox: false },
+  // Claude Code sessions started by Codeome: leave Claude's co-author trailer and "Generated with
+  // Claude Code" line out of commits and pull requests (passed with --settings; your files are untouched).
+  claude: { noCoAuthor: true },
   // Your own secrets, by name: { name, note, terminals, agents, projects }. The values are in the
   // Keychain-encrypted store; see secrets.js for where each is set as an environment variable.
   secrets: [],

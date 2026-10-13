@@ -112,10 +112,11 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
 // linked: folders of the projects connected to this one. hpc: the HPC settings (host, agentRoot).
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null }) {
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, settings = '' }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', systemPrompt(kitInstalled) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc)];
   for (const d of linked) args.push('--add-dir', d);
+  if (settings) args.push('--settings', settings);
   args.push(resume ? '--resume' : '--session-id', id);
   if (mode && mode !== 'default' && MODES.includes(mode)) args.push('--permission-mode', mode);
   return args;

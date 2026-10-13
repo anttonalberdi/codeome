@@ -694,7 +694,7 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
         instructions: chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc }), model: c.codexModel || '', effort: c.codexEffort || '' });
     } else {
       if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-      s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc }), env, autoAllow, meter: meterOpt });
+      s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings }), env, autoAllow, meter: meterOpt });
       s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
     }
     s.on('message', (msg) => send('chat:event', { id, msg }));
@@ -825,6 +825,8 @@ async function refreshUsage(full) {
 
 // Which account a new session uses: the requested one, or (auto) the active one
 // while it has headroom and otherwise the account with the most.
+const noCoAuthor = () => !cfg.claude || cfg.claude.noCoAuthor !== false;
+
 function launchOn(engine, requested, command) {
   readClaudeUsage();
   const list = accountsOf(engine);
@@ -837,6 +839,7 @@ function launchOn(engine, requested, command) {
     chosen = p.account || p.from || list[0];
     info = { switched: !!p.switched, from: p.from && p.from.name, blocked: !!p.blocked };
   }
+  if (engine === 'claude' && statusline) { try { usage.writeSettings(statusline, noCoAuthor()); } catch (e) { console.error('claude settings', e); } }
   const l = usage.launch(engine, chosen ? chosen.dir : '', command, engine === 'claude' && statusline ? statusline.settings : null);
   return { ...l, info: { name: chosen ? chosen.name : null, level: chosen ? chosen.level : null, ...(info || {}) } };
 }
@@ -860,7 +863,7 @@ ipcMain.handle('usage:setActive', (_e, { engine, name }) => {
 });
 
 function startUsage() {
-  try { statusline = usage.installStatusline(path.join(__dirname, 'codeome-statusline')); } catch (e) { console.error('statusline', e); }
+  try { statusline = usage.installStatusline(path.join(__dirname, 'codeome-statusline'), noCoAuthor()); } catch (e) { console.error('statusline', e); }
   refreshUsage(true);
   // Both CLIs are asked every few minutes; between two checks, Claude readings are also
   // files a running session's status line rewrites.

@@ -238,17 +238,25 @@ function launch(engine, dir, command, settingsFile) {
 }
 
 // Install the status line script and the settings file that points to it.
-function installStatusline(scriptSource) {
+function installStatusline(scriptSource, noCoAuthor = true) {
   const bin = path.join(home(), 'bin', 'codeome-statusline');
   const settings = path.join(home(), 'claude-settings.json');
   fs.mkdirSync(path.dirname(bin), { recursive: true });
   const src = fs.readFileSync(scriptSource, 'utf8');
   let cur = null; try { cur = fs.readFileSync(bin, 'utf8'); } catch {}
   if (cur !== src) { fs.writeFileSync(bin, src); fs.chmodSync(bin, 0o755); }
-  const want = JSON.stringify({ statusLine: { type: 'command', command: `python3 ${q(bin)}`, padding: 0 } }, null, 2) + '\n';
-  let curS = null; try { curS = fs.readFileSync(settings, 'utf8'); } catch {}
-  if (curS !== want) fs.writeFileSync(settings, want);
+  writeSettings({ bin, settings }, noCoAuthor);
   return { bin, settings };
+}
+
+// The settings file passed to Claude with --settings: the status line and, when asked, no
+// Claude co-author trailer on commits and no "Generated with Claude Code" line on pull requests.
+function writeSettings({ bin, settings }, noCoAuthor) {
+  const o = { statusLine: { type: 'command', command: `python3 ${q(bin)}`, padding: 0 } };
+  if (noCoAuthor) { o.attribution = { commit: '', pr: '' }; o.includeCoAuthoredBy = false; }
+  const want = JSON.stringify(o, null, 2) + '\n';
+  let cur = null; try { cur = fs.readFileSync(settings, 'utf8'); } catch {}
+  if (cur !== want) fs.writeFileSync(settings, want);
 }
 
 // The shared picture codeome-agent reads.
@@ -272,4 +280,4 @@ function codexModels(dir) {
   return { default: def, models };
 }
 
-module.exports = { codexModels, isEmail, folderFor, signInState, findFolders, ENV_VAR, DEFAULT_DIR, STALE_S, home, normDir, accountKey, codexWindows, claudeWindows, claudeUsageLimits, windowPct, level, pick, readClaude, queryCodex, queryClaude, claudeIdentity, launch, installStatusline, writeSnapshot };
+module.exports = { codexModels, isEmail, folderFor, signInState, findFolders, ENV_VAR, DEFAULT_DIR, STALE_S, home, normDir, accountKey, codexWindows, claudeWindows, claudeUsageLimits, windowPct, level, pick, readClaude, queryCodex, queryClaude, claudeIdentity, launch, installStatusline, writeSettings, writeSnapshot };
