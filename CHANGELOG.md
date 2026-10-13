@@ -2,15 +2,21 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 0.3.4
 
 ### Added
 - **Specialist personas**: the empty agent chat lists specialists (*Analyst*, *Coder*, *Manuscript writer*) instead of only example sentences. Picking one starts the chat with that specialist's instructions in place of the default agent's; typing without picking works as before. The choice locks when the first message is sent and is shown on the chat tab next to the engine and in the chat history. The Manuscript writer always uses Claude, as the Google Docs connectors are Claude-only, so picking it selects Claude and locks the engine choice. Personas are files in `kit/personas/` that ship with the app and are not installed into projects.
 - **No Claude co-author trailer**: *Settings → Agents → Commits* has a *Remove the Claude co-author trailer* option, on by default. While it is on, Claude Code sessions started by Codeome on this Mac (chats and terminals) add no `Co-Authored-By: Claude` trailer to commits and no "Generated with Claude Code" line to pull requests. It is passed to Claude with `--settings`, so your own Claude settings files are untouched, and it applies to sessions started after the change.
 - **Scratchpad**: each project has a single free-form page for notes and reminders (such as what to ask an agent next), shown under the project's name and path whenever no file is open. It saves as you type. It replaces the row of shortcut buttons and the keyboard overview that used to fill that space.
 - **Collapsible sidebar and editor**: dragging the separator between the sidebar and the editor past either limit folds that side into a thin band at the edge, which opens it again when clicked. Dragging back also reopens it, and so does picking a view in the left rail while the sidebar is folded away. Only one side folds at a time.
+- **Chat overview**: right-clicking a chat tab shows the conversation as a time tree, with job branches, plan boxes, timestamps and token counts.
+
+### Changed
+- Codex chats in Auto mode allow command, edit and access requests without asking.
+- The Analyst and Report writer roles use ggplot2 (R) and matplotlib (Python) as the default plotting libraries, and fall back to a project `.venv` when matplotlib is missing.
 
 ### Fixed
+- An account chosen with *Make active* stays active: later settings saves no longer revert it.
 - A Codex job that ends in a project you are not looking at now raises that project card's "task finished" marker, as a Claude subagent already did. Codex jobs are followed in every open project, not only the active one.
 - *Settings → This Mac* no longer shows a stray "null" under the Claude Code and Codex versions.
 - Pop-up messages in the bottom-right corner follow the dark theme instead of showing white.
