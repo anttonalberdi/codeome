@@ -108,29 +108,31 @@
   }
 
   // ---------- welcome ----------
+  // One free-form page per project, kept in the settings and saved as you type.
+  function scratchpad(dir) {
+    let timer = null;
+    const ta = h('textarea.scratchpad', {
+      value: (App.cfg.scratchpads || {})[dir] || '', spellcheck: 'false',
+      placeholder: 'Scratchpad: notes, reminders, what to ask the agents next…',
+      oninput: () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          App.cfg.scratchpads = { ...(App.cfg.scratchpads || {}), [dir]: ta.value };
+          if (!ta.value) delete App.cfg.scratchpads[dir];
+          App.saveConfig();
+        }, 600);
+      }
+    });
+    return h('div.scratch', ta);
+  }
+
   function renderWelcome() {
     const w = document.getElementById('welcome'); w.innerHTML = '';
     w.append(h('div.welcome-inner',
       h('h1', App.project ? App.basename(App.project) : 'Codeome'),
       h('p', App.project ? App.project : 'Open a project folder to start. Your files, the cluster, and your agents live side by side here.'),
-      h('div.quick',
-        h('button', { onclick: () => App.openProject() }, h('b', App.project ? 'Open another project' : 'Open folder'), h('span', App.project ? 'It gets its own card on the left; this one keeps running' : 'A local project with your R and Python code')),
-        h('button', { onclick: () => App.views.editor.newFile() }, h('b', 'New file'), h('span', 'Script, notebook or report')),
-        App.project ? h('button', { onclick: () => App.views.chat.ask('') }, h('b', 'Ask the agent'), h('span', 'Chats in tabs; they hand work to Codex and Claude specialists')) : null,
-        h('button', { onclick: () => App.cfg.hpc.host ? (App.hpcConnected ? App.views.terminals.hpcShell() : App.connectHpc()) : App.views.settings.open() }, h('b', App.hpcConnected ? 'HPC terminal' : (App.cfg.hpc.host ? 'Connect to HPC' : 'Set up the HPC')), h('span', App.cfg.hpc.host || 'Your cluster login, ssh key and VPN')),
-        h('button', { onclick: () => App.views.terminals.rConsole() }, h('b', 'R console'), h('span', App.project ? 'Starts in ' + App.basename(App.project) + '; ⌘↩ in R and Rmd files runs code there' : 'R and Rmd code runs here with ⌘↩')),
-        h('button', { onclick: () => App.setView('slurm') }, h('b', 'Slurm jobs'), h('span', 'Queue, logs and new job scripts')),
-        h('button', { onclick: () => App.views.transfer.open() }, h('b', 'Transfer files'), h('span', 'Two panes between this Mac, the HPC and the storage, with a queue'))),
-      App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null,
-      h('div.keys',
-        h('kbd', '⌘↩'), h('span', 'Run the current line, statement or selection: R code goes to the R console, the rest to the active terminal'),
-        h('kbd', '⇧⌘↩'), h('span', 'Run the whole file (source it, for R); in Rmd and Quarto files, run the current chunk'),
-        h('kbd', '⌥⌘R  ⌥⌘P'), h('span', 'Rmd: run all chunks · run the chunks above'),
-        h('kbd', '⇧⌘V'), h('span', 'Preview or render the current file'),
-        h('kbd', '⌘J'), h('span', 'Show or hide the terminal panel'),
-        h('kbd', '⌘1–7'), h('span', 'Agent chat, Files, Slurm, Git, Publish, Packages, Plots'),
-        h('kbd', '⌘8'), h('span', 'File transfer: two panes and the queue'),
-        h('kbd', '⌃⇥'), h('span', 'Next project (⌃⇧⇥ previous)'))));
+      App.project ? scratchpad(App.project) : h('div.quick', h('button', { onclick: () => App.openProject() }, h('b', 'Open folder'), h('span', 'A local project with your R and Python code'))),
+      App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null));
   }
   App.listen('hpc', renderWelcome);
 

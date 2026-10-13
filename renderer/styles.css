@@ -425,7 +425,7 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 #monaco-host, #alt-host, #welcome { position: absolute; inset: 0; }
 #alt-host { display: flex; flex-direction: column; background: var(--surface); }
 #welcome { display: grid; place-items: safe center; overflow: auto; background: var(--surface); }
-.welcome-inner { max-width: 560px; padding: 24px; }
+.welcome-inner { width: min(680px, 100vw); box-sizing: border-box; padding: 24px; }
 .welcome-inner h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -.01em; }
 .welcome-inner p { color: var(--muted); margin: 0 0 18px; }
 .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -433,8 +433,8 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 .quick button:hover { border-color: var(--accent); }
 .quick button b { display: block; font-weight: 600; margin-bottom: 2px; }
 .quick button span { color: var(--muted); font-size: 12px; }
-.keys { margin-top: 18px; color: var(--muted); font-size: 12px; display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; }
-.keys kbd { align-self: start; justify-self: start; }
+.scratch { margin-top: 4px; }
+.scratchpad { width: 100%; box-sizing: border-box; min-height: 280px; line-height: 1.5; background: var(--surface-2); }
 kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--text); background: var(--surface); }
 
 .toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); flex: none; font-size: 12px; }

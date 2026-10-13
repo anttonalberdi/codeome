@@ -5,6 +5,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 ## Unreleased
 
 ### Added
+- **Scratchpad**: each project has a single free-form page for notes and reminders (such as what to ask an agent next), shown under the project's name and path whenever no file is open. It saves as you type. It replaces the row of shortcut buttons and the keyboard overview that used to fill that space.
 - **Collapsible sidebar and editor**: dragging the separator between the sidebar and the editor past either limit folds that side into a thin band at the edge, which opens it again when clicked. Dragging back also reopens it, and so does picking a view in the left rail while the sidebar is folded away. Only one side folds at a time.
 
 ### Fixed
