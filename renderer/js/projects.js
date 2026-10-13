@@ -248,7 +248,11 @@
     try {
       let changed = false;
       await Promise.all(P.list.map(async (dir) => {
-        const n = (await codeome.jobs.list(dir)).filter((j) => j.status === 'running').length;
+        const list = await codeome.jobs.list(dir);
+        // Codex jobs end outside the chat stream; reconcile every project's chats with
+        // the job records, not only the open one's, so its card gets the finished marker.
+        App.views.chat.syncJobs(dir, list);
+        const n = list.filter((j) => j.status === 'running').length;
         if (state(dir).jobs !== n) { state(dir).jobs = n; changed = true; }
       }));
       if (changed) render();

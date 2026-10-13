@@ -11,6 +11,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 - **Collapsible sidebar and editor**: dragging the separator between the sidebar and the editor past either limit folds that side into a thin band at the edge, which opens it again when clicked. Dragging back also reopens it, and so does picking a view in the left rail while the sidebar is folded away. Only one side folds at a time.
 
 ### Fixed
+- A Codex job that ends in a project you are not looking at now raises that project card's "task finished" marker, as a Claude subagent already did. Codex jobs are followed in every open project, not only the active one.
 - *Settings → This Mac* no longer shows a stray "null" under the Claude Code and Codex versions.
 - Pop-up messages in the bottom-right corner follow the dark theme instead of showing white.
 
