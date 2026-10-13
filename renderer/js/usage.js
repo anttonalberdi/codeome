@@ -127,7 +127,7 @@
       wrap.append(h('div.u-acc' + (isActive ? '.active' : ''),
         h('div.row',
           h('b', a.name), U.plan(a) ? h('span.pill', { title: label + ' subscription' }, U.plan(a)) : null, h('span.grow'),
-          isActive ? h('span.pill.ok', 'active') : a.signedOut ? null : h('button.btn.small', { onclick: () => codeome.usage.setActive(engine, a.name) }, 'Make active')),
+          isActive ? h('span.pill.ok', 'active') : a.signedOut ? null : h('button.btn.small', { onclick: () => U.setActive(engine, a.name) }, 'Make active')),
         h('div.sub', a.mismatch ? `Signed in as ${a.email}, not ${a.name}` : a.signedOut ? 'Not signed in' : (who || (a.signedIn ? 'Signed in' : 'Asking who is signed in…'))),
         a.signedOut ? h('button.btn.small.primary', { style: { marginTop: '4px' }, onclick: () => U.signInAll([{ engine, a }]) }, 'Sign in…') : U.lines(engine, a)));
     }
@@ -146,6 +146,14 @@
   // Claude's sign-in page can start with the address filled in; Codex's cannot.
   const LOGIN = { claude: (a) => 'claude auth login' + (U.isEmail(a.name) ? ' --email ' + a.name : ''), codex: () => 'codex login' };
   const inSnap = (snap, engine, a) => ((snap && snap[engine] && snap[engine].accounts) || []).find((x) => (a.dir == null ? x.name === a.name : (x.dir || '') === (a.dir || '')));
+
+  // The choice is kept in the window's copy of the config too: otherwise the next save
+  // from here (adopt, Settings) writes the old active account back.
+  U.setActive = async (engine, name) => {
+    const r = await codeome.usage.setActive(engine, name);
+    if (r && !r.error && App.cfg.accounts[engine]) App.cfg.accounts[engine].active = name;
+    return r;
+  };
 
   // The account goes by this address from now on. Chats started under the old name still find it.
   U.rename = (engine, name, email) => {

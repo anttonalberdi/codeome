@@ -670,7 +670,7 @@
     const who = a.mismatch ? `Signed in as ${a.email}. Not used until it is signed in as ${a.name}.`
       : a.signedIn === false ? 'Sign in to confirm this address and use the account.'
         : a.signedIn ? (named ? null : a.email) : (a.error || 'Asking who is signed in…');
-    const setActive = () => codeome.usage.setActive(engine, a.name).then((r) => { if (r && !r.error) { App.cfg.accounts[engine].active = a.name; renderAccounts(); flash(); } });
+    const setActive = () => App.views.usage.setActive(engine, a.name).then((r) => { if (r && !r.error) { renderAccounts(); flash(); } });
     return h('div.acct-card' + (isActive ? '.active' : '') + (out ? '.out' : ''), { role: 'group', 'aria-label': `${label} account ${a.name}` },
       h('div.acct-top', h('b', { title: `${a.name} · kept in ${App.tildify(a.dir) || DEFAULT_DIR[engine]}` }, a.name),
         a.signedOut ? null : U.plan(a) ? h('span.pill.plan', { title: `${label} subscription` }, U.plan(a)) : a.signedIn ? h('span.pill.plan', { title: `${label} did not say which subscription this is` }, 'Plan unknown') : null,
