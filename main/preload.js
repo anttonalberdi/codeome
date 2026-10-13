@@ -89,7 +89,7 @@ contextBridge.exposeInMainWorld('codeome', {
     cancel: (project, id) => ipcRenderer.invoke('jobs:cancel', { project, id })
   },
   chat: {
-    start: invoke('chat:start'), stop: invoke('chat:stop'), move: invoke('chat:move'),
+    start: invoke('chat:start'), personas: invoke('chat:personas'), stop: invoke('chat:stop'), move: invoke('chat:move'),
     send: (id, text) => ipcRenderer.invoke('chat:send', { id, text }),
     respond: (id, requestId, response) => ipcRenderer.invoke('chat:respond', { id, requestId, response }),
     control: (id, request) => ipcRenderer.invoke('chat:control', { id, request }),

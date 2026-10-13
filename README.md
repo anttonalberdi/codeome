@@ -25,6 +25,7 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 - Replies are rendered as Markdown. Tool calls appear as one-line entries you can expand. Each specialist job appears as a card with live status; open a card for the job's brief, log and result.
 - Permission prompts, questions and the approval gates appear as buttons in the chat. The selector under the message box sets what the agent may do without asking: *Ask before changes*, *Accept edits*, *Auto* or *Plan only*.
 - **Attachments and saved messages.** The `+` to the left of the message box attaches files: they show as chips above the box and go to the agent as paths with your next message. The bolt to the right lists the messages you send often (*Commit, push and deploy* to start with); picking one sends it at once. The same menu saves what you have typed and edits the list.
+- **Specialist personas.** An empty chat lists specialists (Analyst, Coder, Manuscript writer) with example requests. Picking one starts the chat with that specialist's instructions in place of the default agent's; typing without picking works as before. The choice locks when you send the first message and shows on the chat tab, next to the engine, and in the chat history. The Manuscript writer always uses Claude, since the Google Docs connectors are Claude-only, so picking it selects Claude and locks the engine choice.
 - **Several chats at once.** Each chat is a tab above the conversation and runs its own session, so one can plan while another fixes a bug. `⇧⌘N` opens a new chat; `⇧⌘]` / `⇧⌘[` switch. Each tab shows its state: a spinner while the agent works, amber when it is waiting for you, green when a reply is ready that you haven't seen, red after an error. A badge counts the specialists that chat has running. The line under the tabs sums it up (for example *3 chats · 1 working · 1 needs you · 2 subagents · 1 Codex job*). Click *needs you* or *reply ready* to jump to that chat. Project cards and the rail icon show the same states for every project.
 - Conversations are saved (in `~/.codeome/chats/`) and keep running while you work in another tab or project. Open tabs come back when you reopen the project. Closing a tab stops its session, and the ⋯ menu reopens the conversation later. The ⋯ menu can also move the current chat into a Claude Code terminal session.
 - The chat runs the first Claude command in Settings → Agents (for example `claude --model opus`), with the model chosen there.
@@ -182,6 +183,7 @@ renderer/      Interface (plain JS, no build step)
                  (stack.js: the stacked sections of Files and Packages)
 kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-agent, manifest.json;
                chat.md, the orchestrator instructions for the Agent chat
+               personas/ (specialists offered in an empty chat; ship with the app, not installed into projects)
 build/         the app icon: icon.icns for the packaged app, icon.png for the dock under npm start, and the SVGs they were drawn from
 test/          parser tests (npm test) and a screenshot helper
 ```

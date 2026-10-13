@@ -20,9 +20,11 @@ const { EventEmitter } = require('events');
 const usage = require('./usage');
 const ssh = require('./ssh');
 const { Meter } = require('./stats');
+const { parseFrontmatter } = require('./kit');
 
 const PROMPT = path.join(__dirname, '..', 'kit', 'chat.md');
 const PROMPT_CODEX = path.join(__dirname, '..', 'kit', 'chat-codex.md');
+const PERSONAS = path.join(__dirname, '..', 'kit', 'personas');
 const ENGINES = ['claude', 'codex'];
 const engineOf = (e) => (ENGINES.includes(e) ? e : 'claude');
 const MODES = ['default', 'acceptEdits', 'auto', 'plan'];
@@ -32,8 +34,44 @@ const QUIET = new Set(['hook_started', 'hook_response', 'hook_progress', 'thinki
 // The orchestrator's instructions, with the part for projects with or without the kit.
 function systemPrompt(kitInstalled, text = fs.readFileSync(PROMPT, 'utf8')) {
   return text
+    .replace(/<!-- Keep shared sections in sync between kit\/chat\.md and kit\/personas\/_base\.md\. -->\n/g, '')
     .replace(/<!-- if kit -->([\s\S]*?)<!-- else -->([\s\S]*?)<!-- end -->/g, (_m, yes, no) => (kitInstalled ? yes : no))
     .replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+function readPersona(id) {
+  if (typeof id !== 'string' || !/^[a-z0-9-]+$/.test(id)) return null;
+  try {
+    const text = fs.readFileSync(path.join(PERSONAS, id + '.md'), 'utf8');
+    if (!/^---\n[\s\S]*?\n---\n?/.test(text)) return null;
+    const { meta, body } = parseFrontmatter(text);
+    if (!meta.name || !meta.description || !meta.placeholder || !body.trim()) return null;
+    const lines = body.split('\n');
+    const start = lines.findIndex((line) => /^## Examples\s*$/.test(line));
+    const end = start < 0 ? -1 : lines.findIndex((line, i) => i > start && /^## /.test(line));
+    const examples = start < 0 ? [] : lines.slice(start + 1, end < 0 ? undefined : end)
+      .map((line) => line.match(/^[-*] (.+)$/)).filter(Boolean).map((m) => m[1].trim());
+    const prompt = (start < 0 ? body : [...lines.slice(0, start), ...lines.slice(end < 0 ? lines.length : end)].join('\n')).trim();
+    return { meta, examples, prompt };
+  } catch { return null; }
+}
+
+function listPersonas() {
+  let names; try { names = fs.readdirSync(PERSONAS); } catch { return []; }
+  return names.filter((n) => n.endsWith('.md') && !n.startsWith('_')).map((n) => {
+    const id = n.slice(0, -3);
+    const p = readPersona(id);
+    if (!p) return null;
+    return { id, name: p.meta.name, description: p.meta.description,
+      engine: ENGINES.includes(p.meta.engine) ? p.meta.engine : undefined,
+      placeholder: p.meta.placeholder, examples: p.examples };
+  }).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function personaPrompt(id, kitInstalled) {
+  const p = readPersona(id);
+  if (!p) return null;
+  try { return systemPrompt(kitInstalled, fs.readFileSync(path.join(PERSONAS, '_base.md'), 'utf8') + '\n\n' + p.prompt); } catch { return null; }
 }
 
 // What the orchestrator is told about the projects connected to this one (see projects.js),
@@ -91,8 +129,8 @@ function hpcPrompt(hpc, engine = 'claude') {
 // The Codex orchestrator's instructions in full: its own prompt, then the same notes on
 // connected projects and the HPC. Codex has no command line to put them on; this is the
 // text CodexSession gets as `instructions`.
-function codexPrompt({ kitInstalled, linked = [], hpc = null } = {}) {
-  return systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8')) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex');
+function codexPrompt({ kitInstalled, linked = [], hpc = null, persona } = {}) {
+  return (personaPrompt(persona, kitInstalled) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'))) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex');
 }
 
 // The configured command's extra words with a value chosen in Settings, which wins
@@ -112,9 +150,9 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
 // linked: folders of the projects connected to this one. hpc: the HPC settings (host, agentRoot).
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, settings = '' }) {
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, settings = '', persona }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', systemPrompt(kitInstalled) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc)];
+    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', (personaPrompt(persona, kitInstalled) || systemPrompt(kitInstalled)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc)];
   for (const d of linked) args.push('--add-dir', d);
   if (settings) args.push('--settings', settings);
   args.push(resume ? '--resume' : '--session-id', id);
@@ -266,7 +304,7 @@ function listChats(project) {
     if (!n.endsWith('.json')) continue;
     try {
       const c = JSON.parse(fs.readFileSync(path.join(chatsDir(project), n), 'utf8'));
-      out.push({ id: c.id, title: c.title || 'Untitled chat', account: c.accountName || c.account, engine: engineOf(c.engine), started: !!c.started, updatedAt: c.updatedAt || 0,
+      out.push({ id: c.id, title: c.title || 'Untitled chat', account: c.accountName || c.account, engine: engineOf(c.engine), role: c.role || '', started: !!c.started, updatedAt: c.updatedAt || 0,
         messages: (c.items || []).filter((x) => x.t === 'user').length });
     } catch {}
   }
@@ -298,4 +336,4 @@ function moveSession(fromDir, toDir, id) {
   if (fs.existsSync(path.join(root, folder, id))) fs.cpSync(path.join(root, folder, id), path.join(dest, id), { recursive: true });
 }
 
-module.exports = { Session, ENGINES, engineOf, systemPrompt, codexPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };
+module.exports = { Session, ENGINES, engineOf, systemPrompt, listPersonas, personaPrompt, codexPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };

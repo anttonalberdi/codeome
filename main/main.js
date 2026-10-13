@@ -668,10 +668,11 @@ const claudeCmd = () => (cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || 
 
 const codexCmd = () => (cfg.agents.find((a) => /^codex(\s|$)/.test(a.cmd)) || { cmd: 'codex' }).cmd;
 
-ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, engine: asked }) => {
+ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, engine: asked, role }) => {
   if (chats.has(id)) return { ok: true };
   if (!project || !fs.existsSync(project)) return { error: 'Project folder not found.' };
   const engine = chat.engineOf(asked);
+  const persona = typeof role === 'string' ? role : undefined;
   try {
     let kitInstalled = false;
     try { kitInstalled = kit.status(project).installed; } catch {}
@@ -691,10 +692,10 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     if (engine === 'codex') {
       const c = cfg.chat || {};
       s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked,
-        instructions: chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc }), model: c.codexModel || '', effort: c.codexEffort || '' });
+        instructions: chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, persona }), model: c.codexModel || '', effort: c.codexEffort || '' });
     } else {
       if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-      s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings }), env, autoAllow, meter: meterOpt });
+      s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings, persona }), env, autoAllow, meter: meterOpt });
       s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
     }
     s.on('message', (msg) => send('chat:event', { id, msg }));
@@ -728,6 +729,7 @@ ipcMain.handle('chat:control', (_e, { id, request }) => { const s = chats.get(id
 ipcMain.handle('chat:stop', (_e, id) => { const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
 ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { return chat.saveChat(project, c); } catch (e) { return { error: e.message }; } });
 ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));
+ipcMain.handle('chat:personas', () => chat.listPersonas());
 ipcMain.handle('chat:load', (_e, { project, id }) => chat.loadChat(project, id));
 ipcMain.handle('chat:delete', (_e, { project, id }) => chat.deleteChat(project, id));
 // What the sessions used over the last days, with each session's chat title where it still exists.

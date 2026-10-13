@@ -110,6 +110,16 @@ const steps = {
   // The Skills card, below the team. Use a SHOT_PROJECT that has the kit installed.
   'settings-skills': [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(async () => { if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } await App.views.settings.open('agents'); setTimeout(() => { const r = document.querySelector('.sk-row'); if (r) r.parentElement.parentElement.scrollIntoView(); }, 1200); }); 0`],
   // Four chat tabs in different states (made up; no agent sessions are started).
+  // The empty chat's specialist list. SHOT_PERSONA: the name of the row to select first.
+  personas: [`(async () => {
+    await App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}); App.setView('agents');
+    await new Promise((r) => setTimeout(r, 900));
+    App.views.chat.newChat();
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    await new Promise((r) => setTimeout(r, 500));
+    const want = ${JSON.stringify(process.env.SHOT_PERSONA || '')};
+    if (want) [...document.querySelectorAll('.chat-persona')].find((b) => b.textContent.includes(want))?.click();
+  })(); 0`],
   chats: [`(async () => {
     const P = ${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))};
     await App.openProject(P); App.setView('agents');

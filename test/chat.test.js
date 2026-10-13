@@ -218,3 +218,15 @@ test('a saved chat remembers its engine, and older ones are Claude', () => {
   assert.deepStrictEqual(by, { [ID]: 'codex', [id2]: 'claude' });
   assert.strictEqual(chat.engineOf('bogus'), 'claude');
 });
+
+test('a saved chat lists its persona role, while older chats have an empty role', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-proj-'));
+  const older = '1f8fad5b-d9cb-469f-a165-70867728950e';
+  const persona = chat.listPersonas()[0];
+  assert.ok(persona, 'at least one shipped persona is needed');
+  chat.saveChat(project, { id: ID, role: persona.id, items: [] });
+  chat.saveChat(project, { id: older, items: [] });
+  const by = Object.fromEntries(chat.listChats(project).map((c) => [c.id, c.role]));
+  assert.deepStrictEqual(by, { [ID]: persona.id, [older]: '' });
+  assert.strictEqual(chat.loadChat(project, ID).role, persona.id);
+});

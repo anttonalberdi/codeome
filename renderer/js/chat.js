@@ -18,6 +18,19 @@
   ];
   const EXAMPLES = ['How is this project organised?', 'Find out why the tests fail and fix it', 'Review my uncommitted changes'];
   const ENGINE = { claude: 'Claude', codex: 'Codex' };
+  const DEFAULT_PLACEHOLDER = 'Ask, or describe a task…';
+  let personas = [], personaPromise;
+  const personaFor = (chat) => chat && personas.find((persona) => persona.id === chat.role);
+  const personaName = (id) => (personas.find((persona) => persona.id === id) || {}).name || id;
+  function loadPersonas() {
+    if (!personaPromise) personaPromise = codeome.chat.personas().catch(() => []).then((list) => {
+      personas = Array.isArray(list) ? list : [];
+      if (!personas.length) personaPromise = null; // retry on the next paint rather than caching a failure
+      if (cur() && !cur().items.length) paint(); else { paintTabs(); paintState(); }
+      return personas;
+    });
+    return personaPromise;
+  }
   // Google Docs, Sheets and Slides go through Claude's connectors, which a Codex chat doesn't have.
   const GDOC_RE = /\.(gdoc|gsheet|gslides)\b/i;
   const engineOf = (chat) => (chat && chat.engine === 'codex' ? 'codex' : 'claude');
@@ -32,12 +45,13 @@
 
   // ---------- conversations ----------
   function blank(project, opts = {}) {
-    const chat = { id: uuid(), project, title: '', engine: opts.engine === 'codex' ? 'codex' : 'claude', account: opts.account || 'auto', accountName: null, mode: store.get('codeome.chat.mode', 'default'),
+    const chat = { id: uuid(), project, title: '', engine: opts.engine === 'codex' ? 'codex' : 'claude', role: '', account: opts.account || 'auto', accountName: null, mode: store.get('codeome.chat.mode', 'default'),
       started: false, items: [], createdAt: Date.now() };
     return live(chat);
   }
   // Runtime-only state, rebuilt for a saved conversation.
   function live(chat) {
+    if (typeof chat.role !== 'string') chat.role = '';
     Object.assign(chat, { running: false, busy: false, stream: {}, tools: {}, requests: {}, attach: [] });
     for (const it of chat.items) {
       if (it.id) chat.tools[it.id] = it;
@@ -101,7 +115,7 @@
     clearTimeout(saveTimers[chat.id]);
     const run = () => {
       const items = chat.items.map((it) => (it.result && it.result.length > 4000 ? { ...it, result: it.result.slice(0, 4000) + '\n…' } : it));
-      codeome.chat.save(chat.project, { id: chat.id, title: chat.title, engine: engineOf(chat), account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
+      codeome.chat.save(chat.project, { id: chat.id, title: chat.title, engine: engineOf(chat), role: chat.role || '', account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
     };
     if (now) run(); else saveTimers[chat.id] = setTimeout(run, 800);
   }
@@ -112,7 +126,7 @@
     if (!project) return App.toast('Open a project folder first.');
     const t = C.byProject[project] || (C.byProject[project] = { tabs: [], active: null });
     let chat = t.tabs.find((c) => !c.started && !c.items.length && !c.running);
-    if (chat) { if (opts.engine) { chat.engine = opts.engine === 'codex' ? 'codex' : 'claude'; chat.account = 'auto'; } if (opts.account) chat.account = opts.account; }
+    if (chat) { chat.role = ''; if (opts.engine) { chat.engine = opts.engine === 'codex' ? 'codex' : 'claude'; chat.account = 'auto'; } if (opts.account) chat.account = opts.account; }
     else { chat = blank(project, opts); t.tabs.push(chat); }
     C.activate(chat);
     if (opts.send) C.send(opts.send); else focus();
@@ -197,6 +211,7 @@
     const project = App.project;
     if (!project) return App.toast('Open a project folder first.');
     let list = await codeome.chat.list(project), q = '', arming = null;
+    await loadPersonas();
     if (project !== App.project) return;
     const multi = App.cfg.accounts.claude.list.length + App.cfg.accounts.codex.list.length > 2;
     const listEl = h('div.hist-list'), countEl = h('span.hint');
@@ -212,7 +227,7 @@
         const g = dayGroup(c.updatedAt);
         if (g !== group) { group = g; listEl.append(h('div.hist-day', g)); }
         const live = C.byId[c.id], title = (live && open.has(c.id) && live.title) || c.title;
-        const sub = [c.engine === 'codex' ? 'Codex' : null, App.fmtAgo(c.updatedAt), c.messages ? `${c.messages} message${c.messages > 1 ? 's' : ''}` : null, multi && c.account && c.account !== 'auto' ? c.account : null].filter(Boolean).join(' · ');
+        const sub = [c.engine === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, App.fmtAgo(c.updatedAt), c.messages ? `${c.messages} message${c.messages > 1 ? 's' : ''}` : null, multi && c.account && c.account !== 'auto' ? c.account : null].filter(Boolean).join(' · ');
         listEl.append(h('div.hist-row',
           h('button.hist-open', { title, onclick: () => pick(c) }, h('span.hist-t', title), h('span.hist-s', sub)),
           open.has(c.id) ? h('span.pill.ok', 'open')
@@ -269,7 +284,7 @@
   async function start(chat) {
     if (!(await App.setup.ensureCli(engineOf(chat)))) { note(chat, `${ENGINE[engineOf(chat)]} is not installed on this Mac, so this chat cannot start.`, 'error'); return false; }
     // A conversation lives in its account's config folder, so it resumes there.
-    const r = await codeome.chat.start({ id: chat.id, project: chat.project, engine: engineOf(chat), account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
+    const r = await codeome.chat.start({ id: chat.id, project: chat.project, engine: engineOf(chat), role: chat.role || '', account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
       meter: chat.usage ? { context: chat.usage.context, run: chat.usage.run } : null });
     if (r.error) { note(chat, r.error, 'error'); return false; }
     chat.running = true;
@@ -845,7 +860,7 @@
   // ---------- view ----------
   C.mount = (host) => {
     logEl = h('div.chat-log', { 'aria-live': 'polite', onclick: onLinkClick });
-    ta = h('textarea.chat-input', { rows: 1, placeholder: 'Ask, or describe a task…', 'aria-label': 'Message the agent', oninput: autosize, onkeydown: (e) => {
+    ta = h('textarea.chat-input', { rows: 1, placeholder: DEFAULT_PLACEHOLDER, 'aria-label': 'Message the agent', oninput: autosize, onkeydown: (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
     } });
     modeSel = h('select.chat-mode', { 'aria-label': 'What the agent may do without asking', title: 'What the agent may do without asking', onchange: (e) => setMode(e.target.value) },
@@ -890,6 +905,7 @@
     setInterval(paintThinking, 1000);
     setInterval(() => { const c = cur(); if (c && logEl.isConnected) for (const it of c.items) if (it.t === 'job' && it.status === 'running') update(c, it); }, 5000);
     paint();
+    loadPersonas();
   };
 
   function submit() {
@@ -977,10 +993,23 @@
     if (chat && chat.unread && seen(chat)) chat.unread = false;
     if (!App.project) { logEl.append(h('div.chat-empty', h('p', 'Open a project folder to talk to the agent.'))); paintAttach(); paintState(); return; }
     if (!chat || !chat.items.length) {
+      const selectable = chat && !chat.started && !chat.running;
+      const selected = personaFor(chat);
+      const examples = selected ? selected.examples : (!chat || !chat.role ? EXAMPLES : []);
       logEl.append(h('div.chat-empty',
         h('h3', 'What should we work on?'),
-        h('p', `Ask about ${App.basename(App.project)} or describe a task. The agent answers directly, or plans the work, checks with you, and hands it to Codex and Claude specialists.`),
-        h('div.chat-examples', EXAMPLES.map((x) => h('button', { onclick: () => { ta.value = x; autosize(); focus(); } }, x)))));
+        h('p', personas.length && selectable ? `Pick a specialist, or just type to talk to the default agent about ${App.basename(App.project)}.` : `Ask about ${App.basename(App.project)} or describe a task. The agent answers directly, or plans the work, checks with you, and hands it to Codex and Claude specialists.`),
+        selectable && personas.length ? h('div.chat-personas', personas.map((persona, index) => h('button.chat-persona', {
+          'aria-pressed': String(chat.role === persona.id), onclick: () => {
+            if (chat.started || chat.running || chat.items.length) return;
+            chat.role = chat.role === persona.id ? '' : persona.id;
+            if (chat.role && persona.engine && chat.engine !== persona.engine) { chat.engine = persona.engine; chat.account = 'auto'; }
+            paint();
+            logEl.querySelectorAll('.chat-persona')[index]?.focus();
+          }
+        }, h('span.chat-persona-text', h('strong.chat-persona-name', persona.name), h('span.chat-persona-desc', persona.description)),
+        persona.engine ? h('span.chat-persona-engine', ENGINE[persona.engine]) : null))) : null,
+        examples && examples.length ? h('div.chat-examples', examples.map((x) => h('button', { onclick: () => { ta.value = x; autosize(); focus(); } }, x))) : null));
     } else for (const it of chat.items) logEl.append(render(chat, it));
     paintAttach();
     paintState();
@@ -1006,13 +1035,16 @@
     const chat = cur();
     if (chat) modeSel.value = chat.mode;
     modeSel.disabled = !chat;
+    const persona = personaFor(chat);
+    ta.placeholder = persona ? persona.placeholder : DEFAULT_PLACEHOLDER;
     const eng = engineOf(chat), accts = App.cfg.accounts[eng].list;
     acctEl.innerHTML = '';
     if (chat) {
       // The engine is chosen with the first message and stays.
       if (chat.started || chat.running || chat.items.length) acctEl.append(h('span.pill' + (eng === 'codex' ? '.codex' : '.ok'), { title: ENGINE[eng] + ' chat' }, ENGINE[eng]));
-      else acctEl.append(h('select', { 'aria-label': 'AI for this chat', onchange: (e) => { chat.engine = e.target.value; chat.account = 'auto'; paintState(); } },
+      else acctEl.append(h('select', { 'aria-label': 'AI for this chat', disabled: !!(persona && persona.engine), onchange: (e) => { chat.engine = e.target.value; chat.account = 'auto'; paintState(); } },
         Object.entries(ENGINE).map(([k, v]) => h('option', { value: k, selected: eng === k }, v))));
+      if (chat.role && (chat.started || chat.running || chat.items.length)) acctEl.append(h('span.pill.chat-persona-pill', { title: personaName(chat.role) }, personaName(chat.role)));
     }
     if (chat && accts.length > 1) {
       if (chat.started || chat.running) {
@@ -1064,7 +1096,7 @@
       const jobs = runningJobs(c);
       const active = c === t.active;
       const title = c.title || 'New chat';
-      const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
+      const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
       const el = h('div.ctab.' + st + (active ? '.active' : ''), {
         role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
         onclick: () => C.activate(c),
@@ -1077,6 +1109,7 @@
       },
       st === 'working' ? h('span.spinner.cdot') : h('i.cdot'),
       engineOf(c) === 'codex' ? h('span.ceng', 'Codex') : null,
+      c.role ? h('span.ceng.persona', { title: personaName(c.role) }, personaName(c.role)) : null,
       h('span.ct', title),
       jobs.length ? h('span.cjobs', { title: `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` }, String(jobs.length)) : null,
       h('button.cx', { title: 'Close chat', 'aria-label': 'Close ' + title, tabindex: '-1', onclick: (e) => { e.stopPropagation(); C.closeTab(c); } }, '×'));
