@@ -427,6 +427,9 @@
     u.turns++;
     for (const k of [...USED, 'costUsd', 'compactions']) u[k] += t[k] || 0;
     Object.assign(u, { context: t.context, window: t.window || u.window, peak: Math.max(u.peak, t.peak || 0), run: t.run });
+    // What this turn used is kept on its last reply, for the chat's overview.
+    const last = chat.items.findLast((x) => x.t === 'text');
+    if (last && !last.tok) last.tok = { in: t.input || 0, out: t.output || 0, cr: t.cacheRead || 0, cw: t.cacheWrite || 0 };
     // Said once each time the chat passes the mark (again after it was summarised and refilled).
     const p = ctxPct(chat);
     if (p != null && p >= warnAt() && !u.warned) {
@@ -797,6 +800,8 @@
     if (it.result) return App.views.editor.openCustom({ key: 'chat-job:' + it.id, title: `${it.role} · ${ENGINE[it.engine]}`, badge: 'Agent', render: (el) => el.append(h('pre.logbox', it.result)) });
     App.toast(App.views.agents.kit && App.views.agents.kit.installed ? 'The job record has not appeared yet.' : 'Install the agent kit to record job logs.');
   }
+  C.openJob = openJob;
+  C.overview = (chat) => App.views.overview.open(chat);
 
   function permCard(chat, it) {
     const i = it.input || {};
@@ -1141,6 +1146,7 @@
       { label: 'New chat', run: () => C.newChat() },
       '-',
       { label: 'Continue in a terminal', disabled: !c.started, run: () => { C.activate(c); C.toTerminal(); } },
+      { label: 'Overview', disabled: !c.items.length, run: () => C.overview(c) },
       '-',
       { label: 'Close chat', run: () => C.closeTab(c) },
       { label: 'Close other chats', disabled: t.tabs.length < 2, run: async () => { for (const x of t.tabs.slice()) if (x !== c) await C.closeTab(x); } }

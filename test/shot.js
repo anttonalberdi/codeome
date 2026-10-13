@@ -157,6 +157,28 @@ const steps = {
     C.activate(c);
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
   })(); 0`],
+  // A chat with two parallel jobs (one merged, one still running) inside an approved plan, opened as its overview.
+  overview: [`(async () => {
+    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))}); App.setView('agents');
+    await new Promise((r) => setTimeout(r, 900));
+    const C = App.views.chat;
+    C.newChat(); const c = C.current(); c.title = 'Add the overview'; c.started = true;
+    const t0 = Date.now() - 3 * 3600e3, m = (n) => t0 + n * 60e3;
+    c.items.push(
+      { t: 'user', text: 'Show each chat as a tree over time', at: m(0) },
+      { t: 'text', text: 'I will look at how chats are stored first.', at: m(1), tok: { in: 2100, out: 640, cr: 12000, cw: 0 } },
+      { t: 'perm', tool: 'ExitPlanMode', input: { plan: '# Plan: chat overview\\nmodel, view, menu' }, decided: 'allow', at: m(3) },
+      { t: 'job', id: 'j1', engine: 'claude', role: 'explorer', title: 'Map the chat code', status: 'done', startedAt: m(4), endedAt: m(7), at: m(4) },
+      { t: 'job', id: 'j2', engine: 'codex', role: 'implementer', title: 'Overview model builder', status: 'done', startedAt: m(5), endedAt: m(14), at: m(5) },
+      { t: 'job', id: 'j3', engine: 'codex', role: 'tester', title: 'Overview tests', status: 'running', startedAt: m(15), at: m(15) },
+      { t: 'text', text: 'The explorer and the model builder are back; tests are still running.', at: m(16), tok: { in: 900, out: 410, cr: 30000, cw: 1200 } },
+      { t: 'user', text: 'Great, ship it', at: m(60) },
+      { t: 'text', text: 'Done.', at: m(61), tok: { in: 300, out: 90, cr: 34000, cw: 0 } });
+    c.usage = { turns: 3, input: 3300, output: 1140, cacheRead: 76000, cacheWrite: 1200, costUsd: 0.84 };
+    C.activate(c);
+    if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
+    setTimeout(() => C.overview(c), 400);
+  })(); 0`],
   // SHOT_PROJECT: an R project. Starts an R console there and draws a few plots.
   // SHOT_PLOTS: also pick a journal size and open the plots in a tab ('tab').
   plots: [`(async () => {
