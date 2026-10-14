@@ -60,7 +60,7 @@ test('sftp listing parses pwd and ls -lan output', () => {
     'drwxr-xr-x    ? 1000     1000          160 Oct 10 06:20 .',
     'drwx------    ? 1000     1000          128 Oct 10 06:20 ..',
     '-rw-r--r--    ? 1000     1000            3 Oct 10 06:20 a "q" *.txt',
-    'drwxr-xr-x    ? user         wheel    64 Oct  9 06:20 dir with space',
+    'drwxr-xr-x    ? alice wheel    64 Oct  9 06:20 dir with space',
     '-rw-r--r--    1 1000     2023            0 Jan  2  2023 old.R',
     'lrwxrwxrwx    1 0        0              11 Dec 31 23:00 shared'
   ].join('\n');
@@ -87,14 +87,14 @@ test('the saved HPC password is typed once, at the first ssh password prompt onl
   const sent = [];
   const feed = passwordFiller('s3cret', (s) => sent.push(s));
   feed('** WARNING: connection is not using a post-quantum key exchange algorithm.\r\n');
-  feed("abc123@login.cluster.example.org's pass");
+  feed("alice@login.hpc.example.org's pass");
   assert.deepStrictEqual(sent, []);
   feed('word: ');
   assert.deepStrictEqual(sent, ['s3cret\r']);
-  feed("\r\nPermission denied, please try again.\r\nabc123@login.cluster.example.org's password: ");
+  feed("\r\nPermission denied, please try again.\r\nalice@login.hpc.example.org's password: ");
   assert.deepStrictEqual(sent, ['s3cret\r']);
   const kbd = [];
-  passwordFiller('s3cret', (s) => kbd.push(s))('(abc123@login) Password: ');
+  passwordFiller('s3cret', (s) => kbd.push(s))('(alice@login) Password: ');
   assert.deepStrictEqual(kbd, ['s3cret\r']);
   const other = [];
   const f2 = passwordFiller('s3cret', (s) => other.push(s));

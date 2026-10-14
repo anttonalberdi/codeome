@@ -17,13 +17,13 @@ function fakeSsh(opts = {}) {
 }
 
 test('ssh prompts are told apart', () => {
-  assert.deepStrictEqual(login.classifyPrompt("abc123@login.cluster.example.org's password: "), { kind: 'password', label: 'Password' });
-  assert.deepStrictEqual(login.classifyPrompt('(abc123@login) Password:'), { kind: 'password', label: 'Password' });
+  assert.deepStrictEqual(login.classifyPrompt("alice@login.hpc.example.org's password: "), { kind: 'password', label: 'Password' });
+  assert.deepStrictEqual(login.classifyPrompt('(alice@login) Password:'), { kind: 'password', label: 'Password' });
   assert.deepStrictEqual(login.classifyPrompt("Enter passphrase for key '/Users/me/.ssh/id_ed25519': "), { kind: 'passphrase', label: 'Passphrase', key: '/Users/me/.ssh/id_ed25519' });
   assert.deepStrictEqual(login.classifyPrompt('Are you sure you want to continue connecting (yes/no/[fingerprint])? '), { kind: 'hostkey', label: 'Fingerprint' });
-  assert.deepStrictEqual(login.classifyPrompt('(abc123@login) Verification code:'), { kind: 'code', label: 'Verification code' });
-  assert.deepStrictEqual(login.classifyPrompt("One-time password (OATH) for `abc123':"), { kind: 'code', label: "One-time password (OATH) for `abc123'" });
-  assert.strictEqual(login.classifyPrompt('Warning: Permanently added mycluster (ED25519) to the list of known hosts.'), null);
+  assert.deepStrictEqual(login.classifyPrompt('(alice@login) Verification code:'), { kind: 'code', label: 'Verification code' });
+  assert.deepStrictEqual(login.classifyPrompt("One-time password (OATH) for `alice':"), { kind: 'code', label: "One-time password (OATH) for `alice'" });
+  assert.strictEqual(login.classifyPrompt('Warning: Permanently added hpc (ED25519) to the list of known hosts.'), null);
 });
 
 test('with a key nothing is asked: ssh exits 0 and the shared connection is up', async () => {

@@ -48,8 +48,8 @@ test('install plans group Homebrew formulae, casks and other installers', () => 
 });
 
 test('ssh -G output gives the login, keys and any proxy', () => {
-  const o = setup.parseSshG('user abc123\nhostname login.cluster.example.org\nport 22\nidentityfile ~/.ssh/id_ed25519\nproxyjump none\nproxycommand none\n');
-  assert.deepStrictEqual(o, { identityFiles: ['~/.ssh/id_ed25519'], user: 'abc123', hostname: 'login.cluster.example.org', port: 22 });
+  const o = setup.parseSshG('user alice\nhostname login.hpc.example.org\nport 22\nidentityfile ~/.ssh/id_ed25519\nproxyjump none\nproxycommand none\n');
+  assert.deepStrictEqual(o, { identityFiles: ['~/.ssh/id_ed25519'], user: 'alice', hostname: 'login.hpc.example.org', port: 22 });
   assert.strictEqual(setup.parseSshG('proxyjump bastion\n').proxyJump, 'bastion');
 });
 
@@ -60,7 +60,7 @@ test('a missing key is created at the ed25519 path ssh would try', () => {
 
 test('failed test logins are sorted by what to do next', () => {
   assert.strictEqual(setup.classifyLogin(0, ''), 'ok');
-  assert.strictEqual(setup.classifyLogin(255, 'abc123@host: Permission denied (publickey,password).'), 'auth');
+  assert.strictEqual(setup.classifyLogin(255, 'alice@host: Permission denied (publickey,password).'), 'auth');
   assert.strictEqual(setup.classifyLogin(255, 'Host key verification failed.'), 'hostkey');
   assert.strictEqual(setup.classifyLogin(255, 'nc: getaddrinfo: nodename nor servname provided, or not known\nConnection closed by UNKNOWN port 65535'), 'network');
   assert.strictEqual(setup.classifyLogin(255, 'ssh: connect to host x port 22: Operation timed out'), 'network');
