@@ -29,6 +29,35 @@ const extra = {
 }[scenario] || {};
 fs.writeFileSync(path.join(out, 'profile', 'config.json'), JSON.stringify({ recentFolders: [path.resolve(__dirname, '..')], hpc: { host: 'myhpc' }, ...extra }));
 require('../main/main.js');
+if (scenario === 'settings-git') {
+  const { ipcMain } = require('electron');
+  const accounts = [
+    { id: 'shot-valid', provider: 'github', host: 'github.com', login: 'lab-research', status: 'valid', scopes: ['repo'], checkedAt: new Date(Date.now() - 3600000).toISOString() },
+    { id: 'shot-invalid', provider: 'github', host: 'ghe.example.org', login: 'old-account', status: 'invalid', scopes: null, checkedAt: new Date(Date.now() - 86400000).toISOString() }
+  ];
+  ipcMain.removeHandler('gitacct:list');
+  ipcMain.handle('gitacct:list', () => ({ data: { accounts, bindings: {} } }));
+  ipcMain.removeHandler('gitacct:validate');
+  ipcMain.handle('gitacct:validate', (_e, { id }) => ({ data: accounts.find((a) => a.id === id) }));
+}
+if (scenario === 'git-account') {
+  const { ipcMain } = require('electron');
+  const root = path.resolve(__dirname, '..');
+  const accountError = process.env.SHOT_ACCOUNT_ERROR ? 'The bound account token is missing.' : null;
+  ipcMain.removeHandler('git:status');
+  ipcMain.handle('git:status', () => ({ repo: true, root, head: 'feature/github-accounts...origin/feature/github-accounts',
+    files: [], remote: 'https://github.com/lab-research/codeome.git',
+    log: [{ hash: 'a1b2c3d', subject: 'Add GitHub accounts', author: 'Antton Alberdi', when: '2 hours ago' }],
+    gh: !accountError, accountId: 'a1', accountError,
+    ...(accountError ? {} : { account: { id: 'a1', login: 'lab-research', host: 'github.com', status: 'valid' } }) }));
+  ipcMain.removeHandler('gitacct:list');
+  ipcMain.handle('gitacct:list', () => ({ data: { accounts: [
+    { id: 'a1', provider: 'github', host: 'github.com', login: 'lab-research', status: 'valid', scopes: ['repo'] },
+    { id: 'a2', provider: 'github', host: 'ghe.example.org', login: 'old-account', status: 'invalid', scopes: null }
+  ], bindings: { [root]: 'a1' } } }));
+  ipcMain.removeHandler('gitacct:identity-get');
+  ipcMain.handle('gitacct:identity-get', () => ({ data: { name: 'Antton Alberdi', email: '', effectiveName: 'Antton Alberdi', effectiveEmail: 'alex@example.org' } }));
+}
 
 const steps = {
   welcome: [],
@@ -41,6 +70,11 @@ const steps = {
     if (${JSON.stringify(process.env.SHOT_PANEL || '')}) document.documentElement.style.setProperty('--panel-h', ${JSON.stringify(process.env.SHOT_PANEL || '')} + 'px');
     App.setView('git');
   }); 0`],
+  'git-account': [`(async () => { await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    document.documentElement.style.setProperty('--side-w', '420px');
+    App.env.tools.gh = true;
+    App.setView('git');
+  })(); 0`],
   // Three file sections; the storage one lists SHOT_STORAGE through the stand-in sftp.
   files: [`(async () => {
     await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
@@ -91,6 +125,7 @@ const steps = {
   // SHOT_PROJECT: a folder with the agent kit installed and some jobs recorded.
   agents: [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { App.setView('agents'); setTimeout(() => { const j = App.views.agents.jobs.find((x) => x.engine === 'codex'); if (j) App.views.agents.openJob(j); }, 1200); }); 0`],
   settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(${JSON.stringify(process.env.SHOT_SECTION || '')}); 0`],
+  'settings-git': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('git'); 0`],
   // The HPC setup checklist; SHOT_TEST also runs the key test.
   'settings-hpc': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('hpc').then(() => { if (!${JSON.stringify(process.env.SHOT_TOP || '')}) setTimeout(() => document.querySelector('.su-list').scrollIntoView(), 600); }); if (${JSON.stringify(process.env.SHOT_TEST || '')}) setTimeout(() => App.setup.testLogin(), 800); if (${JSON.stringify(process.env.SHOT_VPN || '')}) setTimeout(() => App.setup.testVpn(), 800); 0`],
   // Signing in to Codeome's VPN tunnel; put a stand-in openconnect first on PATH (and SHELL=/bin/sh).

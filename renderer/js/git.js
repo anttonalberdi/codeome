@@ -5,8 +5,10 @@
   const G = { st: null };
   App.views.git = G;
   let root, msg;
-  // GitHub takes the lower third; the changes get more of the rest than the history.
-  const SECTIONS = [{ id: 'changes', title: 'Changes', weight: 1.3 }, { id: 'history', title: 'History', weight: 0.7 }, { id: 'github', title: 'GitHub', weight: 1 }];
+  let refreshSeq = 0;
+  // Account and GitHub share the lower half; changes get more room than history.
+  const SECTIONS = [{ id: 'changes', title: 'Changes', weight: 1.3 }, { id: 'history', title: 'History', weight: 0.7 },
+    { id: 'account', title: 'Account', weight: 1 }, { id: 'github', title: 'GitHub', weight: 1 }];
   const body = (id) => SECTIONS.find((s) => s.id === id).body;
 
   G.init = () => {
@@ -46,9 +48,24 @@
 
   G.refresh = async () => {
     if (!root) return;
-    if (!App.project) { root.innerHTML = ''; root.append(head(), h('div.empty', 'Open a project folder to see its Git status.', h('br'), h('button.btn.small', { onclick: () => App.openProject() }, 'Open folder'))); return; }
-    G.st = await codeome.git.status(App.project);
-    paintRail(G.st.repo ? G.st.files.length : 0);
+    const seq = ++refreshSeq;
+    const project = App.project;
+    if (!project) { G.st = null; root.innerHTML = ''; root.append(head(), h('div.empty', 'Open a project folder to see its Git status.', h('br'), h('button.btn.small', { onclick: () => App.openProject() }, 'Open folder'))); return; }
+    const st = await codeome.git.status(project);
+    if (seq !== refreshSeq || project !== App.project) return;
+    let accounts = { data: { accounts: [] } }, identity = { data: { name: '', email: '', effectiveName: '', effectiveEmail: '' } };
+    if (st.repo) {
+      [accounts, identity] = await Promise.all([
+        codeome.gitAccounts.list(), codeome.gitAccounts.identityGet(st.root)
+      ]);
+      if (seq !== refreshSeq || project !== App.project) return;
+      if (accounts.error) App.err(accounts.error);
+      if (identity.error) App.err(identity.error);
+    }
+    G.st = st;
+    G.accounts = accounts.data?.accounts || [];
+    G.identity = identity.data || { name: '', email: '', effectiveName: '', effectiveEmail: '' };
+    paintRail(st.repo ? st.files.length : 0);
     render();
   };
 
@@ -86,7 +103,7 @@
     const unstaged = st.files.filter((f) => f.y !== ' ' || f.x === '?');
     const ahead = /ahead (\d+)/.exec(st.head), behind = /behind (\d+)/.exec(st.head);
     for (const s of SECTIONS) s.body.innerHTML = '';
-    const [changes, history, ghSec] = SECTIONS.map((s) => s.body);
+    const [changes, history, accountSec, ghSec] = SECTIONS.map((s) => s.body);
     SECTIONS[0].dot.textContent = st.files.length ? String(st.files.length) : '';
     SECTIONS[1].dot.textContent = st.log.length ? String(st.log.length) : '';
     changes.append(h('div.pad.form', msg,
@@ -102,8 +119,39 @@
     if (!st.log.length) history.append(h('div.empty', 'No commits yet.'));
     for (const c of st.log) history.append(h('div.commit', { title: c.author }, h('span.h', c.hash), h('span.s', c.subject), h('span.w', c.when + ' · ' + c.author)));
 
+    const selected = h('select', { 'aria-label': 'Project GitHub account', onchange: async (e) => {
+      const id = e.target.value;
+      const login = G.accounts.find((a) => a.id === id)?.login;
+      e.target.disabled = true;
+      const r = await codeome.gitAccounts.bind(st.root, id || null);
+      if (r.error) { App.err(r.error); await G.refresh(); return; }
+      await G.refresh();
+      App.toast(id ? `Using ${login || id}` : 'Using the default login');
+    } }, h('option', { value: '' }, 'Default login (gh CLI)'),
+      G.accounts.map((a) => h('option', { value: a.id }, `${a.login} @ ${a.host}${a.status === 'invalid' ? ' – invalid' : ''}`)));
+    selected.value = G.accounts.some((a) => a.id === st.accountId) ? st.accountId : '';
+    const manage = () => h('button.btn.small', { onclick: () => App.views.settings.open('github') }, 'Manage accounts');
+    accountSec.append(h('div.pad.form', h('label.field', h('span', 'Project account'), selected),
+      st.accountId && /^(git@|ssh:\/\/)/i.test(st.remote) ? h('div.hint', "This remote uses SSH, so the account's token is not used for push and pull.") : null,
+      st.accountError ? h('div.row.wrap', h('span.pill.warn', st.accountError), manage())
+        : !G.accounts.length ? h('div.row.wrap', h('span.hint', 'No accounts yet.'), manage())
+          : st.account ? h('div.row.wrap', h('span.hint', `${st.account.login} @ ${st.account.host}`),
+            h('span.pill' + (st.account.status === 'valid' ? '.ok' : '.warn'), st.account.status)) : null));
+    const identity = G.identity;
+    const name = h('input', { type: 'text', value: identity.name, placeholder: identity.effectiveName, 'aria-label': 'Git name' });
+    const email = h('input', { type: 'text', value: identity.email, placeholder: identity.effectiveEmail, 'aria-label': 'Git email' });
+    accountSec.append(h('div.card.form', h('h3', 'Identity'),
+      h('label.field', h('span', 'Name'), name), h('label.field', h('span', 'Email'), email),
+      h('button.btn.small', { onclick: async (e) => {
+        e.target.disabled = true;
+        const r = await codeome.gitAccounts.identitySet(st.root, name.value, email.value);
+        if (r.error) { App.err(r.error); e.target.disabled = false; return; }
+        await G.refresh();
+        App.toast('Identity saved.');
+      } }, 'Save'), h('div.hint', "Saved in this repository's .git/config only.")));
+
     if (!App.env.tools.gh) ghSec.append(h('div.empty', 'Install the GitHub CLI (brew install gh) and run "gh auth login" to create repositories, pull requests and releases from here.'));
-    else if (!st.gh) ghSec.append(h('div.empty', 'GitHub CLI is not signed in.', h('br'), h('button.btn.small', { onclick: () => App.views.terminals.task('gh login', 'gh auth login', st.root) }, 'Sign in')));
+    else if (!st.gh && !st.accountId) ghSec.append(h('div.empty', 'GitHub CLI is not signed in.', h('br'), h('button.btn.small', { onclick: () => App.views.terminals.task('gh login', 'gh auth login', st.root) }, 'Sign in')));
     else if (!st.remote) ghSec.append(h('div.pad.form', h('div.hint', 'This repository is not on GitHub yet.'),
       h('button.btn.small.primary', { onclick: publishRepo }, 'Publish to GitHub…')));
     else ghSec.append(h('div.pad.form',

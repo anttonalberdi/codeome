@@ -3,7 +3,9 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const config = require('./config');
+const github = require('./github');
 const ssh = require('./ssh');
 const sftp = require('./sftp');
 const slurm = require('./slurm');
@@ -216,7 +218,7 @@ ipcMain.handle('app:version', () => require('../package.json').version);
 ipcMain.handle('config:set', (_e, c) => {
   for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = a.dir == null ? usage.folderFor(e, a.name) : usage.normDir(e, a.dir); // a new account gets its folder here
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
-  cfg = config.save(c);
+  cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts });
   applyProxy();
   // The new list shows at once; who is signed in and the Codex limits follow.
   publishUsage();
@@ -552,19 +554,30 @@ ipcMain.handle('preview:fetchRemote', async (_e, remotePath) => {
 });
 
 // ---------- Git & GitHub ----------
-async function git(cwd, args, opts = {}) { return run('git', args, { cwd, timeout: opts.timeout || 60000 }); }
+async function git(cwd, args, opts = {}) { return run('git', args, { cwd, timeout: opts.timeout || 60000, env: opts.env }); }
+// The folders git and gh may run in: the open projects, and the active one while it is not listed yet.
+function openRoots() { return [...(cfg.openProjects || []), cfg.activeProject].filter((p) => typeof p === 'string' && p); }
+function accountContext(root) { return github.contextFor({ accounts: cfg.gitAccounts, bindings: cfg.projectAccounts }, root, config.getSecret); }
 ipcMain.handle('git:status', async (_e, cwd) => {
+  if (!github.inProject(cwd, openRoots())) return { error: 'Choose an open project.' };
   const top = await git(cwd, ['rev-parse', '--show-toplevel']);
   if (top.code !== 0) return { repo: false };
   const root = top.stdout.trim();
+  if (!github.inProject(root, openRoots())) return { error: 'Choose an open project.' };
+  // A bound account that cannot be used must not hide the repository: the view shows the reason and lets you change it.
+  let ctx = null, accountError = null;
+  try { ctx = accountContext(root); } catch (e) { accountError = String(e.message || e); }
   const st = await git(root, ['status', '--porcelain=v1', '-b', '-uall']);
   const lines = st.stdout.split('\n').filter(Boolean);
   const head = (lines.shift() || '').replace(/^## /, '');
   const files = lines.map((l) => ({ x: l[0], y: l[1], path: l.slice(3).replace(/^.* -> /, '') }));
   const remote = (await git(root, ['remote', 'get-url', 'origin'])).stdout.trim();
   const log = (await git(root, ['log', '-n', '15', '--pretty=format:%h\t%s\t%an\t%cr'])).stdout.split('\n').filter(Boolean).map((l) => { const [h, s, a, t] = l.split('\t'); return { hash: h, subject: s, author: a, when: t }; });
-  const gh = (await run('gh', ['auth', 'status'], { timeout: 8000 }));
-  return { repo: true, root, head, files, remote, log, gh: gh.code === 0 };
+  const ghCall = github.ghInvocation(ctx, ['auth', 'status', ...(ctx && ctx.account.host !== 'github.com' ? ['--hostname', ctx.account.host] : [])]);
+  const gh = await run('gh', ghCall.args, { timeout: 8000, env: ghCall.env });
+  return { repo: true, root, head, files, remote, log, gh: gh.code === 0,
+    accountId: Object.hasOwn(cfg.projectAccounts, root) ? cfg.projectAccounts[root] : null, accountError,
+    ...(ctx ? { account: { id: ctx.account.id, login: ctx.account.login, host: ctx.account.host, status: ctx.account.status } } : {}) };
 });
 // Cheap check for the rail marker: how many paths have uncommitted changes.
 ipcMain.handle('git:dirty', async (_e, cwd) => {
@@ -581,16 +594,34 @@ ipcMain.handle('git:diff', async (_e, { root, file, staged }) => {
 });
 ipcMain.handle('git:show', async (_e, { root, file }) => { const r = await git(root, ['show', `HEAD:${file}`]); return { content: r.code === 0 ? r.stdout : '' }; });
 ipcMain.handle('git:run', async (_e, { root, args }) => {
-  const allowed = ['add', 'reset', 'commit', 'pull', 'push', 'fetch', 'checkout', 'restore', 'init', 'stash', 'switch', 'branch', 'tag'];
-  if (!allowed.includes(args[0])) return { error: 'Not allowed: git ' + args[0] };
-  const r = await git(root, args, { timeout: 180000 });
-  return r.code === 0 ? { ok: true, out: (r.stdout + r.stderr).trim() } : { error: (r.stderr || r.stdout).trim() };
+  const error = github.checkGitArgs(args);
+  if (error) return { error };
+  if (!github.inProject(root, openRoots())) return { error: 'Choose an open project.' };
+  let ctx;
+  if (['push', 'pull', 'fetch'].includes(args[0])) {
+    try { ctx = accountContext(root); } catch (e) { return { error: String(e.message || e) }; }
+  }
+  const invocation = github.gitInvocation(ctx, args);
+  const r = await git(root, invocation.args, { timeout: 180000, env: invocation.env });
+  const token = invocation.env.CODEOME_GIT_TOKEN;
+  const stdout = token ? github.redact(r.stdout, [token]) : r.stdout;
+  const stderr = token ? github.redact(r.stderr, [token]) : r.stderr;
+  return r.code === 0 ? { ok: true, out: (stdout + stderr).trim() } : { error: (stderr || stdout).trim() };
 });
 ipcMain.handle('gh:run', async (_e, { root, args }) => {
-  const allowed = ['repo', 'pr', 'release', 'browse', 'issue', 'run'];
-  if (!allowed.includes(args[0])) return { error: 'Not allowed: gh ' + args[0] };
-  const r = await run('gh', args, { cwd: root, timeout: 180000 });
-  return r.code === 0 ? { ok: true, out: (r.stdout + r.stderr).trim() } : { error: (r.stderr || r.stdout).trim() };
+  const error = github.checkGhArgs(args);
+  if (error) return { error };
+  if (!github.inProject(root, openRoots())) return { error: 'Choose an open project.' };
+  let ctx;
+  if (args[0] !== 'browse') {
+    try { ctx = accountContext(root); } catch (e) { return { error: String(e.message || e) }; }
+  }
+  const invocation = github.ghInvocation(ctx, args);
+  const r = await run('gh', invocation.args, { cwd: root, timeout: 180000, env: invocation.env });
+  const token = invocation.env.CODEOME_GIT_TOKEN;
+  const stdout = token ? github.redact(r.stdout, [token]) : r.stdout;
+  const stderr = token ? github.redact(r.stderr, [token]) : r.stderr;
+  return r.code === 0 ? { ok: true, out: (stdout + stderr).trim() } : { error: (stderr || stdout).trim() };
 });
 
 // ---------- Zenodo ----------
@@ -602,6 +633,94 @@ ipcMain.handle('zenodo:update', wrap(({ id, metadata }) => zenodo.update(...zArg
 ipcMain.handle('zenodo:upload', wrap(({ id, file }) => zenodo.upload(...zArgs(), id, file, (p) => send('zenodo:progress', { id, file, p }))));
 ipcMain.handle('zenodo:publish', wrap((id) => zenodo.publish(...zArgs(), id)));
 ipcMain.handle('zenodo:newVersion', wrap((id) => zenodo.newVersion(...zArgs(), id)));
+
+// ---------- GitHub accounts ----------
+function accountStore() { return { accounts: cfg.gitAccounts, bindings: cfg.projectAccounts }; }
+function saveAccounts(store) {
+  cfg.gitAccounts = store.accounts;
+  cfg.projectAccounts = store.bindings;
+  cfg = config.save(cfg);
+}
+function projectRoot(root) {
+  if (!github.inProject(root, openRoots())) throw new Error('Choose an open project.');
+  return path.resolve(root);
+}
+async function addGitAccount({ provider: providerId, host, token }) {
+  if (typeof token !== 'string' || !token.trim()) throw new Error('Enter a GitHub token.');
+  token = token.trim();
+  if (!config.secretsEncrypted()) throw new Error('GitHub accounts require encrypted secret storage on this device.');
+  try {
+    const result = await github.provider(providerId).validate(token, host, { fetch });
+    if (result.status === 'invalid' || result.status === 'error') throw new Error(result.message || 'GitHub rejected the token.');
+    if (typeof result.login !== 'string' || !result.login.trim()) throw new Error('GitHub did not return an account login.');
+    const id = crypto.randomUUID();
+    const added = github.addAccount(accountStore(), { provider: providerId, host, login: result.login, status: result.status, scopes: result.scopes, checkedAt: new Date().toISOString() }, id);
+    config.setSecret('github:' + id, token);
+    saveAccounts(added.store);
+    return { ...github.publicView(added.account), ...(result.warnings ? { warnings: result.warnings } : {}) };
+  } catch (e) { throw new Error(github.redact(String(e.message || e), [token])); }
+}
+ipcMain.handle('gitacct:list', wrap(() => ({ accounts: cfg.gitAccounts.map(github.publicView), bindings: { ...cfg.projectAccounts } })));
+ipcMain.handle('gitacct:add', wrap(addGitAccount));
+ipcMain.handle('gitacct:validate', wrap(async ({ id }) => {
+  const account = cfg.gitAccounts.find((a) => a.id === id);
+  if (!account) throw new Error('GitHub account not found.');
+  const token = config.getSecret('github:' + id);
+  if (!token) throw new Error('GitHub token is missing for this account.');
+  let result;
+  try { result = await github.provider(account.provider).validate(token, account.host, { fetch }); }
+  catch (e) { throw new Error(github.redact(String(e.message || e), [token])); }
+  if (result.status === 'error') throw new Error('Could not reach GitHub. Try again later.');
+  const updated = { ...account, status: result.status, login: result.login || account.login, scopes: result.scopes, checkedAt: new Date().toISOString() };
+  saveAccounts({ ...accountStore(), accounts: cfg.gitAccounts.map((a) => a.id === id ? updated : a) });
+  return github.publicView(updated);
+}));
+ipcMain.handle('gitacct:remove', wrap(({ id }) => {
+  if (typeof id !== 'string' || !cfg.gitAccounts.some((account) => account.id === id)) throw new Error('GitHub account not found.');
+  saveAccounts(github.removeAccount(accountStore(), id));
+  config.setSecret('github:' + id, '');
+  return true;
+}));
+ipcMain.handle('gitacct:import-gh', wrap(async ({ host = 'github.com' } = {}) => {
+  const error = github.checkHost(host);
+  if (error) throw new Error('Invalid GitHub host: ' + error);
+  if (!config.secretsEncrypted()) throw new Error('GitHub accounts require encrypted secret storage on this device.');
+  const r = await run('gh', ['auth', 'token', '--hostname', host], { timeout: 10000 });
+  if (r.code !== 0 || !r.stdout.trim()) throw new Error('gh is not signed in for that host.');
+  return addGitAccount({ provider: 'github', host, token: r.stdout.trim() });
+}));
+ipcMain.handle('gitacct:bind', wrap(({ root, id }) => {
+  root = projectRoot(root);
+  const store = github.bind(accountStore(), root, id);
+  saveAccounts(store);
+  return Object.hasOwn(store.bindings, root) ? store.bindings[root] : null;
+}));
+async function gitIdentity(root) {
+  const get = async (local, key) => {
+    const args = ['config', ...(local ? ['--local'] : []), '--get', key];
+    const r = await run('git', args, { cwd: root, timeout: 10000 });
+    if (r.code !== 0 && r.code !== 1) throw new Error((r.stderr || 'Could not read git identity.').trim());
+    return r.code === 0 ? r.stdout.trim() : '';
+  };
+  const [name, email, effectiveName, effectiveEmail] = await Promise.all([
+    get(true, 'user.name'), get(true, 'user.email'), get(false, 'user.name'), get(false, 'user.email')
+  ]);
+  return { name, email, effectiveName, effectiveEmail };
+}
+ipcMain.handle('gitacct:identity-get', wrap(({ root }) => gitIdentity(projectRoot(root))));
+ipcMain.handle('gitacct:identity-set', wrap(async ({ root, name, email }) => {
+  root = projectRoot(root);
+  for (const value of [name, email]) {
+    if (typeof value !== 'string' || /[\0\r\n]/.test(value) || value.length > 256) throw new Error('Git identity values must be at most 256 characters without NUL or newlines.');
+  }
+  name = name.trim(); email = email.trim();
+  if (name.startsWith('-') || email.startsWith('-')) throw new Error('Git identity values must not start with a hyphen.');
+  for (const [key, value] of [['user.name', name], ['user.email', email]]) {
+    const r = await run('git', ['config', '--local', ...(value ? [key, value] : ['--unset', key])], { cwd: root, timeout: 10000 });
+    if (r.code !== 0 && !(r.code === 5 && !value)) throw new Error('Could not set ' + key + ': ' + (r.stderr || 'git config failed.').trim());
+  }
+  return gitIdentity(root);
+}));
 
 // ---------- Python packages ----------
 ipcMain.handle('pip:list', async (_e, { where, python, cwd }) => {

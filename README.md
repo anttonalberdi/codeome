@@ -53,7 +53,7 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 **Reports** — `⇧⌘V` renders `.qmd` (Quarto), `.Rmd` (rmarkdown) and `.ipynb`, and previews HTML, images and PDFs. Re-renders on save. Remote plots and reports are fetched and shown in place.
 
-**Git & GitHub** — status, diff, stage, commit, pull, push, history; with the GitHub CLI: publish a repo, open pull requests, create releases. Changes, history and GitHub are three sections that collapse and resize like the ones in Files, with GitHub in the lower third.
+**Git & GitHub** — status, diff, stage, commit, pull, push, history; with the GitHub CLI: publish a repo, open pull requests, create releases. Changes, history, account and GitHub are sections that collapse and resize like the ones in Files. The *Account* section binds the project to one of your GitHub accounts, so push, pull and the GitHub actions use that account's token instead of the Mac's `gh` login, and sets this repository's Git name and email.
 
 **Zenodo** — create drafts, edit metadata, upload files, publish and create new versions (sandbox supported). Tip: link a GitHub repo in Zenodo's GitHub settings and every GitHub release from Codeome gets a DOI.
 
@@ -62,7 +62,7 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 - R: every library in `.libPaths()` (project renv, user, site, system) as its own group, with each package's version and where it came from (CRAN, Bioconductor, GitHub). Install from CRAN, Bioconductor or GitHub (`user/repo`), update, remove, or load one into the R console. *Check for updates* (⋯) marks outdated packages, and you can update them all at once. R runs in the project folder, so renv projects install into their own library.
 - A project counts as an R project if it has an `.Rproj`, `DESCRIPTION`, `renv.lock`, `.Rprofile` or R / R Markdown files at the top. Right-click a section header to show or hide R libraries anywhere.
 
-Tokens for Zenodo and PyPI are stored encrypted with the macOS Keychain and never shown in the interface.
+Tokens for GitHub accounts, Zenodo and PyPI are stored encrypted with the macOS Keychain and never shown in the interface.
 
 **Secrets** — Settings → *Secrets* keeps access tokens, API keys and passwords of your own, encrypted the same way. Each is named as an environment variable, such as `GITHUB_TOKEN`, and can carry a note. A saved value is never shown again:
 - *Copy* puts it on the clipboard and takes it off again after 30 seconds.
@@ -117,8 +117,9 @@ Open **Settings** (`⌘,`). It is a full page with a section list on the left. C
      - *Skills in <project>*: every skill in `.claude/skills/`, kit skills and your own, marked as a **command** (typed in the chat) or a **playbook** (read when a task needs it). Each extra file of a skill, such as a registry playbook, has its own button, and *+ New skill* creates one.
    - When a global and a project item share a name, both rows say which one Claude Code uses: the project's agent replaces the global one, and the global skill replaces the project's. With several Claude accounts, the global ones are those in the active account's folder.
 5. **Accounts & usage limits** — an account is an email address, and one card shows each with its sign-in and its usage. *Add a … account…* asks for the address and signs it in once through a terminal and your browser; the account is *confirmed* when the sign-in is for that address. Each account keeps its sign-in in its own folder (a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that Codeome chooses; `~/.claude` and `~/.codex` are the first account's), so every confirmed account stays signed in and work moves between them without asking again. *Sign in to the other N…* takes every account that is not signed in, one after the other. An account signed in with another address is not used until you sign in again or switch it to that address. Sign-ins already on the Mac (`~/.claude-lab`) are offered as cards to add. Accounts from before take the address they are signed in with. You can also set the stop threshold here.
-6. **Zenodo / PyPI tokens** if you publish from here.
-7. **Secrets** — your own tokens and keys, if you want them at hand or set in terminals and agent sessions.
+6. **Git & GitHub accounts** — add each GitHub account (github.com or a GitHub Enterprise host) by pasting a personal access token, or import the one `gh` is signed in with; then bind a project to it in the Git view's *Account* section. Classic tokens need `repo` (and `workflow` to push workflow files); fine-grained tokens need Contents and Pull requests access. Tokens are checked with GitHub when added and whenever the section opens. Hooks and local Git config in a project you open still run during push and pull, with the account's token in their environment, as with any Git client.
+7. **Zenodo / PyPI tokens** if you publish from here.
+8. **Secrets** — your own tokens and keys, if you want them at hand or set in terminals and agent sessions.
 
 ### Where the usage numbers come from
 - **Codex**: Codeome asks `codex app-server` for each account every few minutes and when a Codex job ends.
@@ -166,6 +167,7 @@ main/          Electron main process
   sftp.js        long-term storage over SFTP (e.g. ERDA): listing, files, transfers
   slurm.js       squeue / sacct / scancel / sbatch
   zenodo.js      Zenodo REST client
+  github.js      GitHub accounts: token validation, per-command credentials for Git and gh, Keychain-encrypted
   config.js      settings + Keychain-encrypted tokens
   secrets.js     your own secrets: their names, and which processes get them as environment variables
   chat.js        the Agent chat's headless Claude Code sessions (stream-json), saved chats
@@ -186,6 +188,8 @@ kit/           the agent kit: roles/ (one file per role), skills/, bin/codeome-a
                personas/ (specialists offered in an empty chat; ship with the app, not installed into projects)
 build/         the app icon: icon.icns for the packaged app, icon.png for the dock under npm start, and the SVGs they were drawn from
 test/          parser tests (npm test) and a screenshot helper
+               github.test.js (token validation and credentials), gitaccounts-ipc.test.js (account and identity IPC),
+               config-secrets.test.js (tokens in the config file)
 ```
 
 Working on Codeome itself: open this folder in Codeome and ask for the change in the Agent chat. `npm start` relaunches it.

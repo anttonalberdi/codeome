@@ -65,6 +65,8 @@ const DEFAULTS = {
   projectGroup: {},       // project → id of its group; kept when the project is closed
   scratchpads: {},        // project → the text of its scratchpad, shown when no file is open
   projectLinks: {},       // project → [projects connected to it]; both ways, kept when a project is closed
+  gitAccounts: [],        // GitHub account metadata; tokens stay in the encrypted secret store
+  projectAccounts: {},    // project → GitHub account id; kept when the project is closed
   activeProject: null,
   // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight };
   // pkgPanes: the same for the Packages view (python / r), plus shown: true|false for R;
@@ -99,10 +101,14 @@ function save(cfg) {
 }
 
 function readSecrets() {
+  let buf;
   try {
-    const buf = fs.readFileSync(file('secrets.bin'));
-    return JSON.parse(safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8'));
-  } catch { return {}; }
+    buf = fs.readFileSync(file('secrets.bin'));
+  } catch (e) {
+    if (e.code === 'ENOENT') return {};
+    throw e;
+  }
+  return JSON.parse(safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8'));
 }
 
 function setSecret(key, value) {
@@ -114,7 +120,8 @@ function setSecret(key, value) {
   fs.writeFileSync(file('secrets.bin'), data, { mode: 0o600 });
 }
 
-function getSecret(key) { return readSecrets()[key] || ''; }
-function hasSecret(key) { return !!readSecrets()[key]; }
+function getSecret(key) { try { return readSecrets()[key] || ''; } catch { return ''; } }
+function hasSecret(key) { return !!getSecret(key); }
+function secretsEncrypted() { return safeStorage.isEncryptionAvailable(); }
 
-module.exports = { load, save, getSecret, setSecret, hasSecret, DEFAULTS };
+module.exports = { load, save, getSecret, setSecret, hasSecret, secretsEncrypted, DEFAULTS };

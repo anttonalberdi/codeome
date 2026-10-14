@@ -65,6 +65,15 @@ contextBridge.exposeInMainWorld('codeome', {
     run: (root, args) => ipcRenderer.invoke('git:run', { root, args }),
     gh: (root, args) => ipcRenderer.invoke('gh:run', { root, args })
   },
+  gitAccounts: {
+    list: invoke('gitacct:list'), add: (provider, host, token) => ipcRenderer.invoke('gitacct:add', { provider, host, token }),
+    validate: (id) => ipcRenderer.invoke('gitacct:validate', { id }),
+    remove: (id) => ipcRenderer.invoke('gitacct:remove', { id }),
+    importGh: (host) => ipcRenderer.invoke('gitacct:import-gh', { host }),
+    bind: (root, id) => ipcRenderer.invoke('gitacct:bind', { root, id }),
+    identityGet: (root) => ipcRenderer.invoke('gitacct:identity-get', { root }),
+    identitySet: (root, name, email) => ipcRenderer.invoke('gitacct:identity-set', { root, name, email })
+  },
   zenodo: {
     list: invoke('zenodo:list'), create: invoke('zenodo:create'), update: invoke('zenodo:update'),
     upload: invoke('zenodo:upload'), publish: invoke('zenodo:publish'), newVersion: invoke('zenodo:newVersion'),

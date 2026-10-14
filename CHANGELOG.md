@@ -2,6 +2,17 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## 0.3.5 (unreleased)
+
+### Added
+- **Git & GitHub accounts**: *Settings → Git & GitHub* holds GitHub accounts, on github.com or a GitHub Enterprise host over https. Add one by pasting a personal access token, or import the one the `gh` CLI is signed in with. Each token is checked with GitHub when added and whenever the section opens, then encrypted with the macOS Keychain and never shown again. Each account shows its login and a status: valid, missing scopes, invalid or could not check. Classic tokens need `repo` (and `workflow` to push workflow files); fine-grained tokens need Contents and Pull requests access.
+- **Account per project**: *Git view → Account* binds a project to an account. Push, pull and fetch over https, and the pull request, release and repository actions, then use that account instead of the Mac's default `gh` login. The token is handed to Git per command, only to the account's own host, and is never written to `.git/config`, the project or the config file. A project bound to an account that has become invalid cannot push or pull until you validate it again or choose another account; local commits keep working. SSH remotes use the SSH key as before.
+- **Git identity per repository**: *Git view → Account → Identity* sets this repository's `user.name` and `user.email`, stored in its `.git/config` only.
+
+### Changed
+- Git and `gh` commands run from the Git view are limited to the forms the view uses: no custom Git options, URLs as remotes, or `gh` subcommands such as `clone`, `run` or `checkout`.
+- Known limitation: hooks and local Git config in a project you open still run during push and pull, with the account's token in their environment, as with any Git client.
+
 ## 0.3.4
 
 ### Added

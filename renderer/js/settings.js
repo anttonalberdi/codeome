@@ -36,9 +36,9 @@
   const MODEL_RE = /^[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
     ['hpc', 'HPC'], ['storage', 'Storage'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
-    ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['appearance', 'Appearance'], ['mac', 'This Mac']
+    ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
-  const ALIAS = { zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
+  const ALIAS = { github: 'git', zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
 
   // ---------- page ----------
   S.open = async (section) => {
@@ -158,21 +158,25 @@
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
     hpc: hpcSection, storage: storageSection, agents: agentsSection, accounts: accountsSection, r: rSection,
-    python: pythonSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
+    python: pythonSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
   };
+  let showSeq = 0;
   async function show(id) {
+    const seq = ++showSeq;
     current = id;
     markNav(id);
     agentsHost = globalHost = setupHost = serverList = storageHost = accountsHost = null;
     sections = {};
     const el = await BUILD[id](App.cfg);
-    if (id !== current) return; // another section was picked while this one loaded
+    if (seq !== showSeq || id !== current || !S.isOpen) return; // another section was picked while this one loaded
+    if (id === 'git') { sections.git = el; gitRows = el.gitRows; }
     main.replaceChildren(h('div.sp-content', el));
     main.scrollTop = 0;
     if (id === 'agents') { renderGlobal(); renderAgents(); }
     if (id === 'hpc') { renderSetup(); App.setup.refresh(); }
     if (id === 'storage') renderStorage();
     if (id === 'accounts') { renderAccounts(); findFolders(); }
+    if (id === 'git') recheckGitAccounts(el);
   }
 
   // ---------- HPC ----------
@@ -713,6 +717,106 @@
       card(null,
         row('On this Mac', text(() => App.cfg.python.local, (v) => { App.cfg.python.local = v.trim() || 'python3'; }, { label: 'Python on this Mac' })),
         row('On the HPC', text(() => App.cfg.python.remote, (v) => { App.cfg.python.remote = v.trim() || 'python3'; }, { label: 'Python on the HPC' }))));
+  }
+
+  // ---------- GitHub accounts ----------
+  let gitRows = [];
+
+  function gitAccountRow(a) {
+    const name = h('b', a.login || 'Unknown login');
+    const status = h('span.pill');
+    const scopes = h('div.acct-who');
+    const workflow = h('div.acct-warn');
+    const checked = h('div.hint');
+    const paint = (updated) => {
+      a = updated;
+      name.textContent = a.login || 'Unknown login';
+      const states = { valid: ['ok', 'valid'], 'missing-scopes': ['warn', 'missing scopes: repo'], invalid: ['warn', 'invalid token'], error: ['warn', 'could not check'] };
+      const [kind, label] = states[a.status] || ['', 'not checked'];
+      status.className = 'pill' + (kind ? ' ' + kind : '');
+      status.textContent = label;
+      scopes.textContent = Array.isArray(a.scopes) ? 'Scopes: ' + (a.scopes.join(', ') || 'none') : a.status === 'valid' ? 'Fine-grained token: scopes are not listed' : '';
+      scopes.hidden = !scopes.textContent;
+      workflow.textContent = Array.isArray(a.scopes) && !a.scopes.includes('workflow') ? 'Pushing workflow files needs the workflow scope.' : '';
+      workflow.hidden = !workflow.textContent;
+      const when = a.checkedAt && Date.parse(a.checkedAt);
+      checked.textContent = when ? 'checked ' + App.fmtAgo(when) : a.checkedAt ? 'checked ' + a.checkedAt : 'not checked yet';
+      checked.title = a.checkedAt || '';
+    };
+    const el = h('div.acct-card', { role: 'listitem' },
+      h('div.acct-top', name, h('span.grow'), status),
+      h('div.acct-who', h('code', a.host)),
+      scopes, workflow, checked,
+      h('div.acct-acts',
+        h('button.btn.small', { onclick: async () => {
+          const r = await codeome.gitAccounts.validate(a.id);
+          if (r.error) return App.err(r.error);
+          paint(r.data); flash('Checked');
+        } }, 'Validate'),
+        h('span.grow'),
+        h('button.btn.small.ghost.danger', { onclick: async () => {
+          if (!await App.confirm(`Remove ${a.login || 'GitHub account'}?`, 'Its token is deleted from this Mac. Projects bound to it fall back to the default login.', 'Remove', true)) return;
+          const r = await codeome.gitAccounts.remove(a.id);
+          if (r.error) return App.err(r.error);
+          await redrawGitSection(); flash('Account removed');
+        } }, 'Remove')));
+    paint(a);
+    return { el, id: a.id, paint };
+  }
+
+  async function redrawGitSection() {
+    const old = sections.git;
+    if (current !== 'git' || !S.isOpen || !old) return;
+    const fresh = await gitSection();
+    if (current === 'git' && S.isOpen && old.isConnected && sections.git === old) {
+      old.replaceWith(fresh);
+      sections.git = fresh;
+      gitRows = fresh.gitRows;
+      recheckGitAccounts(fresh);
+    }
+  }
+
+  async function recheckGitAccounts(el) {
+    for (const row of gitRows) {
+      if (current !== 'git' || !S.isOpen || sections.git !== el) return;
+      const r = await codeome.gitAccounts.validate(row.id);
+      if (current !== 'git' || !S.isOpen || sections.git !== el) return;
+      if (r.error) App.err(r.error); else row.paint(r.data);
+    }
+  }
+
+  async function gitSection() {
+    const intro = 'GitHub accounts for your projects. A token is validated with GitHub, encrypted with the macOS Keychain and never shown again. Bind an account to a project in the Git view. Use a classic token with repo (and workflow to push workflow files), or a fine-grained token with Contents and Pull requests access.';
+    const r = await codeome.gitAccounts.list();
+    const rows = r.error ? [] : r.data.accounts.map(gitAccountRow);
+    const provider = select([{ value: 'github', label: 'GitHub' }], 'github', () => {}, 'Provider');
+    const host = h('input.mono', { type: 'text', value: 'github.com', placeholder: 'github.com or ghe.example.org', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'GitHub host' });
+    const token = h('input', { type: 'password', placeholder: 'Paste token', autocomplete: 'off', 'aria-label': 'GitHub token' });
+    const save = h('button.btn.small.primary', { onclick: async () => {
+      if (!token.value.trim()) return token.focus();
+      save.disabled = true;
+      const pending = codeome.gitAccounts.add(provider.value, host.value.trim() || 'github.com', token.value.trim());
+      token.value = '';
+      const result = await pending;
+      save.disabled = false;
+      if (result.error) return App.err(result.error);
+      await redrawGitSection(); flash('Account added');
+      if (result.data.warnings?.includes('workflow')) App.toast('Pushing workflow files needs the workflow scope.');
+    } }, 'Save');
+    token.onkeydown = (e) => { if (e.key === 'Enter') save.click(); };
+    const el = h('section.sp-section', { 'data-id': 'git', 'aria-labelledby': 'sp-git' },
+      h('h2', { id: 'sp-git' }, 'Git & GitHub'), h('p.sp-intro', intro),
+      h('div.acct-grid', { role: 'list', 'aria-label': 'GitHub accounts' }, r.error ? h('div.sp-empty', r.error) : rows.length ? rows.map((row) => row.el) : h('div.sp-empty', 'No GitHub accounts yet.')),
+      card('Add account',
+        h('div.sec-add', provider, host, h('div.row', token, save)),
+        h('div.sp-foot.row', h('button.btn.small', { onclick: async () => {
+          const result = await codeome.gitAccounts.importGh(host.value.trim() || 'github.com');
+          if (result.error) return App.err(result.error);
+          await redrawGitSection(); flash('Account imported');
+          if (result.data.warnings?.includes('workflow')) App.toast('Pushing workflow files needs the workflow scope.');
+        } }, 'Import from gh'), h('span.hint', 'Use the token from the gh CLI sign-in on this Mac.'))));
+    el.gitRows = rows;
+    return el;
   }
 
   // Tokens go straight to the Keychain; the page only knows whether one is saved.
