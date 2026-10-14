@@ -5,7 +5,7 @@
   const h = App.h;
   const A = { kit: null, jobs: [], sel: null, pane: 'chat' };
   App.views.agents = A;
-  let root, titleEl, tabsEl, kitEl, kitCardEl, usageEl, chatEl, jobsEl, listEl, timer, tick = 0;
+  let root, titleEl, tabsEl, kitEl, kitCardEl, usageEl, chatEl, forumEl, jobsEl, listEl, newChatBtn, historyBtn, timer, tick = 0;
 
   const ENGINE = { claude: 'Claude', codex: 'Codex' };
   const isLive = (j) => j.status === 'running';
@@ -14,27 +14,31 @@
     root = document.querySelector('.view[data-view="agents"]');
     root.classList.add('agent-view');
     titleEl = h('div.agent-title');
-    tabsEl = h('div.seg', { role: 'tablist', 'aria-label': 'Chat or jobs' });
+    tabsEl = h('div.seg', { role: 'tablist', 'aria-label': 'Agent panes' });
     kitEl = h('div');
     usageEl = h('div');
     chatEl = h('div.chat');
+    forumEl = h('div', { hidden: true });
     listEl = h('div.jobs');
     kitCardEl = h('div');
     jobsEl = h('div.agent-jobs', { hidden: true }, kitCardEl,
       h('div.side-head', h('h2', 'Specialist jobs'), App.iconBtn('refresh', 'Refresh', () => A.refresh(true)), App.iconBtn('trash', 'Clear finished jobs', () => A.clear())),
       listEl);
+    newChatBtn = App.iconBtn('plus', 'New chat', () => App.views.chat.newChat(), '.agent-new');
+    historyBtn = App.iconBtn('history', 'Chat history', (e) => App.views.chat.openHistory(e.currentTarget));
     root.append(
       h('div.side-head.agent-head', titleEl, tabsEl,
-        App.iconBtn('plus', 'New chat', () => App.views.chat.newChat(), '.agent-new'),
-        App.iconBtn('history', 'Chat history', (e) => App.views.chat.openHistory(e.currentTarget)),
+        newChatBtn, historyBtn,
         App.iconBtn('dots', 'More', (e) => moreMenu(e.currentTarget))),
-      kitEl, usageEl, chatEl, jobsEl);
+      kitEl, usageEl, chatEl, forumEl, jobsEl);
     App.views.chat.mount(chatEl);
+    App.views.forum.mount(forumEl);
     App.listen('project', () => { A.kit = null; A.jobs = []; A.refresh(true); });
-    App.listen('view', (v) => { if (v === 'agents') { A.refresh(true); if (A.pane === 'chat') setTimeout(() => chatEl.querySelector('textarea')?.focus(), 0); } });
+    App.listen('view', (v) => { if (v === 'agents') { A.refresh(true); if (A.pane === 'chat') setTimeout(() => chatEl.querySelector('textarea')?.focus(), 0); if (A.pane === 'forum') App.views.forum.show(); } });
     App.listen('usage', () => { if (App.project) { usageEl.innerHTML = ''; renderUsage(); } });
     App.listen('chat', () => paintHead());
     App.listen('chat-state', () => paintRail());
+    App.listen('forum-unread', () => paintHead());
     // Poll quickly while something runs or the view is open, slowly otherwise.
     timer = setInterval(() => {
       if (document.hidden || !App.project) return;
@@ -45,11 +49,19 @@
   };
 
   A.show = (pane) => {
+    if (!['chat', 'forum', 'jobs'].includes(pane)) return;
+    if (A.pane === 'forum' && pane !== 'forum') App.views.forum.hide();
     A.pane = pane;
     chatEl.hidden = pane !== 'chat';
+    forumEl.hidden = pane !== 'forum';
     jobsEl.hidden = pane !== 'jobs';
+    kitEl.hidden = pane === 'forum';
+    usageEl.hidden = pane === 'forum';
+    newChatBtn.hidden = pane !== 'chat';
+    historyBtn.hidden = pane !== 'chat';
     paintHead();
     if (pane === 'chat') App.views.chat.markSeen();
+    if (pane === 'forum') App.views.forum.show();
     if (pane === 'jobs') A.refresh();
   };
 
@@ -62,8 +74,9 @@
     titleEl.append(h('h2', 'Agent'));
     const n = A.jobs.filter(isLive).length;
     tabsEl.innerHTML = '';
-    for (const [k, label] of [['chat', 'Chat'], ['jobs', 'Jobs' + (n ? ` · ${n}` : '')]]) {
-      tabsEl.append(h('button' + (A.pane === k ? '.on' : ''), { role: 'tab', 'aria-selected': String(A.pane === k), onclick: () => A.show(k) }, label));
+    for (const [k, label] of [['chat', 'Chat'], ['forum', 'Forum'], ['jobs', 'Jobs' + (n ? ` · ${n}` : '')]]) {
+      tabsEl.append(h('button' + (A.pane === k ? '.on' : ''), { role: 'tab', 'aria-selected': String(A.pane === k), onclick: () => A.show(k) },
+        label, k === 'forum' && App.views.forum.unread ? h('span.forum-unread', { 'aria-label': 'Unread forum activity' }) : null));
     }
   }
 
@@ -78,6 +91,7 @@
       { label: 'Chat history…', run: () => C.openHistory(anchor) },
       '-',
       { label: 'Continue this chat in a terminal', disabled: !C.current() || !C.current().started, run: () => C.toTerminal() },
+      { label: 'Forum', run: () => A.show('forum') },
       { label: 'Specialist jobs', run: () => A.show('jobs') },
       { label: 'Session statistics', run: () => App.views.stats.open() },
       { label: 'Agents & models…', run: () => App.views.settings.open('agents') },

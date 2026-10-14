@@ -154,6 +154,25 @@
     return sel;
   }
 
+  function forumNumber(label, key, low, high, fallback) {
+    const value = (App.cfg.forum || {})[key] ?? fallback;
+    const message = h('span.hint', { role: 'alert' });
+    const input = h('input', { type: 'number', min: String(low), max: String(high), step: '1', value: String(value), 'aria-label': label,
+      oninput: (event) => {
+        const n = Number(event.target.value);
+        const valid = event.target.value !== '' && Number.isInteger(n) && n >= low && n <= high;
+        message.textContent = valid ? '' : `Enter a whole number from ${low.toLocaleString()} to ${high.toLocaleString()}.`;
+        event.target.setAttribute('aria-invalid', String(!valid));
+      },
+      onchange: (event) => {
+        const n = Number(event.target.value);
+        if (event.target.value === '' || !Number.isInteger(n) || n < low || n > high) return;
+        App.cfg.forum = { ...(App.cfg.forum || {}), [key]: n };
+        commit();
+      } });
+    return h('div.forum-setting-number', input, message);
+  }
+
   // ---------- render ----------
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
@@ -421,6 +440,18 @@
         row('Claude co-author', check('Remove the Claude co-author trailer', () => !(App.cfg.claude && App.cfg.claude.noCoAuthor === false),
           (v) => { App.cfg.claude = { ...(App.cfg.claude || {}), noCoAuthor: v }; }),
           'Claude Code sessions started by Codeome (chats and terminals on this Mac) add no "Co-Authored-By: Claude" trailer to commits and no "Generated with Claude Code" line to pull requests. Applies to sessions started from now on.')),
+      card('Forum',
+        row('Auto-allow by default', forumNumber('Auto-allow by default', 'defaultBudget', 0, 20, 0),
+          'How many raised hands are let through without asking, per message. 0 means you approve every turn.'),
+        row('Summarise after', forumNumber('Summarise after tokens', 'summaryTokens', 1000, 50000, 6000),
+          'Older messages are folded into a summary once the discussion passes this size.'),
+        row('Raise-hand checks', h('div.ag-two',
+          modelSelect(CLAUDE_MODELS.some((model) => model.value === 'haiku') ? CLAUDE_MODELS : [{ value: 'haiku', label: 'Haiku (default)' }, ...CLAUDE_MODELS],
+            (App.cfg.forum || {}).checkModel || 'haiku', (v) => { App.cfg.forum = { ...(App.cfg.forum || {}), checkModel: v }; commit(); }, 'Claude raise-hand check model'),
+          modelSelect([{ value: '', label: 'Codex default' }, ...((codexCatalog && codexCatalog.models) || []).map((m) => ({ value: m.id, label: m.label }))],
+            (App.cfg.forum || {}).codexCheckModel || '', (v) => { App.cfg.forum = { ...(App.cfg.forum || {}), codexCheckModel: v }; commit(); }, 'Codex raise-hand check model')),
+          'Claude and Codex models used to decide whether each seat has something to add.'),
+        h('div.sp-foot.hint', 'Changes apply to forums opened from now on.')),
       card('Command-line agents', cliAgents(),
         h('div.sp-foot.hint', 'Offered as sessions in terminals and on the HPC. The agent chat runs the first Claude command.')),
       globalHost = h('div'),
