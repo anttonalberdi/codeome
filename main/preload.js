@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('codeome', {
     set: (name, value) => ipcRenderer.invoke('secrets:set', { name, value }), remove: invoke('secrets:remove'),
     has: invoke('secrets:has'), copy: invoke('secrets:copy')
   },
+  project: { clone: invoke('project:clone') },
   dialog: { folder: invoke('dialog:folder'), files: invoke('dialog:files'), save: invoke('dialog:save'), confirm: invoke('dialog:confirm') },
   shell: { open: invoke('shell:open'), reveal: invoke('shell:reveal'), openPath: invoke('shell:openPath') },
   pty: {

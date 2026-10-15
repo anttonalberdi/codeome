@@ -35,7 +35,7 @@
   const ENGINE_NAME = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
   const MODEL_RE = /^[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
-    ['hpc', 'HPC'], ['storage', 'Storage'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
+    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
     ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
   const ALIAS = { github: 'git', zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
@@ -177,7 +177,7 @@
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
     hpc: hpcSection, storage: storageSection, agents: agentsSection, accounts: accountsSection, r: rSection,
-    python: pythonSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
+    projects: projectsSection, python: pythonSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
   };
   let showSeq = 0;
   async function show(id) {
@@ -838,6 +838,16 @@
   async function findFolders() {
     await App.views.usage.findFound();
     renderAccounts();
+  }
+
+  function projectsSection() {
+    const input = text(() => App.cfg.projectsDir, (v) => { App.cfg.projectsDir = v.trim(); }, { placeholder: '~/Codeome', label: 'Default project folder' });
+    return section('projects', 'Projects', null,
+      card(null,
+        row('Default project folder', h('div.row', input, btn('Choose…', async () => {
+          const d = await codeome.dialog.folder({ defaultPath: App.cfg.projectsDir || App.cfg.localRoot });
+          if (d) { App.cfg.projectsDir = d; input.value = d; commit(); }
+        })), 'A project cloned from a git URL gets a new folder here. Empty uses ~/Codeome.')));
   }
 
   function pythonSection(c) {

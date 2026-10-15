@@ -43,7 +43,7 @@
 
   // group: the group the project goes into; without one it returns to the group it was last in.
   P.open = async (dir, group) => {
-    dir = dir || await codeome.dialog.folder({ defaultPath: App.project || App.cfg.localRoot });
+    dir = dir || await chooseProject();
     if (!dir) return;
     if (!P.list.includes(dir)) P.list.push(dir);
     if (group) { setGroup(dir, group); group.collapsed = false; }
@@ -51,6 +51,41 @@
     colorOf(dir);
     await P.switchTo(dir);
   };
+
+  // The New project dialog: pick a folder, or paste a git URL to clone into the default project folder.
+  async function chooseProject() {
+    const root = App.cfg.projectsDir || '~/Codeome';
+    const url = h('input', { type: 'text', placeholder: 'https://github.com/owner/repo.git', spellcheck: 'false', autocomplete: 'off' });
+    const err = h('div.hint', { role: 'alert' });
+    const ov = document.getElementById('overlay');
+    return new Promise((resolve) => {
+      const close = (v) => { ov.hidden = true; ov.replaceChildren(); ov.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(v || null); };
+      const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+      let busy = false;
+      const clone = async () => {
+        if (busy || !url.value.trim()) return;
+        busy = true; err.textContent = 'Cloning…'; go.disabled = true;
+        const r = await codeome.project.clone({ url: url.value });
+        busy = false; go.disabled = false;
+        if (r.error) { err.textContent = r.error; return; }
+        close(r.dir);
+      };
+      const go = h('button.btn.primary', { onclick: clone }, 'Clone and open');
+      url.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); clone(); } };
+      const m = h('div.modal', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'New project' },
+        h('header', h('h2', 'New project')),
+        h('div.body',
+          h('fieldset', h('label.field', h('span', 'A folder on this Mac'),
+            h('button.btn', { onclick: async () => { if (busy) return; const d = await codeome.dialog.folder({ defaultPath: App.project || App.cfg.localRoot }); if (d) close(d); } }, 'Choose folder…'))),
+          h('fieldset', h('label.field', h('span', 'Or a git URL'), url,
+            h('div.hint', `It is cloned into a new folder in ${root}. Change that folder in Settings → Projects.`)), err)),
+        h('footer', h('button.btn', { onclick: () => { if (!busy) close(); } }, 'Cancel'), go));
+      ov.replaceChildren(m); ov.hidden = false;
+      ov.onclick = (e) => { if (e.target === ov && !busy) close(); };
+      document.addEventListener('keydown', onKey, true);
+      setTimeout(() => url.focus(), 0);
+    });
+  }
 
   P.switchTo = async (dir) => {
     if (dir && dir === App.project) return;

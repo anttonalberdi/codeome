@@ -7,6 +7,7 @@ const { app, safeStorage } = require('electron');
 
 const DEFAULTS = {
   localRoot: path.join(os.homedir()),
+  projectsDir: '',         // where a project cloned from a git URL gets its folder; '' is ~/Codeome
   hpc: {
     host: '',              // an alias from ~/.ssh/config, or user@login.cluster.org
     remoteRoot: '~',       // starting folder on the HPC

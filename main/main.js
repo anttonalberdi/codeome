@@ -274,6 +274,20 @@ ipcMain.handle('dialog:confirm', async (_e, { message, detail, ok }) => {
   const r = await dialog.showMessageBox(win, { type: 'question', buttons: [ok || 'OK', 'Cancel'], defaultId: 1, cancelId: 1, message, detail });
   return r.response === 0;
 });
+// Clone a git URL into a new folder under the default project folder (or `parent`).
+ipcMain.handle('project:clone', async (_e, { url, parent } = {}) => {
+  url = String(url || '').trim();
+  if (!/^(https?:\/\/|ssh:\/\/|git:\/\/)[^\s]+$/.test(url) && !/^[\w.-]+@[\w.-]+:[^\s]+$/.test(url)) return { error: 'Not a git URL. Use https://…, ssh://… or git@host:owner/repo.git.' };
+  const name = url.replace(/[/:]+$/, '').split(/[/:]/).pop().replace(/\.git$/, '');
+  if (!/^[\w][\w.-]*$/.test(name)) return { error: 'Could not work out a folder name from that URL.' };
+  const base = path.resolve(expandHome(parent || cfg.projectsDir) || path.join(os.homedir(), 'Codeome'));
+  const dir = path.join(base, name);
+  if (fs.existsSync(dir)) return { error: `${dir} already exists. Open it as a folder instead, or remove it first.` };
+  try { fs.mkdirSync(base, { recursive: true }); } catch (e) { return { error: String(e.message || e) }; }
+  const r = await run('git', ['clone', '--', url, dir], { timeout: 600000, env: { GIT_TERMINAL_PROMPT: '0' } });
+  if (r.code !== 0) return { error: (r.stderr || r.stdout || 'git clone failed').trim().split('\n').slice(-4).join('\n') };
+  return { dir };
+});
 ipcMain.handle('shell:open', (_e, url) => shell.openExternal(url));
 ipcMain.handle('shell:reveal', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
