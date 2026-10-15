@@ -2,6 +2,16 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## 0.4.3
+
+### Added
+- **File search**: the This Mac pane of the Files view has a *Search files in project…* field under the folder path. It matches file and folder names (and paths) anywhere in the project, skipping `node_modules`, `.git` and similar; double-click a result to open it, or a folder to go there. Esc or × clears it.
+- **Suggested replies**: under a question that offers no options, the chat suggests a few clickable replies, written by a small Haiku call.
+- **Clickable file names in chat**: file names in agent replies open the file, including bare names that live in a subfolder of the project.
+
+### Changed
+- **Folder path**: the path bar in each Files pane shows as plain text and only gets a box on hover or focus, so it no longer looks like the search field.
+
 ## 0.4.2
 
 ### Added
