@@ -44,6 +44,7 @@
     E.editor.addAction({ id: 'codeome.sbatch', label: 'Submit to Slurm (sbatch)', contextMenuGroupId: 'navigation', contextMenuOrder: 3, run: () => { const t = E.cur(); if (t && t.remote) App.views.slurm.submit(t.path); else App.toast('Open the script from the HPC side to submit it.'); } });
     E.editor.addAction({ id: 'codeome.askAgent', label: 'Ask the agent about this…', contextMenuGroupId: 'navigation', contextMenuOrder: 4, run: (ed) => E.askAgent(ed) });
     App.views.rmd.init(E.editor);
+    document.getElementById('md-wrap').onclick = () => { localStorage.setItem('mdWrap', localStorage.getItem('mdWrap') === '1' ? '0' : '1'); E.applyWrap(); };
   };
 
   E.applyTheme = () => {
@@ -105,6 +106,15 @@
     return tab;
   };
 
+  // Markdown files can wrap at the window edge instead of scrolling sideways; the button sits beside A−/A+.
+  const isMd = (t) => t && t.kind === 'file' && ['md', 'markdown'].includes(App.ext(t.path || ''));
+  E.applyWrap = () => {
+    const t = E.cur(), md = isMd(t), on = localStorage.getItem('mdWrap') === '1';
+    const btn = document.getElementById('md-wrap');
+    if (btn) { btn.hidden = !md; btn.classList.toggle('active', on); btn.setAttribute('aria-pressed', String(on)); }
+    if (E.editor) E.editor.updateOptions({ wordWrap: md && on ? 'on' : 'off' });
+  };
+
   E.activate = function (id) {
     const prev = E.cur();
     if (prev && prev.kind === 'file' && E.editor) prev.viewState = E.editor.saveViewState();
@@ -114,14 +124,16 @@
     const monacoHost = document.getElementById('monaco-host');
     const alt = document.getElementById('alt-host');
     document.getElementById('welcome').hidden = !!t;
-    if (!t) { monacoHost.hidden = true; alt.hidden = true; renderTabs(); return; }
+    if (!t) { monacoHost.hidden = true; alt.hidden = true; E.applyWrap(); renderTabs(); return; }
     if (t.kind === 'file') {
       alt.hidden = true; monacoHost.hidden = false;
       E.editor.setModel(t.model);
+      E.applyWrap();
       if (t.viewState) E.editor.restoreViewState(t.viewState);
       setTimeout(() => { E.editor.layout(); E.editor.focus(); });
     } else {
       monacoHost.hidden = true; alt.hidden = false;
+      E.applyWrap();
       for (const c of [...alt.children]) alt.removeChild(c);
       alt.append(t.el);
       if (t.layout) setTimeout(t.layout);
