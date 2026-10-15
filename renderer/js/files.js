@@ -37,6 +37,8 @@
     App.listen('transferred', (t) => { if (F[t.to].dir === t.destDir) F.refresh(t.to); });
     App.listen('local-changed', () => F.refresh('local'));
     App.listen('remote-changed', () => F.refresh('remote'));
+    // Pick up changes made outside the UI (agents, scripts) without a manual refresh.
+    for (const [side, every] of [['local', 2000], ['remote', 15000]]) setInterval(() => F.poll(side), every);
     for (const [ev, side] of [['hpc', 'remote'], ['storage', 'storage']]) {
       App.listen(ev, (up) => { if (up) { paintDot(side); F.go(side, F[side].dir || F.startDir(side)); } else renderState(side); });
     }
@@ -123,6 +125,22 @@
     if (side === 'remote') App.remoteDir = r.cwd;
     p.pathInput.value = r.cwd;
     render(side);
+  };
+  const polling = {};
+  F.poll = async (side) => {
+    const s = F[side];
+    if (document.hidden || !s.dir || polling[side] || !F.isUp(side)) return;
+    polling[side] = true;
+    try {
+      const dir = s.dir, r = await api(side).list(dir);
+      if (r.error || s.dir !== dir) return;
+      const next = r.entries.filter((x) => App.cfg.showHidden || !x.name.startsWith('.'));
+      const sig = (a) => JSON.stringify(a);
+      if (sig(next) === sig(s.entries)) return;
+      s.entries = next;
+      if (s.sel && !next.some((x) => x.name === s.sel)) s.sel = null;
+      render(side);
+    } catch {} finally { polling[side] = false; }
   };
   F.refresh = (side) => F[side].dir && F.go(side, F[side].dir);
   // How to name a local path to the agent: relative to the project when inside it.
