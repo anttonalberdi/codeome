@@ -1,7 +1,7 @@
 {
   "name": "codeome",
   "productName": "Codeome",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "One Mac app for R/Python work on your laptop and HPC: editor, terminals, Claude Code & Codex sessions, Slurm, file transfer, reports, GitHub, Zenodo and PyPI.",
   "main": "main/main.js",
   "author": "Antton Alberdi",
@@ -30,7 +30,15 @@
     "mac": {
       "icon": "build/icon.icns",
       "category": "public.app-category.developer-tools",
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "hardenedRuntime": false,
       "identity": "-"
     },
@@ -41,6 +49,9 @@
       "node_modules/**",
       "package.json"
     ],
-    "asarUnpack": ["node_modules/node-pty/**", "kit/**"]
+    "asarUnpack": [
+      "node_modules/node-pty/**",
+      "kit/**"
+    ]
   }
 }

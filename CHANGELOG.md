@@ -2,6 +2,18 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## 0.4.1
+
+### Added
+- **Wrap toggle for Markdown**: a *↵ Wrap* button beside the A−/A+ buttons, shown while a Markdown file is open, breaks long lines at the window edge instead of scrolling sideways. The choice is remembered.
+- **Tooltips**: buttons and other controls with a title or label now show a Codeome-style tooltip on hover, in place of the system one.
+
+### Changed
+- **File browser updates itself**: the local pane re-reads its folder every 2 seconds and the HPC pane every 15, so changes made by agents appear without pressing refresh.
+
+### Fixed
+- **Toasts over Google documents**: the notification that an agent has finished or has a question is no longer hidden behind a Google Doc, Sheet or Slides tab.
+
 ## 0.4.0
 
 ### Added
