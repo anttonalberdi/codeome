@@ -292,6 +292,10 @@ label.check { display: flex; gap: 6px; align-items: center; font-size: 12px; cur
 /* ---------- path bars & file lists ---------- */
 .pathbar { display: flex; align-items: center; gap: 4px; padding: 4px 8px 6px 12px; }
 .pathbar input { font-family: var(--mono); font-size: 11.5px; padding: 3px 6px; }
+/* The folder path reads as plain text until hovered or focused; the search field keeps its box. */
+.pathbar:not(.searchbar) input { border-color: transparent; background: transparent; box-shadow: none; padding-left: 0; color: var(--muted); text-overflow: ellipsis; }
+.pathbar:not(.searchbar) input:hover { border-color: var(--line-strong); padding-left: 6px; }
+.pathbar:not(.searchbar) input:focus { border-color: var(--focus); background: var(--surface); padding-left: 6px; color: var(--text); box-shadow: 0 0 0 2px var(--accent-soft); }
 .flist { overflow: auto; flex: 1; min-height: 60px; padding-bottom: 6px; }
 .fitem { display: grid; grid-template-columns: 16px 1fr auto; gap: 6px; align-items: center; padding: 2px 12px; cursor: default; user-select: none; white-space: nowrap; }
 .fitem:hover { background: var(--surface-2); }
