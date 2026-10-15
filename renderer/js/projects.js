@@ -27,6 +27,7 @@
     tag.oncontextmenu = (e) => { e.preventDefault(); if (App.project) App.menu(e.clientX, e.clientY, tagMenu()); };
     applyCollapsed();
     // Unsaved files and live sessions change the cards.
+    App.listen('view', () => P.rememberView(true));
     App.listen('sessions', schedule);
     App.listen('chat-state', schedule);
     setInterval(pollJobs, 5000);
@@ -87,9 +88,23 @@
     });
   }
 
+  // Records the current view (and Agent pane) for the active project; kept across restarts.
+  P.rememberView = (save) => {
+    if (!App.project) return;
+    const views = App.cfg.projectViews = App.cfg.projectViews || {};
+    const cur = { view: App.currentView, pane: App.views.agents.pane };
+    const old = views[App.project];
+    if (old && old.view === cur.view && old.pane === cur.pane) return;
+    views[App.project] = cur;
+    if (save) App.saveConfig();
+  };
+
   P.switchTo = async (dir) => {
     if (dir && dir === App.project) return;
-    if (App.project) state(App.project).remoteDir = App.remoteDir;
+    if (App.project) {
+      state(App.project).remoteDir = App.remoteDir;
+      P.rememberView();
+    }
     App.closePopover();
     App.project = dir;
     if (dir) {
@@ -102,6 +117,12 @@
     document.title = dir ? App.basename(dir) + ' — Codeome' : 'Codeome';
     render();
     App.emit('project', dir);
+    // Return to the view (and Agent pane) this project was left on.
+    const saved = dir && (App.cfg.projectViews || {})[dir];
+    if (saved && saved.view) {
+      if (saved.view === 'agents' && saved.pane) App.views.agents.show(saved.pane);
+      if (saved.view !== App.currentView) App.setView(saved.view);
+    }
     const rd = dir && state(dir).remoteDir;
     if (rd && App.hpcConnected && rd !== App.remoteDir) App.views.files.go('remote', rd);
     await App.saveConfig();

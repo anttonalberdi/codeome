@@ -63,6 +63,7 @@
     if (pane === 'chat') App.views.chat.markSeen();
     if (pane === 'forum') App.views.forum.show();
     if (pane === 'jobs') A.refresh();
+    App.views.projects.rememberView(true);
   };
 
   // A job card just appeared in the chat: look for its record shortly.

@@ -71,6 +71,7 @@ const DEFAULTS = {
   gitAccounts: [],        // GitHub account metadata; tokens stay in the encrypted secret store
   projectAccounts: {},    // project → GitHub account id; kept when the project is closed
   activeProject: null,
+  projectViews: {},       // project → { view, pane } it was left on; restored when switching back or reopening
   // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight };
   // pkgPanes: the same for the Packages view (python / r), plus shown: true|false for R;
   // transfer: the Transfer view → { left, right: { host, dirs }, queueH, parallel }.
