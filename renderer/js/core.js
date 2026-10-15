@@ -97,6 +97,38 @@ App.toast = (msg, opts = {}) => {
 };
 App.err = (msg) => App.toast(String(msg), { error: true });
 
+// ---------- tooltips ----------
+// Codeome-style tooltips replace the native ones: any element with a title (or aria-label, for buttons) shows its text
+// after a short hover. The title moves to data-tip so the system tooltip does not also appear.
+(function () {
+  let tip = null, timer = null, target = null;
+  const hide = () => { clearTimeout(timer); timer = null; target = null; if (tip) { tip.remove(); tip = null; } };
+  const show = (el, text) => {
+    if (!el.isConnected) return;
+    tip = document.createElement('div');
+    tip.id = 'tip'; tip.className = 'tip'; tip.setAttribute('role', 'tooltip'); tip.textContent = text;
+    document.body.append(tip);
+    const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    let top = r.bottom + 6;
+    if (top + t.height > innerHeight - 4) top = Math.max(4, r.top - t.height - 6);
+    const left = Math.max(4, Math.min(innerWidth - t.width - 4, r.left + r.width / 2 - t.width / 2));
+    tip.style.top = top + 'px'; tip.style.left = left + 'px';
+  };
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest && e.target.closest('[title], [data-tip], button[aria-label]');
+    if (el === target) return;
+    hide();
+    if (!el) return;
+    if (el.hasAttribute('title')) { const t = el.getAttribute('title'); if (t) el.dataset.tip = t; el.removeAttribute('title'); }
+    const text = el.dataset.tip || (el.matches('button') ? el.getAttribute('aria-label') : '');
+    if (!text) return;
+    target = el;
+    timer = setTimeout(() => show(el, text), 450);
+  });
+  for (const ev of ['mousedown', 'keydown', 'wheel', 'blur']) addEventListener(ev, hide, true);
+  document.addEventListener('mouseleave', hide);
+})();
+
 // ---------- modal dialogs ----------
 // fields: [{key, label, type:'text'|'password'|'textarea'|'select'|'check'|'number', value, options, hint, placeholder}]
 // closer: called with a function that closes the dialog from outside; it then resolves undefined.

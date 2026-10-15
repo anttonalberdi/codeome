@@ -334,11 +334,19 @@
           const r = host.getBoundingClientRect();
           const covered = () => !host.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
           const shown = host.isConnected && r.width > 0 && r.height > 0 && layers.every((l) => l.hidden) && !document.querySelector('.popover') && !covered();
-          codeome.gdoc.place(tab.id, shown ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
+          let { x, y, width, height } = r;
+          // The page is a native view above the DOM: make room for toasts (bottom right) and tooltips (which open downwards).
+          const over = (el) => { const b = el && el.getBoundingClientRect(); return b && b.width && b.height && b.left < x + width && b.right > x && b.top < y + height && b.bottom > y ? b : null; };
+          const toasts = over(document.getElementById('toasts'));
+          if (toasts && toasts.top > y) height = toasts.top - 8 - y;
+          const tip = over(document.getElementById('tip'));
+          if (tip) { const d = tip.bottom + 4 - y; if (d > 0 && d < height) { y += d; height -= d; } }
+          codeome.gdoc.place(tab.id, shown && height > 0 ? { x, y, width, height } : null);
         };
         const ro = new ResizeObserver(place); ro.observe(host);
         const mo = new MutationObserver(place); for (const l of layers) mo.observe(l, { attributes: true, attributeFilter: ['hidden'] });
         mo.observe(document.body, { childList: true });
+        mo.observe(document.getElementById('toasts'), { childList: true });
         mo.observe(document.getElementById('app'), { attributes: true, attributeFilter: ['class'] });
         window.addEventListener('resize', place);
         const off = codeome.gdoc.onState((s) => {
