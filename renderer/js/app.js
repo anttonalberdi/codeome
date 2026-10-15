@@ -140,7 +140,9 @@
   function initResize() {
     const rz = document.getElementById('sidebar-resizer'), app = document.getElementById('app');
     const mainBand = document.getElementById('main-band'), sideBand = document.getElementById('side-band');
-    const MIN = 220, MAX = 760, SNAP = 70;   // dragging this far past either limit folds that side away
+    const MIN = 220, MAIN_MIN = 320, SNAP = 70;   // dragging this far past either limit folds that side away
+    // The sidebar may grow until the editor/terminal pane is down to MAIN_MIN, however wide the window is.
+    const maxW = () => Math.max(760, innerWidth - document.getElementById('sidebar').getBoundingClientRect().left - 4 - MAIN_MIN);
     const setW = (px) => document.documentElement.style.setProperty('--side-w', px + 'px');
     // state: 'both' (normal), 'main' (editor and terminal folded away), 'side' (sidebar folded away)
     const show = (state) => {
@@ -155,9 +157,10 @@
     document.getElementById('rail').addEventListener('click', () => { if (state() === 'side') { setW(300); show('both'); } }, true);
     rz.addEventListener('mousedown', (e) => {
       const start = e.clientX, s0 = state();
-      const w = s0 === 'main' ? MAX : s0 === 'side' ? MIN : document.getElementById('sidebar').getBoundingClientRect().width;
+      const w = s0 === 'main' ? maxW() : s0 === 'side' ? MIN : document.getElementById('sidebar').getBoundingClientRect().width;
       const move = (ev) => {
         const raw = w + ev.clientX - start;
+        const MAX = maxW();
         if (raw > MAX + SNAP) return show('main');
         if (raw < MIN - SNAP) return show('side');
         setW(Math.max(MIN, Math.min(MAX, raw)));

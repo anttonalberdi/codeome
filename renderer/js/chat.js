@@ -649,6 +649,19 @@
     update(chat, it); save(chat);
   }
 
+  // Plain text with file paths turned into links the log's click handler opens in the editor.
+  function linkPaths(text) {
+    const re = /(?:~\/|\.{0,2}\/)?(?:[\w.@-]+\/)+[\w.@-]+\.\w{1,8}(?::\d+)?/g;
+    const out = []; let at = 0, m;
+    while ((m = re.exec(text))) {
+      if (m.index > at) out.push(text.slice(at, m.index));
+      out.push(h('a', { href: '#', 'data-path': m[0] }, m[0]));
+      at = m.index + m[0].length;
+    }
+    if (at < text.length) out.push(text.slice(at));
+    return out;
+  }
+
   async function answer(chat, it, answers) {
     const req = chat.requests[it.requestId];
     if (!req) return;
@@ -844,7 +857,7 @@
     return h('div.ask-card' + (done ? '.done' : ''),
       it.questions.map((q, k) => h('div.ask-q',
         q.header ? h('span.pill', q.header) : null,
-        h('div.ask-h', q.question),
+        h('div.ask-h', linkPaths(q.question)),
         done ? h('div.ask-done', it.answers ? (it.answers[q.question] || '—') : 'No longer waiting') : h('div.ask-opts',
           q.options.map((o) => {
             const b = h('button.ask-opt', { title: o.description || '', 'aria-pressed': 'false', onclick: () => {
