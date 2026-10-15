@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## 0.3.5 (unreleased)
+## 0.4.0
 
 ### Added
 - **Git & GitHub accounts**: *Settings → Git & GitHub* holds GitHub accounts, on github.com or a GitHub Enterprise host over https. Add one by pasting a personal access token, or import the one the `gh` CLI is signed in with. Each token is checked with GitHub when added and whenever the section opens, then encrypted with the macOS Keychain and never shown again. Each account shows its login and a status: valid, missing scopes, invalid or could not check. Classic tokens need `repo` (and `workflow` to push workflow files); fine-grained tokens need Contents and Pull requests access.
