@@ -2,6 +2,15 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## 0.4.2
+
+### Added
+- **New project dialog**: pick an existing folder or clone a git URL to start a project, with a default project folder set in Settings.
+- **Groups from a checkbox list**: a new group takes its projects from a checkbox list, with ungrouped projects listed first.
+
+### Fixed
+- **Release lookup**: Codeome releases are looked up through `gh`, so a private repository is no longer read as having no release.
+
 ## 0.4.1
 
 ### Added
