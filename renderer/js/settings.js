@@ -486,7 +486,10 @@
     const project = App.project;
     const host = agentsHost;
     if (!project) { host.replaceChildren(scopeHead('This project', 'No project is open.'), card('Team', h('div.sp-empty', 'Open a project to see its agents and skills.'))); return; }
-    const [res, kit, models, sk] = await Promise.all([codeome.agents.list(project), codeome.kit.status(project), codeome.agents.models(), codeome.skills.list(project)]);
+    host.replaceChildren(scopeHead(`This project · ${App.basename(project)}`, 'Kept in its .claude/ folder, and shared with collaborators when committed.'), card('Team', h('div.sp-empty', 'Loading agents…')));
+    let res, kit, models, sk;
+    try { [res, kit, models, sk] = await Promise.all([codeome.agents.list(project), codeome.kit.status(project), codeome.agents.models(), codeome.skills.list(project)]); }
+    catch (e) { if (project === App.project && host === agentsHost) host.replaceChildren(scopeHead(`This project · ${App.basename(project)}`, ''), card('Team', h('div.sp-empty', e.message || String(e)))); return; }
     if (project !== App.project || host !== agentsHost) return;
     codexCatalog = models.codex || { models: [] };
     const list = res.agents || [];
@@ -495,7 +498,7 @@
       h('span.grow', `Team in ${name}`),
       kit.installed ? h('button.btn.small.ghost', { onclick: () => openFile(App.join(project, '.claude/skills/orchestrate/routing.md')) }, 'Routing') : null,
       kit.installed ? h('button.btn.small.ghost', { onclick: () => App.views.agents.install().then(renderAgents) }, kit.outdated ? `Update kit to ${kit.latest}…` : 'Role groups…') : null,
-      h('button.btn.small', { onclick: () => newAgent(App.join(project, '.claude')) }, '+ New agent'));
+      h('button.btn.small', { onclick: () => S.newAgent('project') }, '+ New agent'));
     const body = [];
     if (res.error) body.push(h('div.sp-empty', res.error));
     if (!kit.installed) {
@@ -522,41 +525,49 @@
     if (!globalHost) return;
     const project = App.project;
     const host = globalHost;
-    const g = await codeome.global.list(project);
+    host.replaceChildren(card('Agents for all projects', h('div.sp-empty', 'Loading agents…')));
+    let g, general, sync;
+    try { sync = await codeome.general.sync(); [g, general] = await Promise.all([codeome.global.list(project), codeome.general.agents()]); }
+    catch (e) { if (project === App.project && host === globalHost) host.replaceChildren(card('Agents for all projects', h('div.sp-empty', e.message || String(e)))); return; }
     if (project !== App.project || host !== globalHost) return;
-    if (g.error) { host.replaceChildren(card('Global agents', h('div.sp-empty', g.error))); return; }
-    const dir = App.tildify(g.dir);
-    const list = g.agents || [];
+    const dir = g.dir ? App.tildify(g.dir) : 'the Claude account folder';
+    const generalByName = new Map((Array.isArray(general) ? general : []).map((a) => [a.name, a]));
+    const skipped = new Set(sync.skipped || []);
+    const list = [...(g.agents || []), ...(Array.isArray(general) ? general.filter((a) => !(g.agents || []).some((x) => x.name === a.name)) : [])];
     const body = [];
+    if (g.error) body.push(h('div.sp-empty', g.error));
+    if (general.error) body.push(h('div.sp-empty', general.error));
+    if (sync.error) body.push(h('div.sp-empty', sync.error));
     if (!list.length) body.push(h('div.sp-empty', `No agents in ${dir}/agents/ yet.`));
     else body.push(h('div.ag-table', { role: 'table', 'aria-label': 'Global agents' },
-      h('div.ag-row.ag-global.ag-headrow', { role: 'row' }, ['Agent', 'Model', 'Effort', 'Access', ''].map((x) => h('span', { role: 'columnheader' }, x))),
-      list.map((a) => globalAgentRow(project, a))));
-    body.push(h('div.sp-foot.hint', `In ${dir}/agents/. The chat can hand work to them in any project; they run on Claude. A project agent with the same name is used instead in that project.`
+      h('div.ag-row.ag-global.ag-headrow', { role: 'row' }, ['Agent', 'AI / Model', 'Effort', 'Access', ''].map((x) => h('span', { role: 'columnheader' }, x))),
+      list.map((a) => globalAgentRow(project, a, generalByName.get(a.name), skipped.has(App.join(g.dir, `agents/${a.name}.md`)), g.account))));
+    body.push(h('div.sp-foot.hint', `Account agents live in ${dir}/agents/; general agents live in Codeome's folder and are mirrored into Claude accounts. A project agent with the same name is used instead in that project.`
       + (g.accounts > 1 ? ` Each Claude account has its own folder: these are the ones of the active account, ${g.account}.` : '')));
     host.replaceChildren(
-      h('div.sp-card', h('div.sp-card-h.row', h('span.grow', 'Global agents'), h('button.btn.small', { onclick: () => newAgent(g.dir) }, '+ New agent')), ...body),
-      skillsCard('Global skills', g, () => newSkill(g.dir), `In ${dir}/skills/. Available in every project. A global skill is used instead of a project skill with the same name.`, `No skills in ${dir}/skills/ yet.`));
+      h('div.sp-card', h('div.sp-card-h.row', h('span.grow', 'Agents for all projects'), h('button.btn.small', { onclick: () => S.newAgent('general') }, '+ New agent')), ...body),
+      g.error ? null : skillsCard('Global skills', g, () => newSkill(g.dir), `In ${dir}/skills/. Available in every project. A global skill is used instead of a project skill with the same name.`, `No skills in ${dir}/skills/ yet.`));
   }
 
-  function globalAgentRow(project, a) {
+  function globalAgentRow(project, a, general, notMirrored, account) {
     const el = h('div.ag-row.ag-global', { role: 'row' });
     const save = async (patch) => {
       const r = await codeome.global.setAgent(project, a.name, patch);
       if (r.error) { App.err(r.error); return renderGlobal(); }
       Object.assign(a, r.agent);
-      el.replaceWith(globalAgentRow(project, a));
+      el.replaceWith(globalAgentRow(project, a, general, notMirrored, account));
       flash();
     };
     el.append(
       h('div.ag-name', { role: 'cell' },
-        h('div.row', h('b', a.name), h('span.pill.global', 'global'),
+        h('div.row', h('b', a.name), h('span.pill.global', general ? 'general' : 'global'),
+          general && notMirrored ? h('span.pill.warn', `not mirrored: a different file with this name exists in ${account}`) : null,
           a.replacedByProject ? h('span.pill.warn', { title: `${App.basename(project)} has its own ${a.name}, which is used there instead` }, 'replaced in this project') : null),
-        a.description ? h('div.ag-desc', { title: a.description }, a.description) : null),
-      h('div', { role: 'cell' }, modelSelect([{ value: '', label: 'Same as the chat' }, ...CLAUDE_MODELS], a.claudeModel, (v) => save({ claudeModel: v }), `Claude model for ${a.name}`)),
-      h('div', { role: 'cell' }, select(CLAUDE_EFFORTS, a.claudeEffort, (v) => save({ claudeEffort: v }), `Claude effort for ${a.name}`)),
-      h('div', { role: 'cell' }, h('span.ag-access.' + (a.access === 'writes' ? 'w' : 'r'), a.access)),
-      h('div', { role: 'cell' }, h('button.btn.small', { title: `Edit ${fileLabel(a.path)}`, onclick: () => openFile(a.path) }, 'Edit .md')));
+        (general ? general.description : a.description) ? h('div.ag-desc', { title: general ? general.description : a.description }, general ? general.description : a.description) : null),
+      h('div', { role: 'cell' }, general ? h('span.hint', ENGINE_NAME[general.engine] || general.engine) : modelSelect([{ value: '', label: 'Same as the chat' }, ...CLAUDE_MODELS], a.claudeModel, (v) => save({ claudeModel: v }), `Claude model for ${a.name}`)),
+      h('div', { role: 'cell' }, general ? null : select(CLAUDE_EFFORTS, a.claudeEffort, (v) => save({ claudeEffort: v }), `Claude effort for ${a.name}`)),
+      h('div', { role: 'cell' }, general ? null : h('span.ag-access.' + (a.access === 'writes' ? 'w' : 'r'), a.access)),
+      h('div', { role: 'cell' }, h('button.btn.small', { title: `Edit ${fileLabel(general ? general.path : a.path)}`, onclick: () => openFile(general ? general.path : a.path) }, 'Edit .md')));
     return el;
   }
 
@@ -614,26 +625,112 @@
       h('div', { role: 'cell' }, model),
       h('div', { role: 'cell' }, effort),
       h('div', { role: 'cell' }, h('span.ag-access.' + (a.access === 'writes' ? 'w' : 'r'), a.access)),
-      h('div', { role: 'cell' }, h('button.btn.small', { title: `Edit ${a.file}`, onclick: () => openFile(a.path) }, 'Edit .md')));
+      h('div.ag-actions', { role: 'cell' },
+        h('button.btn.small', { title: `Edit ${a.file}`, onclick: () => openFile(a.path) }, 'Edit .md'),
+        h('button.btn.small', { onclick: () => expandAgent(project, a) }, 'Expand scope…')));
     return el;
   }
 
   function openFile(p) { S.close(); App.views.editor.openFile(p); }
 
-  // base: the Claude folder to create it in — the project's .claude, or the account's own for a global one.
-  async function newAgent(base) {
-    const global = !App.project || !base.startsWith(App.project + '/');
-    const name = await App.prompt(global ? 'New global agent' : 'New agent', 'Name (lowercase, dashes)', '', { placeholder: 'e.g. stats-reviewer', ok: 'Create' });
-    if (!name) return;
-    if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(name)) return App.err('Use lowercase letters, digits and dashes.');
-    const p = App.join(base, `agents/${name}.md`);
-    const exists = await codeome.local.read(p);
-    if (!exists.error) return App.err(`${name} already exists.`);
-    await codeome.local.mkdir(App.join(base, 'agents'));
-    const r = await codeome.local.write(p, `---\nname: ${name}\ndescription: What this agent does and when the orchestrator should use it.\ntools: Read, Grep, Glob, Bash\n---\n\nYou are the ${name}. Describe how to work and what to report.\n`);
-    if (r.error) return App.err(r.error);
-    App.emit('local-changed');
-    openFile(p);
+  // The shared modal closes on submit, so agent dialogs use its markup while keeping IPC errors visible.
+  function agentDialog(title, body, ok, submit) {
+    const overlay = document.getElementById('overlay');
+    const previous = document.activeElement;
+    const error = h('div.agent-dialog-error', { role: 'alert' });
+    const save = h('button.btn.primary', { type: 'submit' }, ok);
+    const form = h('form.modal', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+      h('header', h('h2', title)), h('div.body', body, error),
+      h('footer', h('button.btn', { type: 'button', onclick: () => { if (!busy) close(); } }, 'Cancel'), save));
+    let busy = false;
+    const close = () => {
+      overlay.hidden = true; overlay.replaceChildren(); overlay.onclick = null;
+      document.removeEventListener('keydown', onKey, true);
+      if (previous && previous.isConnected) previous.focus();
+    };
+    const showError = (message) => { error.textContent = message; };
+    const onKey = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); if (!busy) close(); }
+      if (event.key !== 'Tab') return;
+      const focusable = [...form.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')];
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (busy) return;
+      busy = true; save.disabled = true; showError('');
+      try { await submit({ close, showError, save }); }
+      catch (e) { showError(e.message || String(e)); }
+      finally { busy = false; save.disabled = false; }
+    });
+    overlay.replaceChildren(form); overlay.hidden = false;
+    overlay.onclick = (event) => { if (event.target === overlay && !busy) close(); };
+    document.addEventListener('keydown', onKey, true);
+    setTimeout(() => form.querySelector('input,select,textarea,button')?.focus(), 0);
+  }
+
+  S.newAgent = (initialScope) => {
+    const project = App.project;
+    const name = h('input', { type: 'text', placeholder: 'e.g. stats-reviewer', spellcheck: 'false', autocomplete: 'off', 'aria-describedby': 'agent-name-error' });
+    const nameError = h('span#agent-name-error.agent-field-error', { role: 'alert' });
+    const description = h('input', { type: 'text', placeholder: 'When should the chat use this agent?', 'aria-describedby': 'agent-description-error' });
+    const descriptionError = h('span#agent-description-error.agent-field-error', { role: 'alert' });
+    const engine = h('select', h('option', { value: 'claude' }, 'Claude'), h('option', { value: 'codex' }, 'Codex'));
+    const tools = h('select', h('option', { value: 'read-only' }, 'Read-only'), h('option', { value: 'edits' }, 'Can edit files'), h('option', { value: 'shell' }, 'Can edit and run shell'));
+    const scope = h('select', project ? h('option', { value: 'project' }, 'This project') : null, h('option', { value: 'general' }, 'General: all projects'));
+    scope.value = initialScope === 'general' || !project ? 'general' : 'project';
+    const generalHint = h('div.hint', "Saved to Codeome's general folder and mirrored into each Claude account.");
+    generalHint.hidden = scope.value !== 'general';
+    scope.addEventListener('change', () => { generalHint.hidden = scope.value !== 'general'; });
+    const instructions = h('textarea', { rows: 5, placeholder: 'Optional instructions for this agent' });
+    name.addEventListener('input', () => { nameError.textContent = name.value && !/^[a-z][a-z0-9-]{1,40}$/.test(name.value.trim()) ? 'Use 2–41 lowercase letters, digits or hyphens; start with a letter.' : ''; name.setAttribute('aria-invalid', String(!!nameError.textContent)); });
+    description.addEventListener('input', () => { descriptionError.textContent = ''; description.setAttribute('aria-invalid', 'false'); });
+    agentDialog('New agent', h('fieldset',
+      h('label.field', h('span', 'Name'), name, nameError),
+      h('label.field', h('span', 'Use when'), description, descriptionError),
+      h('label.field', h('span', 'Engine'), engine),
+      h('label.field', h('span', 'Tool access'), tools),
+      h('label.field', h('span', 'Scope'), scope, generalHint),
+      h('label.field', h('span', 'Instructions (optional)'), instructions)), 'Create', async ({ close, showError }) => {
+      const slug = name.value.trim(), useWhen = description.value.trim();
+      if (!/^[a-z][a-z0-9-]{1,40}$/.test(slug)) { nameError.textContent = 'Use 2–41 lowercase letters, digits or hyphens; start with a letter.'; name.setAttribute('aria-invalid', 'true'); name.focus(); return; }
+      if (!useWhen) { descriptionError.textContent = 'Describe when to use this agent.'; description.setAttribute('aria-invalid', 'true'); description.focus(); return; }
+      const result = await codeome.agents.create({ scope: scope.value, project, name: slug, description: useWhen, engine: engine.value, tools: tools.value, body: instructions.value.trim() });
+      if (result.error) { showError(result.error); return; }
+      close();
+      App.toast(`${slug} created ${scope.value === 'general' ? 'for all projects' : `in ${App.basename(project)}`}.`);
+      if (result.mirror && result.mirror.error) App.err(`Mirroring to Claude accounts failed: ${result.mirror.error}`);
+      App.emit('local-changed');
+      if (S.isOpen && current === 'agents') { renderGlobal(); renderAgents(); }
+    });
+  };
+
+  function expandAgent(project, agent) {
+    const others = [...new Set([...App.views.projects.list, ...App.views.projects.linksOf(project)])].filter((dir) => dir !== project);
+    const all = h('input', { type: 'checkbox' });
+    const targets = others.map((dir) => ({ dir, box: h('input', { type: 'checkbox', checked: App.views.projects.linksOf(project).includes(dir) }) }));
+    const results = h('div.agent-scope-results', { role: 'status', 'aria-live': 'polite' });
+    const body = h('fieldset', h('legend', 'Add this agent to'),
+      h('label.check', all, 'All projects (general)'),
+      targets.length ? targets.map(({ dir, box }) => h('label.check', { title: App.tildify(dir) }, box, App.basename(dir))) : h('div.hint', 'No other projects are known.'));
+    let finished = false;
+    agentDialog(`Expand scope · ${agent.name}`, h('div', body, results), 'Add', async ({ close, showError, save }) => {
+      if (finished) { close(); return; }
+      const selected = targets.filter(({ box }) => box.checked).map(({ dir }) => dir);
+      if (!all.checked && !selected.length) { showError('Choose at least one destination.'); return; }
+      const result = await codeome.agents.promote({ project, name: agent.name, toGeneral: all.checked, toProjects: selected });
+      if (result.error) { showError(result.error); return; }
+      const line = (label, status) => h('div.agent-scope-result', h('span', label),
+        h('span' + (status && status.error ? '.agent-field-error' : '.hint'), status === 'created' ? 'created' : status === 'exists' ? 'already exists' : status && status.error ? `error: ${status.error}` : 'No result'));
+      results.replaceChildren(
+        all.checked ? line('All projects (general)', result.general) : null,
+        selected.map((dir) => line(App.basename(dir), (result.projects || {})[dir])));
+      finished = true; save.textContent = 'Done';
+      App.emit('local-changed');
+      if (S.isOpen && current === 'agents') { renderGlobal(); renderAgents(); }
+    });
   }
 
   async function newSkill(base) {

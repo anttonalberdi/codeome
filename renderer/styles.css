@@ -715,10 +715,10 @@ button.cs:hover { text-decoration-color: currentColor; }
 .cs.done, .cs.done b { color: var(--accent); }
 .cs-sub { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .tool.run .tdot, .msg.md.live::after, .ctab.waiting .cdot { animation: none; } }
-/* A narrow section: tighter gutters, and the header's New chat gives way to the + beside the tabs. */
+/* A narrow section: tighter gutters and chat history remains available in More. */
 @container agent (max-width: 280px) {
   .agent-head { padding-left: 9px; padding-right: 7px; gap: 4px; }
-  .agent-head .agent-new { display: none; }
+  .agent-head .agent-new + .icon-btn { display: none; }
   .banner { margin: 8px 9px 0; }
   .banner .grow { flex-basis: 100%; }
   .chat-sum { padding: 4px 9px; column-gap: 9px; }
@@ -862,6 +862,10 @@ button.cs:hover { text-decoration-color: currentColor; }
 .modal fieldset { border: 0; padding: 0; margin: 4px 0 0; display: flex; flex-direction: column; gap: 8px; }
 .modal legend { font-weight: 600; font-size: 12px; padding: 0 0 4px; color: var(--accent); }
 .modal .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.modal .agent-field-error, .modal .agent-dialog-error { color: var(--fail); font-size: 11.5px; }
+.modal .agent-field-error:empty, .modal .agent-dialog-error:empty { display: none; }
+.agent-scope-results { display: flex; flex-direction: column; gap: 4px; }
+.agent-scope-result { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
 
 #menu-pop { position: fixed; z-index: 60; min-width: 220px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
 #menu-pop button { display: flex; width: 100%; text-align: left; border: 0; background: transparent; padding: 5px 10px; border-radius: 5px; cursor: pointer; gap: 8px; justify-content: space-between; }
@@ -967,10 +971,10 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .sec-scope { min-width: 96px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sec-add { display: grid; grid-template-columns: minmax(140px, 220px) minmax(140px, 1fr) auto; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
 .ag-table { display: flex; flex-direction: column; }
-.ag-row { display: grid; grid-template-columns: minmax(180px, 1fr) 150px minmax(170px, 230px) 100px 70px 72px; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
+.ag-row { display: grid; grid-template-columns: minmax(150px, 1fr) 130px minmax(150px, 200px) 90px 55px 130px; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
 .ag-headrow { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding-top: 7px; padding-bottom: 5px; border-top: 0; }
 .ag-name { min-width: 0; }
-.ag-name .row { gap: 6px; }
+.ag-name .row { gap: 6px; flex-wrap: wrap; }
 .ag-desc { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .ag-row select { font-size: 12px; padding: 2px 4px; }
 .ag-def { font-size: 10.5px; color: var(--pend); margin-top: 2px; }
@@ -979,6 +983,8 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .ag-access { font-size: 11px; }
 .ag-access.w { color: var(--pend); }
 .ag-access.r { color: var(--muted); }
+.ag-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.ag-actions .btn { white-space: nowrap; }
 .pill.own { background: var(--sel); color: var(--text); }
 .pill.global { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text); }
 .ag-row.ag-global { grid-template-columns: minmax(180px, 1fr) minmax(170px, 230px) 100px 70px 72px; }
@@ -993,7 +999,7 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .sk-file:hover { border-color: var(--accent); }
 .sk-file.edited { color: var(--pend); }
 @media (max-width: 1180px) {
-  .ag-row { grid-template-columns: 1fr 130px 180px 96px 72px; }
+  .ag-row { grid-template-columns: 1fr 120px 160px 80px 130px; }
   .ag-row > :nth-child(5) { display: none; }
   .ag-row.ag-global { grid-template-columns: 1fr 180px 96px 72px; }
   .ag-row.ag-global > :nth-child(4) { display: none; }

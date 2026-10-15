@@ -88,9 +88,11 @@ contextBridge.exposeInMainWorld('codeome', {
   kit: { status: invoke('kit:status'), install: (project, groups) => ipcRenderer.invoke('kit:install', { project, groups }) },
   skills: { list: invoke('skills:list') },
   global: { list: invoke('global:list'), setAgent: (project, name, patch) => ipcRenderer.invoke('global:setAgent', { project, name, patch }) },
+  general: { agents: invoke('general:agents'), sync: invoke('general:sync') },
   agents: {
     list: invoke('agents:list'), models: invoke('agents:models'),
-    set: (project, name, patch) => ipcRenderer.invoke('agents:set', { project, name, patch })
+    set: (project, name, patch) => ipcRenderer.invoke('agents:set', { project, name, patch }),
+    create: invoke('agents:create'), promote: invoke('agents:promote')
   },
   jobs: {
     list: invoke('jobs:list'), clear: invoke('jobs:clear'),

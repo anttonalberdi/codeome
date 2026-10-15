@@ -24,7 +24,7 @@
     jobsEl = h('div.agent-jobs', { hidden: true }, kitCardEl,
       h('div.side-head', h('h2', 'Specialist jobs'), App.iconBtn('refresh', 'Refresh', () => A.refresh(true)), App.iconBtn('trash', 'Clear finished jobs', () => A.clear())),
       listEl);
-    newChatBtn = App.iconBtn('plus', 'New chat', () => App.views.chat.newChat(), '.agent-new');
+    newChatBtn = App.iconBtn('plus', 'New agent', () => App.views.settings.newAgent(), '.agent-new');
     historyBtn = App.iconBtn('history', 'Chat history', (e) => App.views.chat.openHistory(e.currentTarget));
     root.append(
       h('div.side-head.agent-head', titleEl, tabsEl,

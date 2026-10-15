@@ -221,6 +221,7 @@ ipcMain.handle('config:set', (_e, c) => {
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
   cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts });
   applyProxy();
+  if (accountsChanged) mirrorGeneralQuietly();
   // The new list shows at once; who is signed in and the Codex limits follow.
   publishUsage();
   if (accountsChanged) refreshUsage(true);
@@ -764,8 +765,34 @@ ipcMain.handle('kit:install', (_e, { project, groups }) => { try { return kit.in
 // Global agents and skills are the ones in the active Claude account's folder (each account has its own).
 const claudeAccount = () => { const c = cfg.accounts.claude; return c.list.find((a) => a.name === c.active) || c.list[0] || { name: 'Default', dir: '' }; };
 const claudeDir = () => expandHome(claudeAccount().dir || usage.DEFAULT_DIR.claude);
+const claudeAccountDirs = () => [...new Set((cfg.accounts.claude.list.length ? cfg.accounts.claude.list : [{ dir: '' }])
+  .map((a) => expandHome(a.dir || usage.DEFAULT_DIR.claude)))];
+function mirrorGeneralQuietly() {
+  try { kit.mirrorGeneral({ home: usage.home(), accountDirs: claudeAccountDirs() }); } catch (e) { console.error('general agent mirror', e); }
+}
 ipcMain.handle('skills:list', (_e, project) => { try { return { skills: kit.skillList(project, claudeDir()) }; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('agents:list', (_e, project) => { try { return { agents: kit.agents(project, claudeDir()) }; } catch (e) { return { error: e.message }; } });
+ipcMain.handle('agents:create', (_e, args) => {
+  try {
+    const { scope, project, name, description, engine, tools, body } = args;
+    const result = kit.createAgent({ scope, project, name, description, engine, tools, body, home: usage.home() });
+    if (scope === 'general' && !result.error) result.mirror = kit.mirrorGeneral({ home: usage.home(), accountDirs: claudeAccountDirs() });
+    return result;
+  } catch (e) { return { error: e.message }; }
+});
+ipcMain.handle('agents:promote', (_e, args) => {
+  try {
+    const { project, name, toGeneral, toProjects } = args;
+    const known = new Set([...(cfg.openProjects || []), ...((cfg.projectLinks || {})[project] || [])].filter((p) => p !== project));
+    const targets = Array.isArray(toProjects) ? toProjects : [];
+    const accepted = targets.filter((p) => known.has(p));
+    const result = kit.promoteAgent({ project, name, toGeneral, toProjects: accepted, home: usage.home(), accountDirs: claudeAccountDirs() });
+    for (const p of targets) if (!known.has(p)) result.projects[p] = { error: 'Not a known project' };
+    return result;
+  } catch (e) { return { error: e.message }; }
+});
+ipcMain.handle('general:agents', () => { try { return kit.generalAgents(usage.home()); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('general:sync', () => { try { return kit.mirrorGeneral({ home: usage.home(), accountDirs: claudeAccountDirs() }); } catch (e) { return { error: e.message }; } });
 ipcMain.handle('global:list', (_e, project) => {
   try { const dir = claudeDir(); return { dir, account: claudeAccount().name, accounts: cfg.accounts.claude.list.length, agents: kit.globalAgents(dir, project), skills: kit.globalSkills(dir, project) }; }
   catch (e) { return { error: e.message }; }
@@ -991,10 +1018,12 @@ ipcMain.handle('usage:setActive', (_e, { engine, name }) => {
   if (!cfg.accounts[engine] || !cfg.accounts[engine].list.some((a) => a.name === name)) return { error: 'Unknown account ' + name };
   cfg.accounts[engine].active = name;
   cfg = config.save(cfg);
+  mirrorGeneralQuietly();
   return publishUsage();
 });
 
 function startUsage() {
+  mirrorGeneralQuietly();
   try { statusline = usage.installStatusline(path.join(__dirname, 'codeome-statusline'), noCoAuthor()); } catch (e) { console.error('statusline', e); }
   refreshUsage(true);
   // Both CLIs are asked every few minutes; between two checks, Claude readings are also

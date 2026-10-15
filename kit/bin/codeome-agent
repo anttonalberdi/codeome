@@ -137,8 +137,13 @@ def read_role(role):
     path = os.path.join(ROOT, '.claude', 'agents', role + '.md')
     text = read_text(path, None)
     if text is None:
-        have = sorted(n[:-3] for n in os.listdir(os.path.dirname(path))) if os.path.isdir(os.path.dirname(path)) else []
-        sys.exit('codeome-agent: no role "%s" in .claude/agents/ (installed: %s)' % (role, ', '.join(have) or 'none'))
+        general = os.path.join(CODEOME_HOME, 'agents', role + '.md')
+        text = read_text(general, None)
+        if text is None:
+            have = set(n[:-3] for n in os.listdir(os.path.dirname(path))) if os.path.isdir(os.path.dirname(path)) else set()
+            if os.path.isdir(os.path.dirname(general)):
+                have.update(n[:-3] for n in os.listdir(os.path.dirname(general)) if n.endswith('.md'))
+            sys.exit('codeome-agent: no role "%s" in .claude/agents/ (installed: %s)' % (role, ', '.join(sorted(have)) or 'none'))
     meta, body = {}, text
     m = re.match(r'^---\n(.*?)\n---\n?(.*)$', text, re.S)
     if m:

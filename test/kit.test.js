@@ -335,6 +335,55 @@ test('the project\'s own agents get a routing row when an engine is chosen, kept
   assert.strictEqual(kit.agents(p).find((a) => a.name === 'stats').engine, 'codex');
 });
 
+test('creating agents records their tools and engine without replacing existing roles', () => {
+  const p = tmp(), home = tmp();
+  kit.install(p);
+  const project = kit.createAgent({ scope: 'project', project: p, name: 'data-aide', description: 'Checks data.', engine: 'codex', tools: 'read-only' });
+  assert.strictEqual(project.path, path.join(p, '.claude/agents/data-aide.md'));
+  assert.match(fs.readFileSync(project.path, 'utf8'), /tools: Read, Grep, Glob, Bash\n/);
+  assert.match(fs.readFileSync(project.path, 'utf8'), /## Report/);
+  assert.strictEqual(readJson(path.join(p, '.codeome/agents.json')).roles['data-aide'].engine, 'codex');
+  assert.match(fs.readFileSync(path.join(p, '.claude/skills/orchestrate/routing.md'), 'utf8'), /\| `data-aide` \| Codex \| read-only \|/);
+  assert.ok(kit.createAgent({ scope: 'project', project: p, name: 'data-aide', description: '', engine: 'claude', tools: 'edits' }).error);
+  assert.ok(kit.createAgent({ scope: 'project', project: p, name: 'reviewer', description: '', engine: 'claude', tools: 'edits' }).error);
+  const general = kit.createAgent({ scope: 'general', home, name: 'note-aide', description: 'Checks notes.', engine: 'codex', tools: 'edits' });
+  assert.match(fs.readFileSync(general.path, 'utf8'), /^codeome-engine: codex$/m);
+  assert.strictEqual(kit.generalAgents(home)[0].engine, 'codex');
+});
+
+test('promotion copies agents and mirroring preserves account edits', () => {
+  const p = tmp(), other = tmp(), home = tmp(), account = tmp(), account2 = tmp();
+  kit.install(p);
+  kit.install(other);
+  kit.createAgent({ scope: 'project', project: p, name: 'data-aide', description: 'Checks data.', engine: 'codex', tools: 'edits' });
+  const promoted = kit.promoteAgent({ project: p, name: 'data-aide', toGeneral: true, toProjects: [other], home });
+  assert.strictEqual(promoted.general, 'created');
+  assert.strictEqual(promoted.projects[other], 'created');
+  assert.match(fs.readFileSync(path.join(other, '.claude/skills/orchestrate/routing.md'), 'utf8'), /\| `data-aide` \| Codex \|/);
+  assert.strictEqual(kit.promoteAgent({ project: p, name: 'data-aide', toGeneral: true, toProjects: [other], home, accountDirs: [account2] }).general, 'exists');
+  const target2 = path.join(account2, 'agents/data-aide.md');
+  assert.ok(fs.existsSync(target2));
+  const target = path.join(account, 'agents/data-aide.md');
+  assert.deepStrictEqual(kit.mirrorGeneral({ home, accountDirs: [account] }).written, [target]);
+  fs.appendFileSync(target, '\nAccount edit.\n');
+  fs.appendFileSync(path.join(home, 'agents/data-aide.md'), '\nGeneral edit.\n');
+  assert.deepStrictEqual(kit.mirrorGeneral({ home, accountDirs: [account] }).skipped, [target]);
+  assert.match(fs.readFileSync(target, 'utf8'), /Account edit/);
+  assert.deepStrictEqual(kit.mirrorGeneral({ home, accountDirs: [account2] }).written, [target2]);
+  fs.unlinkSync(path.join(home, 'agents/data-aide.md'));
+  assert.deepStrictEqual(kit.mirrorGeneral({ home, accountDirs: [account, account2] }).removed, [target2]);
+  assert.ok(fs.existsSync(target));
+});
+
+test('codeome-agent falls back to a general role', () => {
+  const p = tmp(), home = tmp();
+  kit.install(p);
+  kit.createAgent({ scope: 'general', home, name: 'note-aide', description: 'Checks notes.', engine: 'codex', tools: 'read-only' });
+  const r = runAgent(p, ['codex', '--role', 'note-aide'], 'Check notes.', { CODEOME_HOME: home, CODEOME_CODEX: fakeCodex(p) });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(readJson(path.join(p, 'call.json')).prompt, /You are the note-aide/);
+});
+
 test('codeome-agent uses the Codex model chosen for the role unless --model is given', () => {
   const p = tmp();
   kit.install(p);

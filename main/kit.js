@@ -11,11 +11,14 @@
 //   .codeome/agents.json               engine and model chosen per agent in Settings
 // Files the user has edited since installation are never overwritten or removed.
 //
-// Global agents and skills live in the Claude account's folder (~/.claude/agents, ~/.claude/skills) and apply in
-// every project. The kit never writes there; Settings lists them beside the project's and marks name clashes.
+// General agents live in Codeome's own store. The kit still never writes to a Claude account folder on its own;
+// mirrorGeneral writes the Codeome general store into account folders (~/.claude/agents by default), when an agent
+// is created or promoted and when the app starts or the accounts change. Settings also lists account agents and
+// marks name clashes.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 
 const KIT = path.join(__dirname, '..', 'kit');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(KIT, 'manifest.json'), 'utf8'));
@@ -26,11 +29,17 @@ const ENGINE_LABEL = { claude: 'Claude', codex: 'Codex', cross: 'the other engin
 const ENGINES = Object.keys(ENGINE_LABEL);
 const ROUTING = '.claude/skills/orchestrate/routing.md';
 const AGENTS_JSON = '.codeome/agents.json';
+const NEW_AGENT_RE = /^[a-z][a-z0-9-]{1,40}$/;
+const EXISTING_AGENT_RE = /^[\w.-]+$/;
+const TOOL_PRESETS = { 'read-only': 'Read, Grep, Glob, Bash', edits: 'Read, Edit, Write, Grep, Glob', shell: 'Read, Edit, Write, Bash, Grep, Glob' };
 const MODEL_RE = /^[\w.:/[\]-]{0,80}$/;
 const EFFORTS = { claudeEffort: ['low', 'medium', 'high', 'xhigh', 'max'], codexEffort: ['minimal', 'low', 'medium', 'high', 'xhigh'] };
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
+const codeomeHome = (home) => path.resolve(home || process.env.CODEOME_HOME || path.join(os.homedir(), '.codeome'));
+const exists = (p) => { try { fs.lstatSync(p); return true; } catch (e) { if (e.code === 'ENOENT') return false; throw e; } };
+const lstat = (p) => { try { return fs.lstatSync(p); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } };
 
 function parseFrontmatter(text) {
   const m = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -38,7 +47,13 @@ function parseFrontmatter(text) {
   const meta = {};
   for (const line of m[1].split('\n')) {
     const i = line.indexOf(':');
-    if (i > 0) meta[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    if (i > 0) {
+      const value = line.slice(i + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"')) {
+        try { meta[line.slice(0, i).trim()] = JSON.parse(value); continue; } catch {}
+      }
+      meta[line.slice(0, i).trim()] = value;
+    }
   }
   return { meta, body: m[2] };
 }
@@ -252,6 +267,7 @@ function setRoutingEngine(text, row) {
   } else {
     let last = -1;
     lines.forEach((l, k) => { if (/^\|\s*`/.test(l)) last = k; });
+    if (last < 0) last = lines.findIndex((l) => /^\|[-|]+\|$/.test(l));
     if (last < 0) return text;
     lines.splice(last + 1, 0, routingRow(row));
   }
@@ -355,6 +371,144 @@ function setAgent(project, name, patch = {}) {
   return agents(project).find((a) => a.name === name);
 }
 
+// New agents belong to a project or to Codeome's general store. Account folders are only written by mirrorGeneral.
+function createAgent({ scope, project, name, description, engine, tools, body, home } = {}) {
+  if (scope !== 'project' && scope !== 'general') return { error: 'Unknown agent scope' };
+  if (!NEW_AGENT_RE.test(name || '')) return { error: 'Bad agent name' };
+  if (roles().some((r) => r.name === name)) return { error: 'Kit role names are reserved' };
+  if (!['claude', 'codex'].includes(engine)) return { error: 'Unknown engine ' + engine };
+  if (!(tools in TOOL_PRESETS)) return { error: 'Unknown tools preset ' + tools };
+  if (scope === 'project' && (!project || !fs.existsSync(project))) return { error: 'Project folder not found: ' + project };
+  const base = scope === 'general' ? path.join(codeomeHome(home), 'agents') : path.join(project, '.claude', 'agents');
+  const p = path.join(base, name + '.md');
+  try {
+    if (exists(p)) return { error: 'Agent already exists: ' + p };
+    const desc = String(description || '').replace(/\s+/g, ' ').trim();
+    const content = body && String(body).trim()
+      ? String(body).trim()
+      : `You are the ${name}: ${desc.replace(/\.$/, '') || 'a specialist agent'}.\n\n## How to work\n- Follow the task brief and report your result.`;
+    const footer = fs.readFileSync(path.join(KIT, 'roles', '_report.md'), 'utf8');
+    let file = agentFile({ name, description: JSON.stringify(desc), tools: TOOL_PRESETS[tools], body: content + '\n' + footer });
+    if (scope === 'general') file = setFrontmatter(file, 'codeome-engine', engine);
+    fs.mkdirSync(base, { recursive: true });
+    fs.writeFileSync(p, file, { flag: 'wx' });
+    if (scope === 'project') {
+      setAgent(project, name, { engine });
+      const route = path.join(project, ROUTING);
+      if (read(route) === null) {
+        fs.mkdirSync(path.dirname(route), { recursive: true });
+        fs.writeFileSync(route, routingFile(customRouted(project, readOverrides(project))));
+      }
+    }
+    return { path: p };
+  } catch (e) { return { error: e.message }; }
+}
+
+function promoteAgent({ project, name, toGeneral = false, toProjects = [], home, accountDirs = [] } = {}) {
+  const result = { projects: {} };
+  const targets = Array.isArray(toProjects) ? toProjects : [];
+  const error = !EXISTING_AGENT_RE.test(name || '') ? 'Bad agent name' : !project ? 'Project folder not found: ' + project : null;
+  const source = !error && agentPath(project, name);
+  const sourceText = source && read(source);
+  const problem = error || (sourceText === null ? 'No agent ' + name + ' in .claude/agents/' : null);
+  if (problem) {
+    if (toGeneral) result.general = { error: problem };
+    for (const dest of targets) result.projects[dest] = { error: problem };
+    return result;
+  }
+  const { meta } = parseFrontmatter(sourceText);
+  const engine = parseRouting(read(path.join(project, ROUTING)))[name] || (readOverrides(project)[name] || {}).engine || meta['codeome-engine'] || 'claude';
+  if (toGeneral) {
+    const target = path.join(codeomeHome(home), 'agents', name + '.md');
+    try {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+      // The engine choice lives in routing.md / agents.json for a project, so carry it in the file itself.
+      if (engine === 'codex' && !meta['codeome-engine']) fs.writeFileSync(target, setFrontmatter(sourceText, 'codeome-engine', 'codex'));
+      result.general = 'created';
+    } catch (e) { result.general = e.code === 'EEXIST' ? 'exists' : { error: e.message }; }
+    if (accountDirs.length && (result.general === 'created' || result.general === 'exists')) {
+      try { mirrorGeneral({ home, accountDirs }); } catch (e) { result.general = { error: e.message }; }
+    }
+  }
+  for (const dest of targets) {
+    try {
+      const projectEntry = lstat(dest);
+      if (!projectEntry || !projectEntry.isDirectory()) throw new Error('Project folder not found: ' + dest);
+      const projectReal = fs.realpathSync(dest);
+      for (const part of ['.claude', path.join('.claude', 'agents')]) {
+        const entry = path.join(dest, part);
+        if (!exists(entry)) continue;
+        const relative = path.relative(projectReal, fs.realpathSync(entry));
+        if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('Agent directory leaves project: ' + entry);
+      }
+      const target = agentPath(dest, name);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+      result.projects[dest] = 'created';
+      const route = path.join(dest, ROUTING);
+      const before = read(route);
+      if (before !== null) fs.writeFileSync(route, setRoutingEngine(before, { name, engine, tools: meta.tools || '', description: meta.description || '' }));
+      else if (engine !== 'claude') writeOverrides(dest, { ...readOverrides(dest), [name]: { engine } });
+    } catch (e) { result.projects[dest] = e.code === 'EEXIST' ? 'exists' : { error: e.message }; }
+  }
+  return result;
+}
+
+function generalAgents(home) {
+  const base = codeomeHome(home);
+  return agentNames(base).map((name) => {
+    const p = path.join(base, 'agents', name + '.md');
+    const { meta } = parseFrontmatter(read(p) || '');
+    return { name, path: p, description: meta.description || '', engine: meta['codeome-engine'] || 'claude' };
+  });
+}
+
+function mirrorGeneral({ home, accountDirs = [] } = {}) {
+  const base = codeomeHome(home);
+  const recordPath = path.join(base, 'agents-mirror.json');
+  let recorded = {};
+  try { recorded = JSON.parse(fs.readFileSync(recordPath, 'utf8')); } catch {}
+  if (!recorded || typeof recorded !== 'object' || Array.isArray(recorded)) recorded = {};
+  const dirs = [...new Set(accountDirs.map((account) => {
+    const dir = typeof account === 'string' ? account : account.dir;
+    return path.resolve(!dir ? path.join(os.homedir(), '.claude') : dir === '~' ? os.homedir() : dir.startsWith('~/') ? path.join(os.homedir(), dir.slice(2)) : dir);
+  }))];
+  const result = { written: [], skipped: [], removed: [] };
+  const sources = new Map(generalAgents(base).map((a) => [a.name, read(a.path)]));
+  for (const dir of dirs) {
+    const agentDir = path.join(dir, 'agents');
+    const safeDir = () => { const entry = lstat(agentDir); return !entry || entry.isDirectory(); };
+    const skip = (target) => { if (!result.skipped.includes(target)) result.skipped.push(target); };
+    for (const [name, content] of sources) {
+      const target = path.join(agentDir, name + '.md');
+      if (!safeDir()) { skip(target); continue; }
+      const entry = lstat(target);
+      if (entry && !entry.isFile()) { skip(target); continue; }
+      const before = read(target);
+      const known = recorded[target];
+      if (entry && (!known || before === null || sha(before) !== known)) { skip(target); continue; }
+      if (before === content) continue;
+      fs.mkdirSync(agentDir, { recursive: true });
+      fs.writeFileSync(target, content);
+      recorded[target] = sha(content);
+      result.written.push(target);
+    }
+    for (const [target, hash] of Object.entries(recorded)) {
+      if (path.dirname(target) !== agentDir || !target.endsWith('.md') || sources.has(path.basename(target, '.md'))) continue;
+      if (!safeDir()) { skip(target); continue; }
+      const entry = lstat(target);
+      if (entry && !entry.isFile()) { skip(target); continue; }
+      const content = read(target);
+      if (content !== null && sha(content) === hash) { fs.unlinkSync(target); result.removed.push(target); }
+      if (!lstat(target)) delete recorded[target];
+    }
+  }
+  fs.mkdirSync(base, { recursive: true });
+  fs.writeFileSync(recordPath, JSON.stringify(recorded, null, 2) + '\n');
+  return result;
+}
+
 // ---------- skills ----------
 // Every skill in .claude/skills/ (kit skills and the project's own) with its Markdown files, SKILL.md first.
 // A skill is a command unless its frontmatter says `user-invocable: false`; then it is reference a role or the chat reads.
@@ -420,4 +574,4 @@ function globalSkills(dir, project) {
   });
 }
 
-module.exports = { install, status, plan, roles, skills, skillList, globalAgents, setGlobalAgent, globalSkills, parseFrontmatter, agents, setAgent, parseRouting, setFrontmatter, MANIFEST, HOOK_CMD };
+module.exports = { install, status, plan, roles, skills, skillList, globalAgents, setGlobalAgent, globalSkills, parseFrontmatter, agents, setAgent, createAgent, promoteAgent, mirrorGeneral, generalAgents, parseRouting, setFrontmatter, MANIFEST, HOOK_CMD };

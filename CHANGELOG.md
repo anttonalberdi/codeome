@@ -16,6 +16,12 @@ What changed in each version of Codeome, newest first. The version is the one in
   - Forums are saved under `~/.codeome/forums/`, separate from chat history, and *Forums* lists, reopens and deletes them. A dot on the *Forum* tab marks activity you have not seen.
 - **Settings → Agents → Forum**: the default auto-allow rounds, how large the discussion grows before it is summarised (1,000 to 50,000 tokens, default 6,000), and the models of the raise-hand checks (Claude: Haiku by default; Codex: its own default). Changes apply to forums opened afterwards.
 
+- **New agent dialog**: the `+` in the chat header is now *New agent* (the `+` in the tab bar still opens a new chat). The dialog asks for a name, when to use it, the engine, the tool access and the scope.
+  - **This project** writes `.claude/agents/<name>.md` in the project and adds its row to `routing.md`.
+  - **General** writes Codeome's own store, `~/.codeome/agents` (or `$CODEOME_HOME/agents`). It is mirrored into the `agents/` folder of every Claude account, at start and when accounts change or are switched, without overwriting files Codeome did not write or that you edited.
+  - Codex jobs fall back to the general store when a project has no agent with that name.
+- **Expand scope…** in *Settings → Agents* copies a project agent to the general store and/or to other projects (connected projects are ticked). It never overwrites: a target that already has the agent is reported as *exists*.
+
 ### Changed
 - Git and `gh` commands run from the Git view are limited to the forms the view uses: no custom Git options, URLs as remotes, or `gh` subcommands such as `clone`, `run` or `checkout`.
 - Known limitation: hooks and local Git config in a project you open still run during push and pull, with the account's token in their environment, as with any Git client.
