@@ -321,7 +321,9 @@
   // A started conversation moves with its transcript; the next message resumes it on the new account.
   async function switchAccount(chat, name) {
     const from = chat.accountName || chat.account;
-    if (chat.busy && !(await App.confirm('Switch this chat to ' + name + '?', 'The agent is still working. It will be stopped, and the conversation continues on ' + name + ' with your next message.', 'Switch', true))) return;
+    // Work cut short by a limit or an error, or stopped by this switch, carries on under the new account.
+    const halted = chat.busy || chat.outcome === 'error';
+    if (chat.busy && !(await App.confirm('Switch this chat to ' + name + '?', 'The agent is still working. It will be stopped, and the conversation continues on ' + name + '.', 'Switch', true))) return;
     if (chat.running) { chat.stopping = true; await codeome.chat.stop(chat.id); for (let i = 0; chat.running && i < 50; i++) await new Promise((res) => setTimeout(res, 100)); }
     if (chat.running) { chat.stopping = false; return App.err('The session did not stop, so the account was not changed.'); }
     const r = await codeome.chat.move({ id: chat.id, engine: engineOf(chat), from, to: name });
@@ -329,6 +331,10 @@
     chat.account = chat.accountName = name;
     note(chat, `This chat now runs on ${name}.`);
     save(chat); paintState(); App.emit('sessions');
+    if (halted && chat.started && cur() === chat) {
+      chat.outcome = '';
+      C.send('The previous account was switched to ' + name + ' and your work was halted. Please pick up exactly where you left off and continue with the task.');
+    }
   }
 
   function setMode(v) {
