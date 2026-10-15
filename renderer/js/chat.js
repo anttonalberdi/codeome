@@ -1027,7 +1027,17 @@
     const chat = cur();
     const m = a.dataset.path.match(/^(.*?)(?:#L(\d+)(?:-L?\d+)?|:(\d+))?$/);
     let p = decodeURI(m[1]);
-    if (!p.startsWith('/') && !p.startsWith('~')) p = App.join(chat ? chat.project : App.project, p);
+    if (!p.startsWith('/') && !p.startsWith('~')) {
+      const root = chat ? chat.project : App.project;
+      const direct = App.join(root, p);
+      // A bare name is often a file in a subfolder: look for it when it is not at the root.
+      const here = await codeome.local.read(direct);
+      if (here && here.error) {
+        const found = await codeome.local.find(root, p);
+        if (found && found.length) p = found[0];
+        else p = direct;
+      } else p = direct;
+    }
     const line = Number(m[2] || m[3]) || 0;
     const t = await App.views.editor.openFile(p.replace(/^~/, App.env.home || '~'));
     const ed = App.views.editor.editor;

@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld('codeome', {
     onData: on('pty:data'), onExit: on('pty:exit')
   },
   local: {
-    list: invoke('local:list'), read: invoke('local:read'),
+    list: invoke('local:list'), find: (root, rel) => ipcRenderer.invoke('local:find', { root, rel }), read: invoke('local:read'),
     write: (path, content) => ipcRenderer.invoke('local:write', { path, content }),
     mkdir: invoke('local:mkdir'), rename: (from, to) => ipcRenderer.invoke('local:rename', { from, to }),
     trash: invoke('local:trash'), home: invoke('local:home')

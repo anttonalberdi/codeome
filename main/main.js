@@ -323,6 +323,30 @@ ipcMain.handle('local:list', async (_e, dir) => {
     return { cwd: dir, entries };
   } catch (e) { return { error: String(e.message || e) }; }
 });
+// Find files under a project whose path ends with `rel`; newest first.
+ipcMain.handle('local:find', async (_e, { root, rel }) => {
+  root = expandHome(root);
+  const tail = path.sep + rel.replace(/^\.?\//, '').split('/').join(path.sep);
+  const skip = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', '.snakemake', '.cache']);
+  const hits = [];
+  let seen = 0;
+  const walk = async (dir, depth) => {
+    if (depth > 8 || seen > 20000 || hits.length > 50) return;
+    let ents;
+    try { ents = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      seen++;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { if (!skip.has(e.name)) await walk(full, depth + 1); }
+      else if ((path.sep + path.relative(root, full)).endsWith(tail)) {
+        try { hits.push({ path: full, mtime: (await fs.promises.stat(full)).mtimeMs }); } catch {}
+      }
+    }
+  };
+  await walk(root, 0);
+  hits.sort((a, b) => b.mtime - a.mtime);
+  return hits.map((h) => h.path);
+});
 ipcMain.handle('local:read', async (_e, p) => {
   try {
     const st = await fs.promises.stat(p);

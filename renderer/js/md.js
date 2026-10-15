@@ -5,8 +5,15 @@
 (function () {
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  // Names that read as a file (known extension, no spaces) open in the editor on click.
+  const EXT = 'md|markdown|txt|csv|tsv|json|ya?ml|toml|log|py|R|Rmd|qmd|ipynb|js|ts|tsx|jsx|css|html|sh|smk|nf|sql|xml|tex|bib|fa|fasta|fastq|gff|gtf|bed|vcf|tree|nwk|cfg|conf|ini|pdf|png|jpe?g|svg';
+  const FILE = new RegExp('^(?:~/|\\.{0,2}/)?[\\w.@+-]+(?:/[\\w.@+-]+)*\\.(?:' + EXT + ')(?:(?:#L|:)\\d+(?:-L?\\d+)?)?$', 'i');
+  const BARE = new RegExp('(^|[\\s(])((?:~/|\\.{0,2}/)?[\\w.@+-]+(?:/[\\w.@+-]+)*\\.(?:' + EXT + ')(?:(?:#L|:)\\d+(?:-L?\\d+)?)?)(?=$|[\\s),;:!?]|\\.(?:\\s|$))', 'gi');
+
   function inline(s) {
     const codes = [];
+    const stash = [];
+    const hold = (html) => { stash.push(html); return '\u0001' + (stash.length - 1) + '\u0001'; };
     s = s.replace(/`([^`\n]+)`/g, (_m, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
     s = esc(s);
     s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_m, text, href) => {
@@ -15,10 +22,15 @@
         ? `<a href="${esc(raw)}" target="_blank" rel="noopener">${text}</a>`
         : `<a href="#" data-path="${esc(raw)}">${text}</a>`;
     });
-    s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
+    s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_m, pre, url) => pre + hold(`<a href="${url}" target="_blank" rel="noopener">${url}</a>`));
+    s = s.replace(/<a [^>]*>.*?<\/a>/g, (a) => hold(a));
+    s = s.replace(BARE, (_m, pre, f) => pre + hold(`<a href="#" data-path="${esc(f)}">${esc(f)}</a>`));
     s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
     s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>');
-    return s.replace(/\u0000(\d+)\u0000/g, (_m, i) => `<code>${esc(codes[i])}</code>`);
+    s = s.replace(/\u0000(\d+)\u0000/g, (_m, i) => FILE.test(codes[i])
+      ? `<a href="#" data-path="${esc(codes[i])}"><code>${esc(codes[i])}</code></a>`
+      : `<code>${esc(codes[i])}</code>`);
+    return s.replace(/\u0001(\d+)\u0001/g, (_m, i) => stash[i]);
   }
 
   const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
