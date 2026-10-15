@@ -92,4 +92,4 @@ async function check(o) {
   return { updates, checkedAt: st.checkedAt, error };
 }
 
-module.exports = { WEEK, LABEL, INSTALL, semver, compare, installedVia, updateCommand, check };
+module.exports = { WEEK, LABEL, INSTALL, REPO, fetchLatest, semver, compare, installedVia, updateCommand, check };

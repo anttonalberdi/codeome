@@ -1048,7 +1048,18 @@ ipcMain.handle('tools:updates', async (_e, opts = {}) => {
     const v = updates.semver(r.stdout + ' ' + r.stderr);
     engines[e] = { path: bin, version: v ? v.join('.') : '' };
   }));
-  const res = await updates.check({ file: updatesFile(), engines, force: !!opts.force, suggest: !!opts.suggest });
+  // A private repository answers 404 to anonymous requests, which would read as "no release":
+  // ask through the signed-in gh first.
+  const ghBin = await setup.locate('gh', loginShell());
+  const fetchLatest = async (engine) => {
+    if (engine === 'codeome' && ghBin) {
+      const r = await run(ghBin, ['api', `repos/${updates.REPO}/releases/latest`, '--jq', '.tag_name'], { timeout: 15000, env: augmentedEnv() });
+      const v = updates.semver(r.stdout);
+      if (r.code === 0 && v) return v.join('.');
+    }
+    return updates.fetchLatest(engine);
+  };
+  const res = await updates.check({ file: updatesFile(), engines, force: !!opts.force, suggest: !!opts.suggest, fetchLatest });
   return { ...res, installed: Object.fromEntries(Object.entries(engines).map(([e, i]) => [e, i.version])) };
 });
 
