@@ -347,6 +347,31 @@ ipcMain.handle('local:find', async (_e, { root, rel }) => {
   hits.sort((a, b) => b.mtime - a.mtime);
   return hits.map((h) => h.path);
 });
+// Search a folder tree for files and folders whose path contains `query` (case-insensitive).
+ipcMain.handle('local:search', async (_e, { root, query }) => {
+  root = expandHome(root);
+  const q = String(query || '').toLowerCase().trim();
+  if (!q) return { results: [] };
+  const skip = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', '.snakemake', '.cache']);
+  const results = [];
+  let seen = 0, truncated = false;
+  const walk = async (dir, depth) => {
+    if (depth > 12) return;
+    let ents;
+    try { ents = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (truncated) return;
+      if (++seen > 100000 || results.length >= 300) { truncated = true; return; }
+      const full = path.join(dir, e.name);
+      const rel = path.relative(root, full);
+      if (rel.toLowerCase().includes(q)) results.push({ path: full, rel, dir: e.isDirectory() });
+      if (e.isDirectory() && !skip.has(e.name)) await walk(full, depth + 1);
+    }
+  };
+  await walk(root, 0);
+  results.sort((a, b) => (path.basename(a.rel).toLowerCase().includes(q) ? 0 : 1) - (path.basename(b.rel).toLowerCase().includes(q) ? 0 : 1) || a.rel.length - b.rel.length);
+  return { results, truncated };
+});
 ipcMain.handle('local:read', async (_e, p) => {
   try {
     const st = await fs.promises.stat(p);

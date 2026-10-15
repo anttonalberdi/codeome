@@ -42,14 +42,26 @@
     for (const [ev, side] of [['hpc', 'remote'], ['storage', 'storage']]) {
       App.listen(ev, (up) => { if (up) { paintDot(side); F.go(side, F[side].dir || F.startDir(side)); } else renderState(side); });
     }
-    App.listen('project', (dir) => F.go('local', dir));
+    App.listen('project', (dir) => { clearSearch(); F.go('local', dir); });
     App.listen('config', () => { F.stack.retitle(); renderState('remote'); renderState('storage'); });
     renderState('remote'); renderState('storage');
   };
 
+  function clearSearch() {
+    const b = F.panes.local?.searchBox;
+    if (b && b.value) { b.value = ''; F.search(''); }
+  }
+
   function pane(side) {
     const pathInput = h('input', { type: 'text', spellcheck: 'false', 'aria-label': F.title(side) + ' folder',
-      onkeydown: (e) => { if (e.key === 'Enter') F.go(side, pathInput.value.trim()); } });
+      onkeydown: (e) => { if (e.key === 'Enter') { clearSearch(); F.go(side, pathInput.value.trim()); } } });
+    let searchBox = null;
+    if (side === 'local') {
+      let timer = 0;
+      searchBox = h('input', { type: 'search', placeholder: 'Search files in project…', spellcheck: 'false', 'aria-label': 'Search files in the project',
+        oninput: () => { clearTimeout(timer); timer = setTimeout(() => F.search(searchBox.value), 250); },
+        onkeydown: (e) => { if (e.key === 'Escape') { searchBox.value = ''; F.search(''); } } });
+    }
     const list = h('div.flist', { tabindex: '0', role: 'listbox', 'aria-label': F.title(side) + ' files' });
     const dot = side === 'local' ? null : h('i.pane-dot');
     const section = {
@@ -59,7 +71,7 @@
         App.iconBtn('home', side === 'local' ? 'Project folder' : 'Start folder', () => F.go(side, F.startDir(side))),
         App.iconBtn('refresh', 'Refresh', () => F.refresh(side))],
       menu: () => folderMenu(side), items: () => sectionItems(side),
-      body: [h('div.pathbar', pathInput), list],
+      body: [h('div.pathbar', pathInput), searchBox ? h('div.pathbar.searchbar', searchBox) : null, list].filter(Boolean),
       onExpand: () => { if (F.isUp(side) && !F[side].dir) F.go(side, F.startDir(side)); }
     };
 
@@ -80,7 +92,7 @@
       if (side !== 'local') for (const f of e.dataTransfer.files) { const fp = codeome.pathForFile(f); if (fp) F.transfer('local', fp, side, dest); }
     });
     list.addEventListener('keydown', (e) => keyNav(side, e));
-    return { section, list, pathInput, dot };
+    return { section, list, pathInput, dot, searchBox };
   }
 
   // ---------- sections ----------
@@ -142,6 +154,31 @@
       render(side);
     } catch {} finally { polling[side] = false; }
   };
+  // Search the project (local pane only): results replace the folder listing until cleared.
+  let searchSeq = 0;
+  F.search = async (query) => {
+    const p = F.panes.local; const q = query.trim(); const seq = ++searchSeq;
+    if (!q) { F.local.searching = false; render('local'); return; }
+    const root = App.project || F.local.dir;
+    if (!root) return;
+    F.local.searching = true;
+    p.list.innerHTML = '';
+    p.list.append(h('div.empty', h('span.spinner'), ' Searching…'));
+    const r = await codeome.local.search(root, q);
+    if (seq !== searchSeq) return;
+    p.list.innerHTML = '';
+    const res = (r.results || []).filter((x) => App.cfg.showHidden || !x.rel.split('/').some((n) => n.startsWith('.')));
+    if (!res.length) { p.list.append(h('div.empty', `No files match “${q}”.`)); return; }
+    for (const x of res) {
+      const name = App.basename(x.path), parent = App.dirname(x.rel);
+      p.list.append(h('div.fitem' + (x.dir ? '.dir' : ''), {
+        role: 'option', title: x.rel,
+        ondblclick: () => { if (x.dir) { p.searchBox.value = ''; F.search(''); F.go('local', x.path); } else openEntry('local', { name, dir: false }, x.path); },
+        oncontextmenu: (ev) => { ev.preventDefault(); App.menu(ev.clientX, ev.clientY, itemMenu('local', { name, dir: x.dir, size: 0, mtime: 0 }, x.path)); }
+      }, h('span', { html: x.dir ? App.icons.folder : App.icons.file }), h('span.nm', name), h('span.sz', parent && parent !== '.' ? parent : '')));
+    }
+    if (r.truncated) p.list.append(h('div.empty', 'Showing the first matches — refine the search.'));
+  };
   F.refresh = (side) => F[side].dir && F.go(side, F[side].dir);
   // How to name a local path to the agent: relative to the project when inside it.
   F.relRef = (p) => (App.project && p === App.project ? 'the project root' : App.project && p.startsWith(App.project + '/') ? p.slice(App.project.length + 1) : App.tildify(p));
@@ -170,6 +207,7 @@
 
   function render(side) {
     const s = F[side]; const p = F.panes[side];
+    if (side === 'local' && s.searching && p.searchBox?.value.trim()) return;
     p.list.innerHTML = '';
     if (!s.entries.length) { p.list.append(h('div.empty', 'This folder is empty.')); return; }
     for (const e of s.entries) {
@@ -186,8 +224,8 @@
     }
   }
 
-  async function openEntry(side, e) {
-    const full = App.join(F[side].dir, e.name);
+  async function openEntry(side, e, path) {
+    const full = path || App.join(F[side].dir, e.name);
     if (e.dir) return F.go(side, full);
     // A link on a server may point at a folder.
     if (e.link && side !== 'local' && !(await api(side).list(full)).error) return F.go(side, full);
