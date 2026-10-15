@@ -39,6 +39,7 @@
 
   // spec: {kind, title, command, cwd, session, badge, secretEnv, engine, account, project}
   T.open = async function (spec) {
+    App.expandMain();
     App.views.terminals.showPanel();
     const id = 't' + (++T.seq);
     const el = h('div.term', { hidden: true });

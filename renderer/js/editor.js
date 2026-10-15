@@ -61,6 +61,7 @@
   const fileApi = (t) => (t.remote ? codeome.remote : t.storage ? codeome.storage : codeome.local);
   const prefix = (o) => (o.remote ? 'hpc:' : o.storage ? 'store:' : '');
   E.openFile = async function (path, opts = {}) {
+    App.expandMain();
     const remote = !!opts.remote, storage = !opts.remote && !!opts.storage;
     const key = prefix({ remote, storage }) + path;
     const existing = E.tabs.find((t) => t.key === key && mine(t));
@@ -93,6 +94,7 @@
 
   // Custom tabs: render(el) builds content once; onActivate refreshes.
   E.openCustom = function ({ key, title, badge, render, onActivate, onClose }) {
+    App.expandMain();
     const existing = E.tabs.find((t) => t.key === key && mine(t));
     if (existing) { E.activate(existing.id); if (existing.onActivate) existing.onActivate(existing); return existing; }
     const el = h('div', { style: { display: 'contents' } });

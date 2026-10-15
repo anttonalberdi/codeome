@@ -137,6 +137,7 @@
   App.listen('hpc', renderWelcome);
 
   // ---------- sidebar resize ----------
+  App.expandMain = () => {};   // replaced once the resizer is set up
   function initResize() {
     const rz = document.getElementById('sidebar-resizer'), app = document.getElementById('app');
     const mainBand = document.getElementById('main-band'), sideBand = document.getElementById('side-band');
@@ -151,6 +152,8 @@
       App.views.editor.layout();
     };
     const state = () => app.classList.contains('main-collapsed') ? 'main' : app.classList.contains('side-collapsed') ? 'side' : 'both';
+    // Opening a file, preview or terminal unfolds the editor/terminal pane if it was folded away.
+    App.expandMain = () => { if (state() === 'main') { setW(420); show('both'); } };
     mainBand.addEventListener('click', () => { setW(420); show('both'); });
     sideBand.addEventListener('click', () => { setW(300); show('both'); });
     // Picking a view in the rail while the sidebar is folded away opens it again.
