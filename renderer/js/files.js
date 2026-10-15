@@ -49,18 +49,20 @@
 
   function clearSearch() {
     const b = F.panes.local?.searchBox;
-    if (b && b.value) { b.value = ''; F.search(''); }
+    if (b && b.value) { b.value = ''; b.nextSibling.hidden = true; F.search(''); }
   }
 
   function pane(side) {
     const pathInput = h('input', { type: 'text', spellcheck: 'false', 'aria-label': F.title(side) + ' folder',
       onkeydown: (e) => { if (e.key === 'Enter') { clearSearch(); F.go(side, pathInput.value.trim()); } } });
-    let searchBox = null;
+    let searchBox = null, searchClear = null;
     if (side === 'local') {
       let timer = 0;
-      searchBox = h('input', { type: 'search', placeholder: 'Search files in project…', spellcheck: 'false', 'aria-label': 'Search files in the project',
-        oninput: () => { clearTimeout(timer); timer = setTimeout(() => F.search(searchBox.value), 250); },
-        onkeydown: (e) => { if (e.key === 'Escape') { searchBox.value = ''; F.search(''); } } });
+      searchBox = h('input', { type: 'text', placeholder: 'Search files in project…', spellcheck: 'false', 'aria-label': 'Search files in the project',
+        oninput: () => { clearTimeout(timer); searchClear.hidden = !searchBox.value; timer = setTimeout(() => F.search(searchBox.value), 250); },
+        onkeydown: (e) => { if (e.key === 'Escape') { searchBox.value = ''; searchClear.hidden = true; F.search(''); } } });
+      searchClear = App.iconBtn('close', 'Clear search', () => { searchBox.value = ''; searchClear.hidden = true; F.search(''); searchBox.focus(); });
+      searchClear.hidden = true;
     }
     const list = h('div.flist', { tabindex: '0', role: 'listbox', 'aria-label': F.title(side) + ' files' });
     const dot = side === 'local' ? null : h('i.pane-dot');
@@ -71,7 +73,7 @@
         App.iconBtn('home', side === 'local' ? 'Project folder' : 'Start folder', () => F.go(side, F.startDir(side))),
         App.iconBtn('refresh', 'Refresh', () => F.refresh(side))],
       menu: () => folderMenu(side), items: () => sectionItems(side),
-      body: [h('div.pathbar', pathInput), searchBox ? h('div.pathbar.searchbar', searchBox) : null, list].filter(Boolean),
+      body: [h('div.pathbar', pathInput), searchBox ? h('div.pathbar.searchbar', searchBox, searchClear) : null, list].filter(Boolean),
       onExpand: () => { if (F.isUp(side) && !F[side].dir) F.go(side, F.startDir(side)); }
     };
 

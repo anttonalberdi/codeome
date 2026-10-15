@@ -1012,4 +1012,4 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .icon-btn.term-size.active { color: var(--text); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .tip { position: fixed; z-index: 200; max-width: 280px; padding: 5px 9px; border-radius: 6px; font-size: 11.5px; line-height: 1.35; pointer-events: none; background: var(--text); color: var(--surface); box-shadow: 0 4px 14px rgba(0,0,0,.22); }
 .searchbar { padding-top: 0; }
-.searchbar input { width: 100%; font-size: 12px; padding: 3px 6px; }
+.searchbar input { flex: 1; font-size: 12px; padding: 3px 6px; }
