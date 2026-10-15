@@ -57,8 +57,9 @@ const DEFAULTS = {
   // effort: its effort level (low … max); '' leaves it to the model.
   // quick: messages sent often, listed under the button beside the message box.
   // codexModel/codexEffort: the same for chats on Codex ('' leaves them to Codex).
+  // suggest: show clickable replies (a small model call) under a question that offers none.
   // contextWarnAt: a chat suggests starting a new one once its context window is this full (%).
-  chat: { model: 'sonnet', modelPicked: false, effort: '', codexModel: '', codexEffort: '', quick: ['Commit, push and deploy'], contextWarnAt: 70 },
+  chat: { model: 'sonnet', modelPicked: false, effort: '', codexModel: '', codexEffort: '', quick: ['Commit, push and deploy'], contextWarnAt: 70, suggest: true },
   forum: { defaultBudget: 0, summaryTokens: 6000, recentMessages: 8, checkModel: 'haiku', codexCheckModel: '', checkEffort: 'low', checkTimeoutMs: 30000 },
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order

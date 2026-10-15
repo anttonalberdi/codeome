@@ -825,6 +825,7 @@ ipcMain.handle('jobs:clear', (_e, project) => jobs.clear(project));
 
 // ---------- agent chat ----------
 // One headless Claude Code orchestrator per conversation; see chat.js.
+const suggest = require('./suggest');
 const claudeCmd = () => (cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
 
 const codexCmd = () => (cfg.agents.find((a) => /^codex(\s|$)/.test(a.cmd)) || { cmd: 'codex' }).cmd;
@@ -897,6 +898,11 @@ ipcMain.handle('chat:move', (_e, { id, from, to, engine }) => {
 ipcMain.handle('chat:send', (_e, { id, text }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.user(text); return { ok: true }; });
 ipcMain.handle('chat:respond', (_e, { id, requestId, response }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.respond(requestId, response); return { ok: true }; });
 ipcMain.handle('chat:control', (_e, { id, request }) => { const s = chats.get(id); return s ? s.control(request) : { error: 'The session is not running.' }; });
+ipcMain.handle('chat:suggest', (_e, { text, account }) => {
+  if ((cfg.chat || {}).suggest === false) return [];
+  const a = cfg.accounts.claude.list.find((x) => x.name === account);
+  return suggest.suggest({ text, dir: a && a.dir, bin: claudeCmd().trim().split(/\s+/)[0] });
+});
 ipcMain.handle('chat:stop', (_e, id) => { const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
 ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { return chat.saveChat(project, c); } catch (e) { return { error: e.message }; } });
 ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));

@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('codeome', {
   },
   chat: {
     start: invoke('chat:start'), personas: invoke('chat:personas'), stop: invoke('chat:stop'), move: invoke('chat:move'),
+    suggest: (text, account) => ipcRenderer.invoke('chat:suggest', { text, account }),
     send: (id, text) => ipcRenderer.invoke('chat:send', { id, text }),
     respond: (id, requestId, response) => ipcRenderer.invoke('chat:respond', { id, requestId, response }),
     control: (id, request) => ipcRenderer.invoke('chat:control', { id, request }),

@@ -8,7 +8,7 @@
   const C = { byProject: {}, byId: {} }; // byProject[dir] = { tabs: [chat], active: chat }
   App.views.chat = C;
   const dom = new WeakMap(); // item → element
-  let logEl, ta, attEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl, noticeEl;
+  let logEl, ta, attEl, sugEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl, noticeEl;
 
   const MODES = [
     { value: 'default', label: 'Ask before changes' },
@@ -271,6 +271,7 @@
     if (!chat || (!text && !files.length)) return;
     if (!chat.title) chat.title = (text || files.map(App.basename).join(', ')).replace(/\s+/g, ' ').slice(0, 80);
     push(chat, files.length ? { t: 'user', text, files } : { t: 'user', text });
+    clearSuggest(chat);
     App.emit('chat');
     if (!chat.running && !(await start(chat))) return;
     chat.busy = true; chat.busySince = Date.now(); paintState();
@@ -400,6 +401,7 @@
         chat.unread = !seen(chat);
         paintState(); App.emit('sessions'); save(chat);
         attention(chat, failed ? 'The agent stopped with an error.' : 'The agent finished.');
+        if (!failed) suggestReplies(chat);
         break;
       }
     }
@@ -884,6 +886,7 @@
     modeSel = h('select.chat-mode', { 'aria-label': 'What the agent may do without asking', title: 'What the agent may do without asking', onchange: (e) => setMode(e.target.value) },
       MODES.map((m) => h('option', { value: m.value }, m.label)));
     attEl = h('div.chat-attach');
+    sugEl = h('div.chat-suggest', { hidden: true, role: 'group', 'aria-label': 'Suggested replies' });
     const attachBtn = h('button.icon-btn', { title: 'Attach files', 'aria-label': 'Attach files', onclick: attach, html: App.icons.plus });
     const quickBtn = h('button.icon-btn', { title: 'Saved messages', 'aria-label': 'Saved messages', 'aria-haspopup': 'menu', onclick: () => App.menuAt(quickBtn, quickMenu(), true), html: App.icons.bolt });
     acctEl = h('span.chat-acct');
@@ -895,7 +898,7 @@
     sumEl = h('div.chat-sum', { 'aria-live': 'polite' });
     noticeEl = h('div.chat-notice', { role: 'status', hidden: true });
     host.append(h('div.chat-tabbar', tabsEl, h('button.chat-tab-new', { title: 'New chat (each tab is its own agent session)', 'aria-label': 'New chat', onclick: () => C.newChat(), html: App.icons.plus })),
-      sumEl, logEl, noticeEl, h('div.chat-compose', attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, h('span.chat-go', stopBtn, sendBtn))));
+      sumEl, logEl, noticeEl, h('div.chat-compose', sugEl, attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, h('span.chat-go', stopBtn, sendBtn))));
     const restoring = {};
     App.listen('project', async (p) => {
       if (p && !C.byProject[p]) {
@@ -954,6 +957,33 @@
       attEl.append(h('span.fchip', { title: App.tildify(f) }, h('span', App.basename(f)),
         h('button', { title: 'Remove', 'aria-label': 'Remove ' + App.basename(f), onclick: () => { chat.attach = chat.attach.filter((x) => x !== f); paintAttach(); } }, '×')));
     }
+  }
+
+  // ---------- suggested replies ----------
+  // When a turn ends on a question that lists no options, a small model proposes a few
+  // short answers (main/suggest.js, which also skips messages that list their own).
+  // They sit above the message box until the user sends anything or the agent moves on.
+  function clearSuggest(chat) { if (chat.suggest) { chat.suggest = null; if (chat === cur()) paintSuggest(); } }
+
+  async function suggestReplies(chat) {
+    if ((App.cfg.chat || {}).suggest === false || Object.keys(chat.requests).length) return;
+    const last = chat.items[chat.items.length - 1];
+    if (!last || last.t !== 'text' || !last.text) return;
+    if (!/\?[\s*_`"')\]]*$/.test(last.text.trimEnd().split('\n').pop())) return;
+    const r = await codeome.chat.suggest(last.text, chat.accountName || chat.account).catch(() => []);
+    // Still the newest message, and nothing sent or running since.
+    if (!Array.isArray(r) || !r.length || chat.busy || chat.items[chat.items.length - 1] !== last) return;
+    chat.suggest = r;
+    if (chat === cur()) paintSuggest();
+  }
+
+  function paintSuggest() {
+    if (!sugEl) return;
+    const chat = cur(), list = chat && !chat.busy && chat.suggest;
+    sugEl.hidden = !list;
+    sugEl.replaceChildren();
+    if (!list) return;
+    for (const t of list) sugEl.append(h('button.chat-sug', { title: 'Send this reply', onclick: () => sendQuick(t) }, t));
   }
 
   // ---------- saved messages ----------
@@ -1050,6 +1080,7 @@
 
   function paintState() {
     if (!stateEl) return;
+    paintSuggest();
     const chat = cur();
     if (chat) modeSel.value = chat.mode;
     modeSel.disabled = !chat;
