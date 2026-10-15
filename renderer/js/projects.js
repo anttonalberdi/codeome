@@ -153,11 +153,21 @@
     saveOrder();
   }
 
-  P.addGroup = async () => {
-    const name = await App.prompt('New group', 'Name', '', { placeholder: 'e.g. Thesis', ok: 'Create' });
+  // pick: also offer the open projects as checkboxes, those in no group first.
+  P.addGroup = async (pick) => {
+    const loose = P.list.filter((d) => !groupOf(d)), grouped = P.list.filter((d) => groupOf(d));
+    const choices = pick ? [...loose, ...grouped] : [];
+    const v = await App.modal({
+      title: 'New group', ok: 'Create',
+      fields: [{ key: 'name', label: 'Name', placeholder: 'e.g. Thesis' },
+        ...(choices.length ? [{ legend: 'Projects to put in it' }] : []),
+        ...choices.map((d, i) => ({ key: 'p' + i, type: 'check', label: App.basename(d) + (groupOf(d) ? ` (now in ${groupOf(d).name})` : ''), value: false }))]
+    });
+    const name = v && v.name.trim();
     if (!name) return null;
     const g = { id: 'g' + Date.now().toString(36), name, collapsed: false };
     App.cfg.projectGroups.push(g);
+    choices.forEach((d, i) => { if (v['p' + i]) { setGroup(d, g); P.list.splice(P.list.indexOf(d), 1); P.list.push(d); } });
     saveOrder();
     return g;
   };
@@ -402,7 +412,7 @@
     const collapsed = !!App.cfg.ui.projectsCollapsed;
     el.append(list, h('div.proj-foot',
       h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Project')),
-      h('button.proj-add', { title: 'New group of projects', 'aria-label': 'New group of projects', onclick: () => P.addGroup() }, h('span', { html: collapsed ? GROUP_ICON : App.icons.plus }), collapsed ? null : h('span', 'Group')),
+      h('button.proj-add', { title: 'New group of projects', 'aria-label': 'New group of projects', onclick: () => P.addGroup(true) }, h('span', { html: collapsed ? GROUP_ICON : App.icons.plus }), collapsed ? null : h('span', 'Group')),
       h('button.proj-fold', { title: collapsed ? 'Show project names' : 'Hide project names', 'aria-label': collapsed ? 'Expand project column' : 'Collapse project column', onclick: toggleCollapsed },
         h('span', { html: `<svg viewBox="0 0 16 16"><path d="${collapsed ? 'm6 4 4 4-4 4' : 'm10 4-4 4 4 4'}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` }))));
     if (focused) { const a = (fg && el.querySelector(`.pg-head[data-g="${fg}"]`)) || el.querySelector('.proj.active') || el.querySelector('.proj-add'); if (a) a.focus(); }
