@@ -382,6 +382,7 @@
 
   // Continue the same conversation in a Claude Code terminal session.
   C.toTerminal = async () => {
+    if (App.isIdeas()) return;
     const chat = cur();
     if (!chat || !chat.started) return App.toast('Send a message first.');
     if (engineOf(chat) === 'codex') return App.toast('Codex chats can\'t continue in a terminal yet.');
@@ -1120,8 +1121,8 @@
       const examples = selected ? selected.examples : (!chat || !chat.role ? EXAMPLES : []);
       logEl.append(h('div.chat-empty',
         h('h3', 'What should we work on?'),
-        h('p', personas.length && selectable ? `Pick a specialist, or just type to talk to the default agent about ${App.basename(App.project)}.` : `Ask about ${App.basename(App.project)} or describe a task. The agent answers directly, or plans the work, checks with you, and hands it to Codex and Claude specialists.`),
-        selectable && personas.length ? h('div.chat-personas', personas.map((persona, index) => h('button.chat-persona', {
+        h('p', App.isIdeas() ? 'Ideas: chat and forum with no project. Open a project folder when an idea is ready.' : personas.length && selectable ? `Pick a specialist, or just type to talk to the default agent about ${App.basename(App.project)}.` : `Ask about ${App.basename(App.project)} or describe a task. The agent answers directly, or plans the work, checks with you, and hands it to Codex and Claude specialists.`),
+        !App.isIdeas() && selectable && personas.length ? h('div.chat-personas', personas.map((persona, index) => h('button.chat-persona', {
           'aria-pressed': String(chat.role === persona.id), onclick: () => {
             if (chat.started || chat.running || chat.items.length) return;
             chat.role = chat.role === persona.id ? '' : persona.id;
@@ -1131,7 +1132,7 @@
           }
         }, h('span.chat-persona-text', h('strong.chat-persona-name', persona.name), h('span.chat-persona-desc', persona.description)),
         persona.engine ? h('span.chat-persona-engine', ENGINE[persona.engine]) : null))) : null,
-        examples && examples.length ? h('div.chat-examples', examples.map((x) => h('button', { onclick: () => { ta.value = x; autosize(); focus(); } }, x))) : null));
+        !App.isIdeas() && examples && examples.length ? h('div.chat-examples', examples.map((x) => h('button', { onclick: () => { ta.value = x; autosize(); focus(); } }, x))) : null));
     } else for (const it of chat.items) logEl.append(render(chat, it));
     paintAttach();
     paintState();
@@ -1263,7 +1264,7 @@
       { label: 'Rename…', run: () => renameTab(c) },
       { label: 'New chat', run: () => C.newChat() },
       '-',
-      { label: 'Continue in a terminal', disabled: !c.started, run: () => { C.activate(c); C.toTerminal(); } },
+      App.isIdeas(c.project) ? null : { label: 'Continue in a terminal', disabled: !c.started, run: () => { C.activate(c); C.toTerminal(); } },
       { label: 'Overview', disabled: !c.items.length, run: () => C.overview(c) },
       '-',
       { label: 'Close chat', run: () => C.closeTab(c) },

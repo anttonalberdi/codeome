@@ -488,7 +488,7 @@
     if (!agentsHost) return;
     const project = App.project;
     const host = agentsHost;
-    if (!project) { host.replaceChildren(scopeHead('This project', 'No project is open.'), card('Team', h('div.sp-empty', 'Open a project to see its agents and skills.'))); return; }
+    if (!project || App.isIdeas(project)) { host.replaceChildren(scopeHead('This project', 'No project is open.'), card('Team', h('div.sp-empty', 'Open a project to see its agents and skills.'))); return; }
     host.replaceChildren(scopeHead(`This project · ${App.basename(project)}`, 'Kept in its .claude/ folder, and shared with collaborators when committed.'), card('Team', h('div.sp-empty', 'Loading agents…')));
     let res, kit, models, sk;
     try { [res, kit, models, sk] = await Promise.all([codeome.agents.list(project), codeome.kit.status(project), codeome.agents.models(), codeome.skills.list(project)]); }
@@ -682,8 +682,8 @@
     const descriptionError = h('span#agent-description-error.agent-field-error', { role: 'alert' });
     const engine = h('select', h('option', { value: 'claude' }, 'Claude'), h('option', { value: 'codex' }, 'Codex'));
     const tools = h('select', h('option', { value: 'read-only' }, 'Read-only'), h('option', { value: 'edits' }, 'Can edit files'), h('option', { value: 'shell' }, 'Can edit and run shell'));
-    const scope = h('select', project ? h('option', { value: 'project' }, 'This project') : null, h('option', { value: 'general' }, 'General: all projects'));
-    scope.value = initialScope === 'general' || !project ? 'general' : 'project';
+    const scope = h('select', project && !App.isIdeas(project) ? h('option', { value: 'project' }, 'This project') : null, h('option', { value: 'general' }, 'General: all projects'));
+    scope.value = initialScope === 'general' || !project || App.isIdeas(project) ? 'general' : 'project';
     const generalHint = h('div.hint', "Saved to Codeome's general folder and mirrored into each Claude account.");
     generalHint.hidden = scope.value !== 'general';
     scope.addEventListener('change', () => { generalHint.hidden = scope.value !== 'general'; });
@@ -995,7 +995,7 @@
     // Which projects a secret is open to: every one, or the ones ticked.
     const scopeLabel = (s) => (!Array.isArray(s.projects) ? 'All projects' : !s.projects.length ? 'No projects' : s.projects.length === 1 ? App.basename(s.projects[0]) : `${s.projects.length} projects`);
     async function pickProjects(s) {
-      const dirs = [...new Set([...App.views.projects.list, ...(App.cfg.openProjects || []), ...(App.cfg.recentFolders || []), ...(s.projects || [])])];
+      const dirs = [...new Set([...App.views.projects.list, ...(App.cfg.openProjects || []), ...(App.cfg.recentFolders || []), ...(s.projects || [])])].filter((d) => !App.isIdeas(d));
       const r = await App.modal({ title: `Projects for ${s.name}`, ok: 'Save',
         text: 'Terminals and agent sessions of the ticked projects get this secret. With "All projects" ticked, every project does, as do terminals outside any project.',
         fields: [{ key: 'all', type: 'check', label: 'All projects', value: !Array.isArray(s.projects) },

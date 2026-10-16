@@ -17,7 +17,7 @@
     P.stack = App.stack({ key: 'pkgPanes', sections: [pySection(), rSection()] });
     root.append(P.stack.el);
     App.listen('view', (v) => { if (v === 'packages') P.loadVisible(); });
-    App.listen('project', () => { P.r.data = null; P.r.old = null; detectR(); if (App.currentView === 'packages') P.loadVisible(); });
+    App.listen('project', () => { P.r.data = null; P.r.old = null; if (!App.isIdeas()) { detectR(); if (App.currentView === 'packages') P.loadVisible(); } });
     App.listen('hpc', () => { for (const k of ['py', 'r']) if (P[k].where === 'hpc') (k === 'py' ? P.loadPy : P.loadR)(); });
     detectR();
   };

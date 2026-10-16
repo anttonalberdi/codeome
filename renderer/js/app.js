@@ -4,6 +4,7 @@
   App.currentView = 'files';
 
   App.setView = (v) => {
+    if (App.isIdeas() && v !== 'agents') v = 'agents';
     App.currentView = v;
     document.querySelectorAll('#rail button[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
     document.querySelectorAll('#sidebar .view').forEach((s) => { s.hidden = s.dataset.view !== v; });
@@ -19,7 +20,21 @@
   // ---------- project ----------
   // Opens the folder as a project card in the left column (or switches to it).
   App.openProject = (dir) => App.views.projects.open(dir);
-  App.listen('project', () => renderWelcome());
+  App.listen('project', () => { renderWelcome(); paintProjectMode(); });
+
+  function paintProjectMode() {
+    const ideas = App.isIdeas();
+    document.querySelectorAll('#rail button').forEach((b) => { b.hidden = ideas && b.dataset.view !== 'agents'; });
+    document.getElementById('panel').hidden = ideas;
+    document.getElementById('panel-resizer').hidden = ideas;
+    document.getElementById('cluster').hidden = ideas;
+    if (ideas) {
+      if (document.getElementById('app').classList.contains('side-collapsed')) document.getElementById('side-band').click();
+      App.expandMain();
+      App.setView('agents');
+      App.views.agents.show(['chat', 'forum'].includes(App.views.agents.pane) ? App.views.agents.pane : 'chat');
+    }
+  }
 
   // ---------- HPC connection & cluster strip ----------
   // The shared connection opens in the background (login.js); prompts come as dialogs.
@@ -129,9 +144,11 @@
   function renderWelcome() {
     const w = document.getElementById('welcome'); w.innerHTML = '';
     w.append(h('div.welcome-inner',
-      h('h1', App.project ? App.basename(App.project) : 'Codeome'),
-      h('p', App.project ? App.project : 'Open a project folder to start. Your files, the cluster, and your agents live side by side here.'),
-      App.project ? scratchpad(App.project) : h('div.quick', h('button', { onclick: () => App.openProject() }, h('b', 'Open folder'), h('span', 'A local project with your R and Python code'))),
+      h('h1', App.isIdeas() ? '💡 Ideas' : App.project ? App.basename(App.project) : 'Codeome'),
+      h('p', App.isIdeas() ? 'Chat and forum with no project. Open a project folder when an idea is ready.' : App.project ? App.project : 'Open a project folder to start. Your files, the cluster, and your agents live side by side here.'),
+      App.project && !App.isIdeas() ? scratchpad(App.project) : !App.project ? h('div.quick',
+        h('button', { onclick: () => App.openProject() }, h('b', 'Open folder'), h('span', 'A local project with your R and Python code')),
+        h('button', { onclick: () => App.views.projects.openIdeas() }, h('b', '💡 Ideas'), h('span', 'Discuss an idea (no project)'))) : null,
       App.cfg.recentFolders.some((d) => !App.views.projects.list.includes(d)) ? h('div', { style: { marginTop: '16px' } }, h('div.hint', 'Recent'), App.cfg.recentFolders.filter((d) => !App.views.projects.list.includes(d)).slice(0, 5).map((d) => h('div', h('a', { href: '#', style: { color: 'var(--accent)' }, onclick: (e) => { e.preventDefault(); App.openProject(d); } }, App.tildify(d))))) : null));
   }
   App.listen('hpc', renderWelcome);
@@ -177,21 +194,22 @@
   // ---------- menu commands ----------
   const commands = {
     'open-folder': () => App.openProject(), 'close-project': () => App.project && App.views.projects.close(App.project),
-    'next-project': () => App.views.projects.cycle(1), 'prev-project': () => App.views.projects.cycle(-1), 'new-file': () => App.views.editor.newFile(), save: () => App.views.editor.save(),
+    'next-project': () => App.views.projects.cycle(1), 'prev-project': () => App.views.projects.cycle(-1), 'new-file': () => !App.isIdeas() && App.views.editor.newFile(), save: () => !App.isIdeas() && App.views.editor.save(),
     'close-tab': () => { const t = App.views.editor.cur(); if (t) App.views.editor.close(t.id); },
     settings: () => App.views.settings.toggle(),
     'view-files': () => App.setView('files'), 'view-slurm': () => App.setView('slurm'), 'view-git': () => App.setView('git'),
     'new-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.newChat(); },
     'next-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(1); },
     'prev-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(-1); },
-    transfer: () => App.views.transfer.open(),
+    transfer: () => !App.isIdeas() && App.views.transfer.open(),
     'view-publish': () => App.setView('publish'), 'view-packages': () => App.setView('packages'), 'view-plots': () => App.setView('plots'), 'view-agents': () => App.setView('agents'),
-    'toggle-panel': () => App.views.terminals.togglePanel(), 'new-terminal': () => App.views.terminals.localShell(),
-    'new-hpc-terminal': () => App.views.terminals.hpcShell(), 'r-console': () => App.views.terminals.rConsole(), preview: () => App.views.editor.previewCurrent()
+    'toggle-panel': () => !App.isIdeas() && App.views.terminals.togglePanel(), 'new-terminal': () => !App.isIdeas() && App.views.terminals.localShell(),
+    'new-hpc-terminal': () => !App.isIdeas() && App.views.terminals.hpcShell(), 'r-console': () => !App.isIdeas() && App.views.terminals.rConsole(), preview: () => !App.isIdeas() && App.views.editor.previewCurrent()
   };
 
   App.start = async () => {
     App.cfg = await codeome.config.get();
+    App.scratchDir = (await codeome.scratch.dir()).dir;
     codeome.version().then((v) => { document.getElementById('app-version').textContent = 'v' + v; });
     // Clicking the version looks for a newer Codeome (and Claude Code / Codex) on GitHub right away.
     const ver = document.getElementById('app-version');

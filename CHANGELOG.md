@@ -5,6 +5,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 ## Unreleased
 
 ### Added
+- **Ideas**: a chat and a forum that belong to no project, for talking through a new project or an idea that fits none of the existing ones. Open it from the welcome screen or the project bar. Its chats and forums are saved in `~/.codeome/scratch`. The agent kit is not installed there, so there are no jobs or specialists, and the Files, Git and Slurm views are hidden. Ideas does not appear in the project lists and its chats are left out of the usage statistics.
 - **Google documents for Codex (kit 0.6.2)**: Codex cannot reach Google, so the Claude chat now exports a document it needs to read as a Markdown (or CSV) snapshot in `.codeome/context/` and names that path in the Codex brief. Codex can read the snapshot and draft text; only Claude writes to the live document. `.codeome/context/` is added to the project's `.gitignore`. Update the kit in each project to get it.
 
 ## 0.4.4

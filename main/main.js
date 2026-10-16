@@ -13,6 +13,7 @@ const zenodo = require('./zenodo');
 const kit = require('./kit');
 const jobs = require('./jobs');
 const usage = require('./usage');
+const scratch = require('./scratch');
 const stats = require('./stats');
 const { CodexSession } = require('./codexchat');
 const chat = require('./chat');
@@ -214,6 +215,7 @@ ipcMain.on('pty:kill', (_e, { id }) => { const p = ptys.get(id); if (p) { try { 
 
 // ---------- config & secrets ----------
 ipcMain.handle('config:get', () => cfg);
+ipcMain.handle('scratch:dir', () => ({ dir: scratch.dir() }));
 // Codeome's own version. app.getVersion() gives Electron's when the app is started from another script.
 ipcMain.handle('app:version', () => require('../package.json').version);
 ipcMain.handle('config:set', (_e, c) => {
@@ -621,7 +623,7 @@ ipcMain.handle('preview:fetchRemote', async (_e, remotePath) => {
 // ---------- Git & GitHub ----------
 async function git(cwd, args, opts = {}) { return run('git', args, { cwd, timeout: opts.timeout || 60000, env: opts.env }); }
 // The folders git and gh may run in: the open projects, and the active one while it is not listed yet.
-function openRoots() { return [...(cfg.openProjects || []), cfg.activeProject].filter((p) => typeof p === 'string' && p); }
+function openRoots() { return [...(cfg.openProjects || []), cfg.activeProject].filter((p) => typeof p === 'string' && p && !scratch.isScratch(p)); }
 function accountContext(root) { return github.contextFor({ accounts: cfg.gitAccounts, bindings: cfg.projectAccounts }, root, config.getSecret); }
 ipcMain.handle('git:status', async (_e, cwd) => {
   if (!github.inProject(cwd, openRoots())) return { error: 'Choose an open project.' };
@@ -880,8 +882,9 @@ const claudeCmd = () => (cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || 
 const codexCmd = () => (cfg.agents.find((a) => /^codex(\s|$)/.test(a.cmd)) || { cmd: 'codex' }).cmd;
 
 function createAgentSession({ id, project, engine, account, resume, mode, meter, forum = false, persona }) {
+  const scratchMode = scratch.isScratch(project);
   let kitInstalled = false;
-  try { kitInstalled = kit.status(project).installed; } catch {}
+  if (!scratchMode) try { kitInstalled = kit.status(project).installed; } catch {}
   const command = engine === 'codex' ? codexCmd() : claudeCmd();
   const acct = launchOn(engine, account, command);
   const dir = (cfg.accounts[engine].list.find((a) => a.name === acct.info.name) || {}).dir || '';
@@ -889,7 +892,7 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   const env = augmentedEnv({ ...userSecretEnv('agents', project), ...acct.env, TERM_PROGRAM: 'Codeome' });
   for (const k of acct.unset) delete env[k];
   // The projects connected to this one: their folders, and (Claude) their CLAUDE.md files too.
-  const linked = ((cfg.projectLinks || {})[project] || []).filter((d) => d !== project && fs.existsSync(d));
+  const linked = scratchMode ? [] : ((cfg.projectLinks || {})[project] || []).filter((d) => d !== project && fs.existsSync(d));
   // The job runner makes them writable for the Codex specialists it starts.
   if (linked.length) env.CODEOME_LINKED = linked.join(path.delimiter);
   const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
@@ -898,10 +901,10 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   if (engine === 'codex') {
     const c = cfg.chat || {};
     s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked,
-      instructions: forum ? chat.forumPrompt() : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, persona }), model: c.codexModel || '', effort: c.codexEffort || '' });
+      instructions: forum ? chat.forumPrompt(project) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, persona, cwd: project }), model: c.codexModel || '', effort: c.codexEffort || '' });
   } else {
     if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings, persona, ...(forum ? { prompt: chat.forumPrompt() } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt });
+    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings, persona, cwd: project, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
   return { s, acct, dir };
@@ -916,7 +919,7 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     const { s, acct } = createAgentSession({ id, project, engine, account, resume, mode, meter, persona });
     s.on('message', (msg) => send('chat:event', { id, msg }));
     // Codex limits are read from its app-server by the usage poll, so only Claude's are recorded here.
-    s.on('turn', (t) => { try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, engine, ...t }); } catch (e) { console.error('chat stats', e); } });
+    s.on('turn', (t) => { if (scratch.isScratch(project)) return; try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, engine, ...t }); } catch (e) { console.error('chat stats', e); } });
     s.on('exit', (r) => { chats.delete(id); send('chat:exit', { id, ...r }); });
     s.start();
     chats.set(id, s);

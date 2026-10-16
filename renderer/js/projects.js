@@ -20,6 +20,13 @@
     App.cfg.projectGroups = (App.cfg.projectGroups || []).filter((g) => g && g.id);
     App.cfg.projectGroup = App.cfg.projectGroup || {};
     App.cfg.projectLinks = App.cfg.projectLinks || {};
+    const ideas = App.scratchDir;
+    App.cfg.recentFolders = (App.cfg.recentFolders || []).filter((d) => d !== ideas);
+    if (App.cfg.localRoot === ideas) App.cfg.localRoot = null;
+    delete App.cfg.projectColors[ideas];
+    delete App.cfg.projectGroup[ideas];
+    delete App.cfg.projectLinks[ideas];
+    for (const dir of Object.keys(App.cfg.projectLinks)) App.cfg.projectLinks[dir] = App.cfg.projectLinks[dir].filter((d) => d !== ideas);
     P.list = shown();
     P.list.forEach(colorOf);
     const tag = document.getElementById('project-btn');
@@ -47,10 +54,19 @@
     dir = dir || await chooseProject();
     if (!dir) return;
     if (!P.list.includes(dir)) P.list.push(dir);
-    if (group) { setGroup(dir, group); group.collapsed = false; }
+    if (group && !App.isIdeas(dir)) { setGroup(dir, group); group.collapsed = false; }
     P.list = shown();
-    colorOf(dir);
+    if (!App.isIdeas(dir)) colorOf(dir);
     await P.switchTo(dir);
+  };
+
+  P.openIdeas = async () => {
+    try {
+      const result = await codeome.scratch.dir();
+      if (!result?.dir) throw new Error(result?.error || 'Ideas folder is unavailable.');
+      App.scratchDir = result.dir;
+      await P.open(result.dir);
+    } catch (e) { App.err(e.message || String(e)); }
   };
 
   // The New project dialog: pick a folder, or paste a git URL to clone into the default project folder.
@@ -77,7 +93,8 @@
         h('header', h('h2', 'New project')),
         h('div.body',
           h('fieldset', h('label.field', h('span', 'A folder on this Mac'),
-            h('button.btn', { onclick: async () => { if (busy) return; const d = await codeome.dialog.folder({ defaultPath: App.project || App.cfg.localRoot }); if (d) close(d); } }, 'Choose folder…'))),
+            h('button.btn', { onclick: async () => { if (busy) return; const d = await codeome.dialog.folder({ defaultPath: App.isIdeas() ? App.cfg.localRoot : App.project || App.cfg.localRoot }); if (d) close(d); } }, 'Choose folder…'))),
+          h('fieldset', h('button.btn', { onclick: async () => { if (busy) return; close(); await P.openIdeas(); } }, '💡 Discuss an idea (no project)')),
           h('fieldset', h('label.field', h('span', 'Or a git URL'), url,
             h('div.hint', `It is cloned into a new folder in ${root}. Change that folder in Settings → Projects.`)), err)),
         h('footer', h('button.btn', { onclick: () => { if (!busy) close(); } }, 'Cancel'), go));
@@ -107,24 +124,24 @@
     }
     App.closePopover();
     App.project = dir;
-    if (dir) {
+    if (dir && !App.isIdeas(dir)) {
       App.cfg.localRoot = dir;
       App.cfg.recentFolders = [dir, ...App.cfg.recentFolders.filter((d) => d !== dir)].slice(0, 8);
     }
     App.cfg.openProjects = P.list.slice();
     App.cfg.activeProject = dir;
+    const saved = dir && (App.cfg.projectViews || {})[dir];
     paintTag();
-    document.title = dir ? App.basename(dir) + ' — Codeome' : 'Codeome';
+    document.title = dir ? (App.isIdeas(dir) ? '💡 Ideas' : App.basename(dir)) + ' — Codeome' : 'Codeome';
     render();
     App.emit('project', dir);
     // Return to the view (and Agent pane) this project was left on.
-    const saved = dir && (App.cfg.projectViews || {})[dir];
-    if (saved && saved.view) {
-      if (saved.view === 'agents' && saved.pane) App.views.agents.show(saved.pane);
+    if (saved && saved.view && (!App.isIdeas(dir) || saved.view === 'agents')) {
+      if (saved.view === 'agents' && saved.pane && (!App.isIdeas(dir) || saved.pane !== 'jobs')) App.views.agents.show(saved.pane);
       if (saved.view !== App.currentView) App.setView(saved.view);
     }
     const rd = dir && state(dir).remoteDir;
-    if (rd && App.hpcConnected && rd !== App.remoteDir) App.views.files.go('remote', rd);
+    if (!App.isIdeas(dir) && rd && App.hpcConnected && rd !== App.remoteDir) App.views.files.go('remote', rd);
     await App.saveConfig();
   };
 
@@ -133,7 +150,7 @@
     const live = T.list.filter((t) => t.project === dir && t.alive).map((t) => t.title);
     const busyChats = App.views.chat.stats(dir).working + App.views.chat.stats(dir).waiting;
     if (busyChats) live.unshift(busyChats > 1 ? `${busyChats} agent chats` : 'the agent chat');
-    if (live.length && !(await App.confirm(`Close ${App.basename(dir)}?`,
+    if (live.length && !(await App.confirm(`Close ${App.isIdeas(dir) ? 'Ideas' : App.basename(dir)}?`,
       `${live.length > 1 ? 'These' : 'This'} will be stopped: ${live.join(', ')}. Sessions kept in tmux on the HPC and specialist jobs keep running.`, 'Close project', true))) return;
     if (!(await E.closeProject(dir))) return;
     T.closeProject(dir);
@@ -156,10 +173,10 @@
   // ---------- groups ----------
   // cfg.projectGroups = [{ id, name, collapsed }] in the order shown; cfg.projectGroup maps
   // a project to its group's id, and is kept when the project is closed.
-  const groupOf = (dir) => App.cfg.projectGroups.find((g) => g.id === App.cfg.projectGroup[dir]) || null;
+  const groupOf = (dir) => App.isIdeas(dir) ? null : App.cfg.projectGroups.find((g) => g.id === App.cfg.projectGroup[dir]) || null;
   const members = (g) => P.list.filter((d) => groupOf(d) === g); // g = null: the projects in no group
   const shown = () => [...App.cfg.projectGroups.flatMap(members), ...members(null)];
-  function setGroup(dir, g) { if (g) App.cfg.projectGroup[dir] = g.id; else delete App.cfg.projectGroup[dir]; }
+  function setGroup(dir, g) { if (App.isIdeas(dir)) return; if (g) App.cfg.projectGroup[dir] = g.id; else delete App.cfg.projectGroup[dir]; }
 
   function saveOrder() {
     P.list = shown();
@@ -177,7 +194,7 @@
   // pick: also offer the open projects as checkboxes, those in no group first.
   P.addGroup = async (pick) => {
     const loose = P.list.filter((d) => !groupOf(d)), grouped = P.list.filter((d) => groupOf(d));
-    const choices = pick ? [...loose, ...grouped] : [];
+    const choices = pick ? [...loose, ...grouped].filter((d) => !App.isIdeas(d)) : [];
     const v = await App.modal({
       title: 'New group', ok: 'Create',
       fields: [{ key: 'name', label: 'Name', placeholder: 'e.g. Thesis' },
@@ -272,7 +289,7 @@
   // cfg.projectLinks maps a project to the projects it is connected to. A connection goes
   // both ways and is direct: A–B and B–C do not connect A and C. Chats pick a change up
   // when they next start (see chat:start in main.js).
-  const linksOf = (dir) => App.cfg.projectLinks[dir] || [];
+  const linksOf = (dir) => App.isIdeas(dir) ? [] : (App.cfg.projectLinks[dir] || []).filter((d) => !App.isIdeas(d));
   P.linksOf = linksOf;
   function setLink(a, b, on) {
     for (const [x, y] of [[a, b], [b, a]]) {
@@ -288,7 +305,7 @@
 
   // The other open projects, and connected ones that are closed, each with a checkbox.
   function pickLinks(dir, anchor) {
-    const others = [...new Set([...P.list, ...linksOf(dir)])].filter((d) => d !== dir);
+    const others = [...new Set([...P.list, ...linksOf(dir)])].filter((d) => d !== dir && !App.isIdeas(d));
     const body = h('div.link-pick',
       h('div.cp-head', 'Connect ', h('b', App.basename(dir)), ' to'),
       others.length ? h('div.lp-list', others.map((d) => {
@@ -313,7 +330,7 @@
     polling = true;
     try {
       let changed = false;
-      await Promise.all(P.list.map(async (dir) => {
+      await Promise.all(P.list.filter((dir) => !App.isIdeas(dir)).map(async (dir) => {
         const list = await codeome.jobs.list(dir);
         // Codex jobs end outside the chat stream; reconcile every project's chats with
         // the job records, not only the open one's, so its card gets the finished marker.
@@ -341,6 +358,7 @@
   const gap = (a, b) => { const d = Math.abs(a - b) % 360; return Math.min(d, 360 - d); };
 
   function colorOf(dir) {
+    if (App.isIdeas(dir)) return 45;
     const c = App.cfg.projectColors;
     if (c[dir] == null) {
       const used = P.list.filter((d) => d !== dir && c[d] != null).map((d) => c[d]);
@@ -359,11 +377,11 @@
 
   function paintTag() {
     const tag = document.getElementById('project-btn'), dir = App.project;
-    document.getElementById('project-name').textContent = dir ? App.basename(dir) : 'No folder open';
+    document.getElementById('project-name').textContent = dir ? (App.isIdeas(dir) ? '💡 Ideas' : App.basename(dir)) : 'No folder open';
     tag.classList.toggle('empty', !dir);
     if (dir) tag.style.setProperty('--ph', colorOf(dir)); else tag.style.removeProperty('--ph');
-    tag.title = dir ? App.tildify(dir) : 'Open a project folder (⌘O)';
-    tag.setAttribute('aria-label', dir ? `Project ${App.basename(dir)}` : 'Open a project folder');
+    tag.title = dir ? (App.isIdeas(dir) ? 'Ideas · chat and forum' : App.tildify(dir)) : 'Open a project folder (⌘O)';
+    tag.setAttribute('aria-label', dir ? (App.isIdeas(dir) ? 'Ideas' : `Project ${App.basename(dir)}`) : 'Open a project folder');
     // The projects connected to it follow as smaller tags, each after a chain link.
     const links = document.getElementById('project-links');
     links.innerHTML = '';
@@ -403,12 +421,17 @@
 
   function tagMenu() {
     const dir = App.project, tag = document.getElementById('project-btn');
+    if (App.isIdeas(dir)) return [
+      { label: 'Open a project…', key: '⌘O', run: () => P.open() },
+      { label: 'Close Ideas', key: '⇧⌘W', run: () => P.close(dir) }
+    ];
     return [
       { label: 'Project color…', run: () => pickColor(dir, tag) },
       { label: 'Reveal in Finder', run: () => codeome.shell.reveal(dir) },
       { label: 'Copy path', run: () => navigator.clipboard.writeText(dir) },
       '-',
       { label: 'Open another project…', key: '⌘O', run: () => P.open() },
+      { label: '💡 Ideas', run: () => P.openIdeas() },
       { label: 'Close project', key: '⇧⌘W', danger: true, run: () => P.close(dir) }
     ];
   }
@@ -433,6 +456,7 @@
     const collapsed = !!App.cfg.ui.projectsCollapsed;
     el.append(list, h('div.proj-foot',
       h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Project')),
+      h('button.proj-add', { title: 'Ideas · chat and forum', 'aria-label': 'Open Ideas', onclick: () => P.openIdeas() }, h('span', '💡'), collapsed ? null : h('span', 'Ideas')),
       h('button.proj-add', { title: 'New group of projects', 'aria-label': 'New group of projects', onclick: () => P.addGroup(true) }, h('span', { html: collapsed ? GROUP_ICON : App.icons.plus }), collapsed ? null : h('span', 'Group')),
       h('button.proj-fold', { title: collapsed ? 'Show project names' : 'Hide project names', 'aria-label': collapsed ? 'Expand project column' : 'Collapse project column', onclick: toggleCollapsed },
         h('span', { html: `<svg viewBox="0 0 16 16"><path d="${collapsed ? 'm6 4 4 4-4 4' : 'm10 4-4 4 4 4'}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` }))));
@@ -441,7 +465,7 @@
   const GROUP_ICON = '<svg viewBox="0 0 16 16"><path d="M2.5 3.5h11v3.5h-11zM2.5 9h11v3.5h-11z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
 
   function card(dir) {
-    const name = App.basename(dir);
+    const ideas = App.isIdeas(dir), name = ideas ? 'Ideas' : App.basename(dir);
     const active = dir === App.project;
     const jobs = state(dir).jobs || 0;
     const sessions = App.views.terminals.list.filter((t) => t.project === dir && t.alive).length;
@@ -460,8 +484,8 @@
     ].filter(Boolean);
     const label = [name, cs.waiting ? `${cs.waiting} chat${cs.waiting > 1 ? 's' : ''} waiting for you` : '', working ? workingText : '', jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', cs.unread ? `${cs.unread} unseen agent repl${cs.unread > 1 ? 'ies' : 'y'}` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : '', linkText].filter(Boolean).join(', ');
     const c = h('div.proj.ptint' + (active ? '.active' : ''), {
-      role: 'tab', 'aria-selected': String(active), 'aria-label': label, tabindex: active ? '0' : '-1', draggable: 'true',
-      title: App.tildify(dir), style: '--ph: ' + colorOf(dir),
+      role: 'tab', 'aria-selected': String(active), 'aria-label': label, tabindex: active ? '0' : '-1', draggable: String(!ideas),
+      title: ideas ? 'Chat and forum with no project' : App.tildify(dir), style: '--ph: ' + colorOf(dir),
       onclick: () => P.switchTo(dir),
       onauxclick: (e) => { if (e.button === 1) P.close(dir); },
       oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, menu(dir, c)); },
@@ -473,7 +497,7 @@
           if (next) next.focus();
         } else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); P.switchTo(dir); }
       },
-      ondragstart: (e) => { dragging = dir; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dir); },
+      ondragstart: (e) => { if (ideas) { e.preventDefault(); return; } dragging = dir; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dir); },
       ondragend: () => { dragging = null; el.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); },
       ondragover: (e) => {
         if (!dragging || dragging === dir) return;
@@ -493,16 +517,20 @@
         saveOrder();
       }
     },
-    h('span.pmono', initials(name), cs.waiting ? h('i.m-wait') : jobs || working ? h('i.m-jobs') : cs.unread ? h('i.m-done') : (unsaved ? h('i.m-dirty') : null)),
+    h('span.pmono', ideas ? '💡' : initials(name), cs.waiting ? h('i.m-wait') : jobs || working ? h('i.m-jobs') : cs.unread ? h('i.m-done') : (unsaved ? h('i.m-dirty') : null)),
     h('span.pinfo',
       h('span.prow', h('span.pname', name),
         links.length ? h('span.plink', { title: 'Connected to ' + links.map(App.basename).join(', '), onclick: (e) => { e.stopPropagation(); pickLinks(dir, c); }, html: LINK_ICON + links.length }) : null),
-      h('span.ppath', App.tildify(App.dirname(dir))),
+      h('span.ppath', ideas ? 'Chat and forum' : App.tildify(App.dirname(dir))),
       stat.length ? h('span.pstat', stat) : null));
     return c;
   }
 
   function menu(dir, card) {
+    if (App.isIdeas(dir)) return [
+      dir !== App.project ? { label: 'Switch to Ideas', run: () => P.switchTo(dir) } : null,
+      { label: 'Close Ideas', run: () => P.close(dir) }
+    ];
     const g = groupOf(dir), near = members(g), i = near.indexOf(dir);
     return [
       dir !== App.project ? { label: 'Switch to project', run: () => P.switchTo(dir) } : null,

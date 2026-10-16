@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const github = require('../main/github');
+const scratch = require('../main/scratch');
+const usage = require('../main/usage');
 
 const source = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
 
@@ -147,7 +149,7 @@ function gitHandlers() {
     return runHandler ? runHandler(cmd, args, opts) : reply;
   };
   vm.runInNewContext(section('// ---------- Git & GitHub ----------', '// ---------- Zenodo ----------'), {
-    cfg, config: { getSecret: () => token }, github, run, path, ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }
+    cfg, config: { getSecret: () => token }, github, scratch, run, path, ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }
   });
   return {
     cfg, calls,
@@ -157,6 +159,14 @@ function gitHandlers() {
     setRun: (value) => { runHandler = value; }
   };
 }
+
+test('scratch is excluded from Git project roots', async () => {
+  const h = gitHandlers();
+  const dir = path.join(usage.home(), 'scratch');
+  h.cfg.openProjects.push(dir);
+  assert.strictEqual((await h.call('git:run', { root: dir, args: ['push', 'origin'] })).error, 'Choose an open project.');
+  assert.strictEqual(h.calls.length, 0);
+});
 
 test('Git and gh handlers inject only for bound network commands after allowlist checks', async () => {
   const h = gitHandlers();

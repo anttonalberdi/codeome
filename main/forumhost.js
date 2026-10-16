@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const usage = require('./usage');
+const scratch = require('./scratch');
 const { Forum } = require('./forum');
 const { oneShot } = require('./oneshot');
 const defaultStore = require('./forumstore');
@@ -114,6 +115,7 @@ function createHost(deps) {
         session.on('turn', (turn) => {
           if (exited) return;
           complete();
+          if (scratch.isScratch(project)) return;
           try { stats.record({ at: Date.now(), ...turn, session: seat.sessionId, project, account: seat.account, engine: seat.engine, forum: id, seat: seat.id }); }
           catch (error) { console.error('forum stats', error); }
         });

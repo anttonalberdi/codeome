@@ -13,7 +13,7 @@ test('forum sessions cannot inherit chat job auto-approval on either engine', ()
   const made = [];
   class Session extends EventEmitter { constructor(options) { super(); made.push(options); } }
   const cfg = { accounts: { claude: { list: [{ name: 'account' }] }, codex: { list: [{ name: 'account' }] } }, chat: {}, projectLinks: {} };
-  const context = { fs, path, cfg, statusline: null, Session, CodexSession: Session,
+  const context = { fs, path, cfg, statusline: null, Session, CodexSession: Session, scratch: { isScratch: () => false },
     kit: { status: () => ({ installed: true }) }, claudeCmd: () => 'claude', codexCmd: () => 'codex',
     launchOn: () => ({ info: { name: 'account' }, env: {}, unset: [] }),
     augmentedEnv: (env) => env, userSecretEnv: () => ({}), loginShell: () => '/bin/sh',

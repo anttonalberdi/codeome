@@ -37,6 +37,8 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 - **Cost.** Every message you post triggers one small check per seat (a short one-shot call, Haiku by default for Claude), on top of the replies themselves. Past a size set in Settings, older messages are folded into a summary. Each seat shows its tokens and cost.
 - Forums are saved in `~/.codeome/forums/`, apart from chat history; *Forums* in the pane header reopens or deletes them.
 
+**Ideas** — a chat and a forum that are not tied to any project, for discussing a new project or an idea that fits none of the existing ones. Open it from the welcome screen or the project bar. Chats and forums are saved under `~/.codeome` (its working folder is `~/.codeome/scratch`). The agent kit is not installed there (no jobs or specialists), the Files, Git and Slurm views are hidden, and Ideas is left out of the project lists and the usage statistics.
+
 **The team** — install the *agent kit* into a project (from the banner in the chat) and the agent gains a team:
 - 15 roles in four groups, chosen at install: core (planner, explorer, implementer, debugger, tester, reviewer), research computing (analyst, pipeline-engineer, hpc-operator, report-writer), web stack (backend, frontend, security-reviewer), release & docs (docs-writer, release-manager).
 - The release & docs group also brings playbooks for publishing to PyPI, Bioconda, conda-forge, CRAN and Bioconductor. The release-manager reads the one a task names, prepares and checks the package, and stops at the steps only you can do (a CRAN confirmation email, a public pull request).

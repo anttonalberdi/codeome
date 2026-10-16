@@ -35,7 +35,7 @@
     if (checking) return;
     checking = true;
     try {
-      const r = App.project ? await codeome.git.dirty(App.project) : null;
+      const r = App.project && !App.isIdeas() ? await codeome.git.dirty(App.project) : null;
       paintRail(r && r.repo ? r.changes : 0);
     } catch { paintRail(0); } finally { checking = false; }
   };
@@ -50,7 +50,7 @@
     if (!root) return;
     const seq = ++refreshSeq;
     const project = App.project;
-    if (!project) { G.st = null; root.innerHTML = ''; root.append(head(), h('div.empty', 'Open a project folder to see its Git status.', h('br'), h('button.btn.small', { onclick: () => App.openProject() }, 'Open folder'))); return; }
+    if (!project || App.isIdeas(project)) { G.st = null; root.innerHTML = ''; root.append(head(), h('div.empty', 'Open a project folder to see its Git status.', h('br'), h('button.btn.small', { onclick: () => App.openProject() }, 'Open folder'))); return; }
     const st = await codeome.git.status(project);
     if (seq !== refreshSeq || project !== App.project) return;
     let accounts = { data: { accounts: [] } }, identity = { data: { name: '', email: '', effectiveName: '', effectiveEmail: '' } };

@@ -3,11 +3,14 @@ window.App = {
   cfg: null,
   env: { tools: {} },
   project: null,          // local project folder
+  scratchDir: null,
   remoteDir: null,        // current folder in the HPC browser
   hpcConnected: false,
   views: {},
   on: {}, // simple event bus
 };
+
+App.isIdeas = (dir = App.project) => !!dir && dir === App.scratchDir;
 
 App.emit = (ev, data) => (App.on[ev] || []).forEach((f) => { try { f(data); } catch (e) { console.error(e); } });
 App.listen = (ev, f) => { (App.on[ev] = App.on[ev] || []).push(f); };

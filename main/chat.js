@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const usage = require('./usage');
+const scratch = require('./scratch');
 const ssh = require('./ssh');
 const { Meter } = require('./stats');
 const { parseFrontmatter } = require('./kit');
@@ -31,13 +32,18 @@ const engineOf = (e) => (ENGINES.includes(e) ? e : 'claude');
 const MODES = ['default', 'acceptEdits', 'auto', 'plan'];
 // System messages the panel has no use for.
 const QUIET = new Set(['hook_started', 'hook_response', 'hook_progress', 'thinking_tokens', 'status']);
+const SCRATCH_NOTE = 'There is no project here. This is a free space to discuss ideas and possible new projects; no code base to edit unless the user asks to draft files.';
 
 // The orchestrator's instructions, with the part for projects with or without the kit.
-function systemPrompt(kitInstalled, text = fs.readFileSync(PROMPT, 'utf8')) {
-  return text
+function systemPrompt(kitInstalled, text = fs.readFileSync(PROMPT, 'utf8'), cwd) {
+  const isScratch = scratch.isScratch(cwd);
+  const hasScratchNote = text.includes('<!-- if scratch -->');
+  const prompt = text
     .replace(/<!-- Keep shared sections in sync between kit\/chat\.md and kit\/personas\/_base\.md\. -->\n/g, '')
     .replace(/<!-- if kit -->([\s\S]*?)<!-- else -->([\s\S]*?)<!-- end -->/g, (_m, yes, no) => (kitInstalled ? yes : no))
-    .replace(/\n{3,}/g, '\n\n').trim() + '\n';
+    .replace(/<!-- if scratch -->([\s\S]*?)<!-- end scratch -->/g, (_m, note) => (isScratch ? note : ''))
+    .replace(/\n{3,}/g, '\n\n').trim();
+  return prompt + (isScratch && !hasScratchNote ? '\n\n' + SCRATCH_NOTE : '') + '\n';
 }
 
 function readPersona(id) {
@@ -69,10 +75,10 @@ function listPersonas() {
   }).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function personaPrompt(id, kitInstalled) {
+function personaPrompt(id, kitInstalled, cwd) {
   const p = readPersona(id);
   if (!p) return null;
-  try { return systemPrompt(kitInstalled, fs.readFileSync(path.join(PERSONAS, '_base.md'), 'utf8') + '\n\n' + p.prompt); } catch { return null; }
+  try { return systemPrompt(kitInstalled, fs.readFileSync(path.join(PERSONAS, '_base.md'), 'utf8') + '\n\n' + p.prompt, cwd); } catch { return null; }
 }
 
 // What the orchestrator is told about the projects connected to this one (see projects.js),
@@ -130,12 +136,12 @@ function hpcPrompt(hpc, engine = 'claude') {
 // The Codex orchestrator's instructions in full: its own prompt, then the same notes on
 // connected projects and the HPC. Codex has no command line to put them on; this is the
 // text CodexSession gets as `instructions`.
-function codexPrompt({ kitInstalled, linked = [], hpc = null, persona } = {}) {
-  return (personaPrompt(persona, kitInstalled) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'))) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex');
+function codexPrompt({ kitInstalled, linked = [], hpc = null, persona, cwd } = {}) {
+  return (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'), cwd)) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex');
 }
 
-function forumPrompt() {
-  return fs.readFileSync(PROMPT_FORUM, 'utf8');
+function forumPrompt(cwd) {
+  return systemPrompt(false, fs.readFileSync(PROMPT_FORUM, 'utf8'), cwd);
 }
 
 // The configured command's extra words with a value chosen in Settings, which wins
@@ -155,9 +161,9 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
 // linked: folders of the projects connected to this one. hpc: the HPC settings (host, agentRoot).
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, settings = '', persona, prompt }) {
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, settings = '', persona, prompt, cwd }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', prompt === undefined ? (personaPrompt(persona, kitInstalled) || systemPrompt(kitInstalled)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) : prompt];
+    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', prompt === undefined ? (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, undefined, cwd)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) : prompt];
   for (const d of linked) args.push('--add-dir', d);
   if (settings) args.push('--settings', settings);
   args.push(resume ? '--resume' : '--session-id', id);

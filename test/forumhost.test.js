@@ -9,6 +9,7 @@ process.env.CODEOME_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'forumhost-home
 const { createHost } = require('../main/forumhost');
 const store = require('../main/forumstore');
 const chat = require('../main/chat');
+const scratch = require('../main/scratch');
 
 const tick = async () => { await new Promise((resolve) => setImmediate(resolve)); await new Promise((resolve) => setImmediate(resolve)); };
 class FakeSession extends EventEmitter {
@@ -23,7 +24,7 @@ class FakeSession extends EventEmitter {
   }
 }
 function harness(extra = {}) {
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'forumhost-project-'));
+  const project = extra.project || fs.mkdtempSync(path.join(os.tmpdir(), 'forumhost-project-'));
   const cfg = { forum: { defaultBudget: 0, summaryTokens: 6000, recentMessages: 8,
     checkModel: 'haiku', codexCheckModel: '', checkEffort: 'low', checkTimeoutMs: 30000 },
   accounts: { claude: { list: [{ name: 'claude-account', dir: '/claude-account' }] },
@@ -50,6 +51,20 @@ function harness(extra = {}) {
   const invoke = (name, payload) => handlers.get(name)(null, payload);
   return { project, cfg, host, handlers, invoke, events, sessions, checks, selections, records };
 }
+
+test('scratch forums do not record project stats', async () => {
+  const h = harness({ project: scratch.dir() });
+  const created = await h.invoke('forum:create', { project: h.project, title: 'Ideas' });
+  assert.equal(created.ok, true);
+  await h.invoke('forum:post', { id: created.forum.id, text: 'What could we build?' });
+  await tick();
+  const hand = h.host.forums.get(created.forum.id).hands[0];
+  await h.invoke('forum:allow', { id: created.forum.id, handId: hand.id });
+  await tick();
+  h.sessions[0].emit('turn', { input: 7, output: 3 });
+  assert.equal(h.records.length, 0);
+  h.host.disposeAll();
+});
 
 test('create, post, allow, stats, save/open, and delete flow through IPC', async () => {
   const h = harness();

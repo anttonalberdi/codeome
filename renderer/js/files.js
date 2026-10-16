@@ -42,7 +42,7 @@
     for (const [ev, side] of [['hpc', 'remote'], ['storage', 'storage']]) {
       App.listen(ev, (up) => { if (up) { paintDot(side); F.go(side, F[side].dir || F.startDir(side)); } else renderState(side); });
     }
-    App.listen('project', (dir) => { clearSearch(); F.go('local', dir); });
+    App.listen('project', (dir) => { clearSearch(); if (!App.isIdeas(dir)) F.go('local', dir); });
     App.listen('config', () => { F.stack.retitle(); renderState('remote'); renderState('storage'); });
     renderState('remote'); renderState('storage');
   };

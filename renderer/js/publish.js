@@ -114,7 +114,7 @@
   // ---------- PyPI ----------
   async function renderPy() {
     pyBody.innerHTML = '';
-    if (!App.project) { pyBody.append(h('div.empty', 'Open a project folder with a pyproject.toml to build and upload it.')); return; }
+    if (!App.project || App.isIdeas()) { pyBody.append(h('div.empty', 'Open a project folder with a pyproject.toml to build and upload it.')); return; }
     const has = await codeome.local.read(App.join(App.project, 'pyproject.toml'));
     if (has.error) { pyBody.append(h('div.empty', `No pyproject.toml in ${App.basename(App.project)}.`)); return; }
     const name = (has.content.match(/^\s*name\s*=\s*["']([^"']+)/m) || [])[1] || App.basename(App.project);

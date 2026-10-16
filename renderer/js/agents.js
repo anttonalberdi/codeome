@@ -50,14 +50,15 @@
 
   A.show = (pane) => {
     if (!['chat', 'forum', 'jobs'].includes(pane)) return;
+    if (App.isIdeas() && pane === 'jobs') pane = 'chat';
     if (A.pane === 'forum' && pane !== 'forum') App.views.forum.hide();
     A.pane = pane;
     chatEl.hidden = pane !== 'chat';
     forumEl.hidden = pane !== 'forum';
     jobsEl.hidden = pane !== 'jobs';
-    kitEl.hidden = pane === 'forum';
+    kitEl.hidden = pane === 'forum' || App.isIdeas();
     usageEl.hidden = pane === 'forum';
-    newChatBtn.hidden = pane !== 'chat';
+    newChatBtn.hidden = pane !== 'chat' || App.isIdeas();
     historyBtn.hidden = pane !== 'chat';
     paintHead();
     if (pane === 'chat') App.views.chat.markSeen();
@@ -75,7 +76,7 @@
     titleEl.append(h('h2', 'Agent'));
     const n = A.jobs.filter(isLive).length;
     tabsEl.innerHTML = '';
-    for (const [k, label] of [['chat', 'Chat'], ['forum', 'Forum'], ['jobs', 'Jobs' + (n ? ` · ${n}` : '')]]) {
+    for (const [k, label] of [['chat', 'Chat'], ['forum', 'Forum'], ...(App.isIdeas() ? [] : [['jobs', 'Jobs' + (n ? ` · ${n}` : '')]])]) {
       tabsEl.append(h('button' + (A.pane === k ? '.on' : ''), { role: 'tab', 'aria-selected': String(A.pane === k), onclick: () => A.show(k) },
         label, k === 'forum' && App.views.forum.unread ? h('span.forum-unread', { 'aria-label': 'Unread forum activity' }) : null));
     }
@@ -91,20 +92,20 @@
       ...past.map((c) => ({ label: (c.title || 'Untitled chat').slice(0, 48), key: App.fmtAgo(c.updatedAt), run: () => C.open(c.id) })),
       { label: 'Chat history…', run: () => C.openHistory(anchor) },
       '-',
-      { label: 'Continue this chat in a terminal', disabled: !C.current() || !C.current().started, run: () => C.toTerminal() },
+      App.isIdeas() ? null : { label: 'Continue this chat in a terminal', disabled: !C.current() || !C.current().started, run: () => C.toTerminal() },
       { label: 'Forum', run: () => A.show('forum') },
-      { label: 'Specialist jobs', run: () => A.show('jobs') },
+      App.isIdeas() ? null : { label: 'Specialist jobs', run: () => A.show('jobs') },
       { label: 'Session statistics', run: () => App.views.stats.open() },
       { label: 'Agents & models…', run: () => App.views.settings.open('agents') },
       '-',
-      k && k.installed ? { label: k.outdated ? 'Update the agent kit…' : 'Agent kit roles…', run: () => A.install() } : { label: 'Install the agent kit…', run: () => A.install() },
-      k && k.installed ? { label: 'Edit routing', run: () => App.views.editor.openFile(App.join(App.project, '.claude/skills/orchestrate/routing.md')) } : null
+      App.isIdeas() ? null : k && k.installed ? { label: k.outdated ? 'Update the agent kit…' : 'Agent kit roles…', run: () => A.install() } : { label: 'Install the agent kit…', run: () => A.install() },
+      !App.isIdeas() && k && k.installed ? { label: 'Edit routing', run: () => App.views.editor.openFile(App.join(App.project, '.claude/skills/orchestrate/routing.md')) } : null
     ]);
   }
 
   let busy = false;
   A.refresh = async (withKit) => {
-    if (busy || !App.project) { render(); return; }
+    if (busy || !App.project || App.isIdeas()) { render(); return; }
     busy = true;
     try {
       const project = App.project;
@@ -121,10 +122,12 @@
 
   function render() {
     if (!root) return;
+    kitEl.hidden = A.pane === 'forum' || App.isIdeas();
+    newChatBtn.hidden = A.pane !== 'chat' || App.isIdeas();
     paintRail();
     paintHead();
     kitEl.innerHTML = ''; usageEl.innerHTML = ''; listEl.innerHTML = '';
-    if (!App.project) return;
+    if (!App.project || App.isIdeas()) return;
     renderKit();
     renderUsage();
     renderJobs();
@@ -173,6 +176,7 @@
   }
 
   A.install = async () => {
+    if (App.isIdeas()) return;
     const k = A.kit || await codeome.kit.status(App.project);
     const current = k.installed ? k.installedGroups : Object.keys(k.groups);
     const fields = [{ legend: 'Role groups' }];

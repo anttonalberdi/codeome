@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+const scratch = require('./scratch');
 
 const KIT = path.join(__dirname, '..', 'kit');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(KIT, 'manifest.json'), 'utf8'));
@@ -193,6 +194,7 @@ function mergeGitignore(project) {
 
 // Install or update. Returns what happened to each file.
 function install(project, opts = {}) {
+  if (scratch.isScratch(project)) throw new Error('The agent kit cannot be installed in Ideas.');
   if (!project || !fs.existsSync(project)) throw new Error('Project folder not found: ' + project);
   const groups = normalizeGroups(opts.groups);
   const prev = readState(project) || { files: {} };
