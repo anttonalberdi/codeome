@@ -44,6 +44,7 @@
     E.editor.addAction({ id: 'codeome.sbatch', label: 'Submit to Slurm (sbatch)', contextMenuGroupId: 'navigation', contextMenuOrder: 3, run: () => { const t = E.cur(); if (t && t.remote) App.views.slurm.submit(t.path); else App.toast('Open the script from the HPC side to submit it.'); } });
     E.editor.addAction({ id: 'codeome.askAgent', label: 'Ask the agent about this…', contextMenuGroupId: 'navigation', contextMenuOrder: 4, run: (ed) => E.askAgent(ed) });
     App.views.rmd.init(E.editor);
+    document.getElementById('md-preview').onclick = () => E.mdPreview();
     document.getElementById('md-wrap').onclick = () => { localStorage.setItem('mdWrap', localStorage.getItem('mdWrap') === '1' ? '0' : '1'); E.applyWrap(); };
   };
 
@@ -112,7 +113,28 @@
     const t = E.cur(), md = isMd(t), on = localStorage.getItem('mdWrap') === '1';
     const btn = document.getElementById('md-wrap');
     if (btn) { btn.hidden = !md; btn.classList.toggle('active', on); btn.setAttribute('aria-pressed', String(on)); }
+    const pv = document.getElementById('md-preview');
+    if (pv) pv.hidden = !md;
     if (E.editor) E.editor.updateOptions({ wordWrap: md && on ? 'on' : 'off' });
+  };
+
+  // Formatted view of the open Markdown file; it follows the editor text as you type.
+  E.mdPreview = function () {
+    const t = E.cur();
+    if (!isMd(t)) return;
+    const body = h('div.msg.md.md-doc');
+    const draw = () => { body.innerHTML = App.md(t.model.getValue()); };
+    let sub = null;
+    E.openCustom({
+      key: 'mdview:' + t.id, title: t.title, badge: 'Formatted',
+      render: (el) => {
+        el.append(h('div.toolbar', h('span.path', t.path), h('button.btn.small', { onclick: () => E.openFile(t.path, { remote: t.remote, storage: t.storage }) }, 'Back to source')), h('div.md-doc-scroll', body));
+        draw();
+        sub = t.model.onDidChangeContent(draw);
+      },
+      onActivate: draw,
+      onClose: () => sub && sub.dispose()
+    });
   };
 
   E.activate = function (id) {

@@ -561,6 +561,13 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .msg.md hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
 .msg.md a { color: var(--accent); }
 .md-table { overflow-x: auto; }
+.md-doc-scroll { flex: 1; min-height: 0; overflow: auto; }
+.msg.md.md-doc { max-width: 820px; margin: 0 auto; padding: 18px 24px 40px; font-size: 14px; line-height: 1.6; user-select: text; }
+.msg.md.md-doc h3 { font-size: 24px; margin: 20px 0 8px; font-weight: 700; }
+.msg.md.md-doc h4 { font-size: 19px; margin: 18px 0 6px; font-weight: 650; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+.msg.md.md-doc h5 { font-size: 16px; margin: 14px 0 4px; }
+.msg.md.md-doc h6 { font-size: 14px; margin: 12px 0 4px; }
+.msg.md.md-doc p, .msg.md.md-doc ul, .msg.md.md-doc ol, .msg.md.md-doc pre, .msg.md.md-doc blockquote, .msg.md.md-doc .md-table { margin-bottom: 10px; }
 .msg.md table { border-collapse: collapse; font-size: 12px; }
 .msg.md th, .msg.md td { border: 1px solid var(--line); padding: 3px 7px; text-align: left; vertical-align: top; }
 .msg.md th { background: var(--surface-2); font-weight: 600; }
