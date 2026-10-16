@@ -621,6 +621,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .perm-path { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
 .msg.md.plan { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; background: var(--surface-2); }
 
+.chat-compose.dropping { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); }
 .chat-compose { border-top: 1px solid var(--line); padding: 8px 10px 9px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
 .chat-input { resize: none; min-height: 34px; max-height: 220px; line-height: 1.45; padding: 7px 9px; border-radius: 8px; min-width: 0; }
 .chat-input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
