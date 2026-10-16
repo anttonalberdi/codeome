@@ -242,7 +242,41 @@
     App.popover(anchor, h('div.u-pop.hist',
       h('div.u-pop-head', h('h3', 'Chat history'), countEl),
       h('div.hist-search', search), listEl,
-      h('div.u-pop-foot', h('button.btn.small', { onclick: () => { App.closePopover(); C.newChat(); } }, 'New chat'))), 'Chat history').hist = true;
+      h('div.u-pop-foot', h('button.btn.small', { onclick: () => { App.closePopover(); C.newChat(); } }, 'New chat'), h('span.grow'),
+        h('button.btn.small.ghost', { onclick: () => { App.closePopover(); C.openFullHistory(); } }, 'Show full history'))), 'Chat history').hist = true;
+  };
+
+  // A page (tab) with a link to every saved chat of the project, grouped by day.
+  C.openFullHistory = () => {
+    const project = App.project;
+    if (!project) return App.toast('Open a project folder first.');
+    let reload = () => {};
+    return App.views.editor.openCustom({
+      key: 'chat-history', title: 'Chat history', badge: 'Agent', onActivate: () => reload(),
+      render: (el) => {
+        let q = '';
+        const body = h('div.stats-page.hist-page');
+        let list = [];
+        const draw = () => {
+          body.innerHTML = '';
+          const rows = list.filter((c) => !q || c.title.toLowerCase().includes(q));
+          if (!rows.length) return body.append(h('div.empty', list.length ? 'No chat matches.' : 'No saved chats in this project yet. A chat is saved with its first message.'));
+          let group = null, box = null;
+          for (const c of rows) {
+            const g = dayGroup(c.updatedAt);
+            if (g !== group) { group = g; body.append(h('h3', g), box = h('div.hist-links')); }
+            const sub = [c.engine === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, App.fmtAgo(c.updatedAt), c.messages ? `${c.messages} message${c.messages > 1 ? 's' : ''}` : null].filter(Boolean).join(' · ');
+            box.append(h('button.hist-open', { title: c.title, onclick: () => { if (project === App.project) C.open(c.id); } }, h('span.hist-t', c.title), h('span.hist-s', sub)));
+          }
+        };
+        reload = async () => { await loadPersonas(); list = await codeome.chat.list(project); draw(); };
+        el.append(h('div.toolbar.st-bar',
+          h('span.hint.grow', 'Every saved chat of this project, newest first'),
+          h('input', { type: 'text', placeholder: 'Search chats', 'aria-label': 'Search chats', oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } }),
+          h('button.btn.small', { onclick: () => reload() }, 'Refresh')), body);
+        reload();
+      }
+    });
   };
 
   // Put text in the composer (from the editor or file browser) and focus it.

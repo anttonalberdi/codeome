@@ -773,6 +773,11 @@ button.cs:hover { text-decoration-color: currentColor; }
   .chat-examples { flex-direction: row; flex-wrap: wrap; }
 }
 /* Chat history (the clock button in the Agent header). */
+.hist-page { gap: 6px; }
+.hist-page h3 { margin: 12px 0 2px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.hist-links { display: flex; flex-direction: column; max-width: 720px; }
+.hist-links .hist-open:hover { background: var(--sel); }
+.st-bar input[type=text] { width: 200px; flex: none; }
 .hist-search { padding: 0 12px 8px; }
 .hist-search input { width: 100%; }
 .hist-list { max-height: min(430px, 58vh); overflow-y: auto; border-top: 1px solid var(--line); padding: 4px; }
