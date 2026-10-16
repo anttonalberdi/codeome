@@ -48,7 +48,7 @@
         i++;
         while (i < lines.length && !lines[i].trim().startsWith(fence)) body.push(lines[i++]);
         i++;
-        out.push(`<pre><code${m[2] ? ` data-lang="${esc(m[2])}"` : ''}>${esc(body.join('\n'))}</code></pre>`);
+        out.push(`<div class="code-block"><button type="button" class="code-copy" title="Copy to clipboard">Copy</button><pre><code${m[2] ? ` data-lang="${esc(m[2])}"` : ''}>${esc(body.join('\n'))}</code></pre></div>`);
         continue;
       }
       if (!l.trim()) { i++; continue; }
@@ -98,6 +98,17 @@
     }).join('') + `</${tag}>`);
     return i;
   }
+
+  // One delegated handler serves every rendered code block (chat, job results, previews).
+  if (typeof document !== 'undefined') document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('.code-copy');
+    if (!btn) return;
+    const code = btn.parentElement.querySelector('pre');
+    navigator.clipboard.writeText(code ? code.textContent : '').then(() => {
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    }, () => App.toast('Could not copy.'));
+  });
 
   App.md = render;
   App.esc = esc;

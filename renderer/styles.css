@@ -556,6 +556,10 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .msg.md h3 { font-size: 14px; }
 .msg.md code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px; }
 .msg.md pre { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; overflow-x: auto; }
+.msg.md .code-block { position: relative; margin: 0 0 6px; }
+.msg.md .code-block pre { margin: 0; padding-right: 54px; }
+.code-copy { position: absolute; top: 4px; right: 4px; font: 11px var(--sans, inherit); padding: 1px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--muted); cursor: pointer; opacity: .75; }
+.code-copy:hover { opacity: 1; color: var(--text); }
 .msg.md pre code { border: 0; padding: 0; background: none; font-size: 11.5px; white-space: pre; }
 .msg.md blockquote { border-left: 3px solid var(--line-strong); padding-left: 9px; color: var(--muted); }
 .msg.md hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
@@ -567,7 +571,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .msg.md.md-doc h4 { font-size: 19px; margin: 18px 0 6px; font-weight: 650; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
 .msg.md.md-doc h5 { font-size: 16px; margin: 14px 0 4px; }
 .msg.md.md-doc h6 { font-size: 14px; margin: 12px 0 4px; }
-.msg.md.md-doc p, .msg.md.md-doc ul, .msg.md.md-doc ol, .msg.md.md-doc pre, .msg.md.md-doc blockquote, .msg.md.md-doc .md-table { margin-bottom: 10px; }
+.msg.md.md-doc p, .msg.md.md-doc ul, .msg.md.md-doc ol, .msg.md.md-doc .code-block, .msg.md.md-doc blockquote, .msg.md.md-doc .md-table { margin-bottom: 10px; }
 .msg.md table { border-collapse: collapse; font-size: 12px; }
 .msg.md th, .msg.md td { border: 1px solid var(--line); padding: 3px 7px; text-align: left; vertical-align: top; }
 .msg.md th { background: var(--surface-2); font-weight: 600; }
