@@ -12,6 +12,7 @@ Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive 
 
 - To read or change one, read the pointer for its `doc_id`, then use the matching Google connector if it is available to you.
 - Edit the document in place. Never write to the pointer file, and never replace the document with a new one.
+- If you cannot reach the connector but a snapshot of the document is under `.codeome/context/` or named in your instructions, read that and say it may be out of date.
 - If you cannot access the connector, say so and ask the user to use a chat with connector access. Don't work around it.
 
 ## Limits

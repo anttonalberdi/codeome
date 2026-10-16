@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Google documents for Codex (kit 0.6.2)**: Codex cannot reach Google, so the Claude chat now exports a document it needs to read as a Markdown (or CSV) snapshot in `.codeome/context/` and names that path in the Codex brief. Codex can read the snapshot and draft text; only Claude writes to the live document. `.codeome/context/` is added to the project's `.gitignore`. Update the kit in each project to get it.
+
 ## 0.4.4
 
 ### Added

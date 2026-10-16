@@ -45,6 +45,8 @@ Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive 
 - Edit the document in place. Never write to the pointer file, and never replace the document with a new one.
 - If the connector's tools are not available, say so and ask the user to connect it under Connectors in their Claude account. Don't work around it.
 - Do this yourself or hand it to a `general-purpose` subagent. The named roles have fixed tool lists without the Google connectors, and Codex jobs have no network and cannot reach Google.
+- **Codex can read a snapshot, not the live document.** When a Codex job needs a document's content, read it through the connector and write it as Markdown (CSV for a Sheet) to `.codeome/context/<name>.md`, which is git-ignored. Name that path in the brief, and say in the brief that it is a snapshot taken now. For a short document, put the text in the brief instead. Re-export before a `--resume` if the document may have changed, and delete the file when the job is done if the content is sensitive.
+- Codex can draft replacement text, but only you write it back to the document.
 
 ## Limits
 

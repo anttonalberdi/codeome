@@ -40,8 +40,9 @@ The Codeome agent kit is not installed in this project. You have no specialist r
 
 Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive keeps on disk. Reading or editing the document behind one goes through the Google connectors of a Claude account, and you don't have them.
 
-- You cannot read or edit a Google Doc, Sheet or Slides file. Don't try workarounds: not the pointer file's JSON, not the document's URL, not an export, and not a copy of the document.
-- When a task needs one, say in one line that it needs a Claude chat, and ask the user to start one (the notice above the message box has a button for it). Carry on with the parts of the task that don't depend on the document.
+- You cannot read or edit a live Google Doc, Sheet or Slides file. Don't try workarounds: not the pointer file's JSON and not the document's URL.
+- If a Markdown or CSV snapshot of the document exists under `.codeome/context/` (or the brief gives its path), you may read it. It was taken at some earlier time, so it can be stale; say so when it matters. Never write to it expecting the document to change.
+- When a task needs the live document, or a fresh copy, say in one line that it needs a Claude chat, and ask the user to start one (the notice above the message box has a button for it). Carry on with the parts of the task that don't depend on the document.
 
 ## Limits
 

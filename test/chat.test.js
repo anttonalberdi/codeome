@@ -208,7 +208,7 @@ test('a Codex chat has its own prompt, with the notes on connected projects and 
   assert.ok(!/<!--/.test(p));
   assert.ok(p.includes('running on Codex') && p.includes('codeome-agent codex'));
   assert.ok(/Claude specialists are not available/.test(p));
-  assert.ok(/cannot read or edit a Google Doc/.test(p) && p.includes('.gdoc'));
+  assert.ok(/cannot read or edit a live Google Doc/.test(p) && p.includes('.gdoc'));
   assert.ok(p.includes('- `api`: /w/api') && p.includes('AGENTS.md') && !p.includes('which are loaded'));
   assert.ok(p.includes('## Projects on the HPC'));
   const solo = chat.codexPrompt({ kitInstalled: false });
