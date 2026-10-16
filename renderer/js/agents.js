@@ -298,37 +298,117 @@
       key: 'agent-job:' + j.id, title: `${j.role} · ${ENGINE[j.engine] || j.engine}`, badge: 'Agent',
       render: async (el, tab) => {
         const pre = h('pre.logbox', 'Loading…');
+        const md = h('div.msg.md.job-markdown', { hidden: true });
+        const conversation = h('div.job-conversation', { hidden: true });
         const parts = [h('option', { value: 'result' }, 'Result'), h('option', { value: 'brief' }, 'Brief')];
-        if (j.engine === 'codex') parts.push(h('option', { value: 'log' }, 'Log'));
+        if (j.engine === 'codex') parts.push(h('option', { value: 'activity' }, 'Activity'), h('option', { value: 'log' }, 'Log'));
+        const conversationOption = h('option', { value: 'conversation' }, 'Conversation');
+        let hasConversation = j.engine === 'claude' && !!j.transcript;
+        if (hasConversation) parts.push(conversationOption);
         const which = h('select', { style: { width: 'auto' }, 'aria-label': 'Show' }, parts);
         const state = h('span.state');
         const info = h('span.path');
         const follow = h('input', { type: 'checkbox', checked: true });
+        const raw = h('input', { type: 'checkbox' });
+        const rawLabel = h('label.check', raw, 'Raw');
         const cancelBtn = h('button.btn.small.danger', { onclick: () => A.cancel(cur()) }, 'Cancel job');
-        el.append(h('div.toolbar', which, state, info, h('label.check', follow, 'Follow'), h('button.btn.small', { onclick: () => load() }, 'Refresh'), cancelBtn), pre);
+        el.append(h('div.toolbar', which, state, info, h('label.check', follow, 'Follow'), rawLabel, h('button.btn.small', { onclick: () => load() }, 'Refresh'), cancelBtn), pre, md, conversation);
         const cur = () => A.jobs.find((x) => x.id === j.id) || j;
+        const openDetails = new Map();
+        let detailsByKey = new Map();
+        function renderConversation(r) {
+          for (const [key, detail] of detailsByKey) openDetails.set(key, detail.open);
+          detailsByKey = new Map();
+          const nodes = [];
+          if (r.truncated) nodes.push(h('div.job-conversation-note', 'Earlier messages are not shown.'));
+          const items = Array.isArray(r.items) ? r.items : [];
+          for (const [index, item] of items.entries()) {
+            if (item.kind === 'text') {
+              nodes.push(h('div.msg.md.job-conversation-text', { html: App.md(item.text) }));
+              continue;
+            }
+            if (item.kind === 'usage') {
+              const usage = item.usage || {};
+              nodes.push(h('div.job-conversation-note', `tokens: in ${usage.input_tokens ?? 0} (cached ${usage.cached_input_tokens ?? 0}), out ${usage.output_tokens ?? 0}`));
+              continue;
+            }
+            if (item.kind === 'error') {
+              nodes.push(h('div.job-conversation-error', item.text));
+              continue;
+            }
+            if (item.kind === 'event') {
+              if (item.type !== 'thread.started' && item.type !== 'turn.started') nodes.push(h('div.job-conversation-note', item.type || 'Event'));
+              continue;
+            }
+            const key = item.id ? 'id:' + item.id : 'index:' + index;
+            let detail;
+            if (item.kind === 'user') detail = h('details.job-conversation-item', h('summary', index === 0 ? 'Brief' : 'User'), h('div.msg.md', { html: App.md(item.text) }));
+            if (item.kind === 'thinking') detail = h('details.job-conversation-item.thinking', h('summary', 'Thinking'), h('pre', item.text));
+            if (item.kind === 'tool') {
+              const result = item.result;
+              detail = h('details.job-conversation-item.tool',
+                h('summary', [item.name, item.summary].filter(Boolean).join(' · '),
+                  result?.isError ? h('span.job-tool-error', 'error') : null,
+                  result === null ? h('span.job-tool-running', 'running…') : null),
+                h('div.job-conversation-body',
+                  h('div.job-conversation-label', 'Input'), h('pre', JSON.stringify(item.input || {}, null, 2)),
+                  result ? [h('div.job-conversation-label', 'Result'), h('pre', result.text),
+                    result.truncated ? h('div.job-conversation-note', `(truncated, ${result.size} chars total)`) : null] : null));
+            }
+            if (!detail) continue;
+            detail.open = openDetails.get(key) || false;
+            detailsByKey.set(key, detail);
+            nodes.push(detail);
+          }
+          if (!items.length) nodes.push(h('div.job-conversation-note', isLive(cur()) ? '(nothing yet — the job is still running)' : '(none recorded)'));
+          conversation.replaceChildren(...nodes);
+        }
         async function load() {
           const job = cur();
+          const available = job.engine === 'claude' && !!job.transcript;
+          if (available !== hasConversation) {
+            const value = which.value;
+            which.replaceChildren(...parts.filter((part) => part !== conversationOption), ...(available ? [conversationOption] : []));
+            which.value = !available && value === 'conversation' ? 'result' : value;
+            hasConversation = available;
+          }
           state.className = 'state ' + job.status; state.textContent = job.status;
           info.textContent = [job.title, elapsed(job), job.branch ? 'branch ' + job.branch : null, job.session && job.engine === 'codex' ? 'session ' + job.session : null].filter(Boolean).join(' · ');
           cancelBtn.hidden = !(isLive(job) && job.engine === 'codex');
-          // While a Codex job runs there is no result yet: show its log.
-          if (which.value === 'result' && isLive(job) && job.engine === 'codex' && pre.dataset.auto !== 'off') { which.value = 'log'; pre.dataset.auto = 'off'; }
-          const r = await codeome.jobs.read(project, j.id, which.value);
+          // While a Codex job runs there is no result yet: show its events when available.
+          if (which.value === 'result' && isLive(job) && job.engine === 'codex' && pre.dataset.auto !== 'off') { which.value = 'activity'; pre.dataset.auto = 'off'; }
+          if (which.value === 'result' && isLive(job) && job.engine === 'claude' && job.transcript && pre.dataset.auto !== 'off') { which.value = 'conversation'; pre.dataset.auto = 'off'; }
+          let r = await codeome.jobs.read(project, j.id, which.value === 'conversation' ? 'transcript' : which.value === 'activity' ? 'events' : which.value);
+          if (which.value === 'activity' && r.missing) {
+            which.value = 'log';
+            r = await codeome.jobs.read(project, j.id, 'log');
+          }
+          rawLabel.hidden = which.value === 'log' || which.value === 'conversation' || which.value === 'activity';
           const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
-          pre.textContent = r.error || (r.missing || !r.content ? (isLive(job) ? '(nothing yet — the job is still running)' : '(none recorded)') : r.content);
+          const conversationShown = (which.value === 'conversation' || which.value === 'activity') && !r.error && !r.missing;
+          const conversationAtBottom = conversation.scrollTop + conversation.clientHeight >= conversation.scrollHeight - 30;
+          const rendered = which.value !== 'log' && which.value !== 'conversation' && which.value !== 'activity' && !raw.checked && !r.error && !r.missing && !!r.content;
+          pre.hidden = rendered || conversationShown; md.hidden = !rendered; conversation.hidden = !conversationShown;
+          if (rendered) md.innerHTML = App.md(r.content);
+          else if (conversationShown) renderConversation(r);
+          else pre.textContent = r.error || (r.missing || !r.content ? (isLive(job) ? '(nothing yet — the job is still running)' : '(none recorded)') : r.content);
           if (which.value === 'log' && follow.checked && (atBottom || pre.dataset.first !== '1')) pre.scrollTop = pre.scrollHeight;
+          if (conversationShown && follow.checked && (conversationAtBottom || conversation.dataset.first !== '1')) conversation.scrollTop = conversation.scrollHeight;
           pre.dataset.first = '1';
+          if (conversationShown) conversation.dataset.first = '1';
         }
-        which.onchange = () => { pre.dataset.auto = 'off'; pre.dataset.first = ''; load(); };
+        which.onchange = () => { pre.dataset.auto = 'off'; pre.dataset.first = ''; conversation.dataset.first = ''; load(); };
+        raw.onchange = () => load();
+        let closed = false;
+        tab.onClose = () => { closed = true; clearInterval(tab.timer); };
         await load();
+        if (closed) return;
         let wasLive = isLive(cur());
         tab.timer = setInterval(() => {
           if (App.views.editor.active !== tab.id) return;
           const live = isLive(cur());
-          if ((live && follow.checked) || wasLive !== live) { if (wasLive && !live && which.value === 'log') which.value = 'result'; wasLive = live; load(); }
+          if (live || wasLive !== live) { if (wasLive && !live && (which.value === 'log' || which.value === 'conversation' || which.value === 'activity')) which.value = 'result'; wasLive = live; load(); }
         }, 3000);
-        tab.onClose = () => clearInterval(tab.timer);
       }
     });
   };

@@ -1,6 +1,7 @@
 // Agent jobs recorded by codeome-agent in <project>/.codeome/jobs/<id>/.
 const fs = require('fs');
 const path = require('path');
+const { parseClaudeTranscript, parseCodexEvents } = require('./jobview');
 
 const jobsDir = (project) => path.join(project, '.codeome', 'jobs');
 const STALE_MS = 24 * 3600 * 1000;
@@ -11,7 +12,7 @@ function alive(pid) {
 }
 
 function load(project, id) {
-  if (!/^[\w.-]+$/.test(id || '')) return null;
+  if (!/^[\w.-]+$/.test(id || '') || id === '.' || id === '..') return null;
   try { return JSON.parse(fs.readFileSync(path.join(jobsDir(project), id, 'job.json'), 'utf8')); } catch { return null; }
 }
 
@@ -32,8 +33,41 @@ async function list(project) {
   return jobs.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
 }
 
-// part: brief | result | log. Logs are tailed so a long Codex run stays cheap to poll.
+async function readJsonl(p, parse) {
+  try {
+    const st = await fs.promises.lstat(p);
+    if (!st.isFile()) return { items: [], missing: true };
+    const max = 2 * 1024 * 1024;
+    const truncated = st.size > max;
+    const size = Math.min(st.size, max);
+    const fh = await fs.promises.open(p, 'r');
+    let data;
+    try {
+      const buf = Buffer.alloc(size);
+      let offset = 0;
+      while (offset < size) {
+        const { bytesRead } = await fh.read(buf, offset, size - offset, st.size - size + offset);
+        if (!bytesRead) break;
+        offset += bytesRead;
+      }
+      const tail = buf.subarray(0, offset);
+      const firstBreak = truncated ? tail.indexOf(10) : -1;
+      data = truncated ? (firstBreak < 0 ? '' : tail.subarray(firstBreak + 1).toString('utf8')) : tail.toString('utf8');
+    } finally { await fh.close(); }
+    return { items: parse(data), path: p, ...(truncated ? { truncated: true } : {}) };
+  } catch { return { items: [], missing: true }; }
+}
+
+// part: brief | result | log | transcript | events. Logs are tailed so a long Codex run stays cheap to poll.
 async function read(project, id, part) {
+  if (part === 'transcript' || part === 'events') {
+    const job = load(project, id);
+    if (!job) return { error: 'Unknown job ' + id };
+    if (part === 'events') return readJsonl(path.join(jobsDir(project), id, 'events.jsonl'), parseCodexEvents);
+    const p = job.transcript;
+    if (typeof p !== 'string' || !path.isAbsolute(p) || !p.endsWith('.jsonl')) return { items: [], missing: true };
+    return readJsonl(p, parseClaudeTranscript);
+  }
   const file = { brief: 'brief.md', result: 'result.md', log: 'log.txt' }[part];
   if (!file || !load(project, id)) return { error: 'Unknown job ' + id };
   const p = path.join(jobsDir(project), id, file);

@@ -2,6 +2,16 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Formatted job tab**: a job's Result and Brief are rendered as Markdown, with a *Raw* toggle. The Log is unchanged.
+- **Conversation view for Claude subagent jobs**: shows the subagent's transcript with collapsible tool calls and thinking; tool results are cut at 4 KB. It updates live while the job runs.
+- **Activity view for Codex jobs**: shows what Codex did, built from its structured events. This needs kit 0.6.1: the runner now runs `codex exec --json` and writes `events.jsonl` next to `log.txt`, which keeps its readable lines. Update the kit in each project (Settings → *Update kit to 0.6.1…*) to get it; older jobs and projects not yet updated keep showing the Log.
+
+### Changed
+- **Job tab refresh**: an open job tab refreshes every 3 seconds while the job is running, even when *Follow* is unticked.
+
 ## 0.4.3
 
 ### Added

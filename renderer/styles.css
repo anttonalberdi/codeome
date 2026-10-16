@@ -448,6 +448,20 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .preview-img img { max-width: 100%; max-height: 100%; }
 .logbox { flex: 1; margin: 0; overflow: auto; padding: 10px 14px; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all; background: var(--surface); }
 .logbox.small { flex: none; max-height: 180px; border-top: 1px solid var(--line); }
+.job-markdown { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px; background: var(--surface); }
+.job-conversation { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px; background: var(--surface); }
+.job-conversation-item { margin: 8px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+.job-conversation-item > summary { padding: 7px 9px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.job-conversation-item > .msg.md, .job-conversation-item > pre, .job-conversation-body { margin: 0; padding: 9px; border-top: 1px solid var(--line); }
+.job-conversation-item.thinking, .job-conversation-note, .job-conversation-label, .job-tool-running { color: var(--muted); }
+.job-conversation-item pre { overflow-x: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.5 var(--mono); }
+.job-conversation-body pre { margin: 4px 0 10px; }
+.job-conversation-body pre:last-child { margin-bottom: 0; }
+.job-conversation-text { padding: 8px 0; }
+.job-conversation-note, .job-conversation-label { font-size: 11px; }
+.job-conversation-error { margin: 8px 0; padding: 7px 9px; border-left: 3px solid var(--fail); color: var(--fail); white-space: pre-wrap; }
+.job-tool-error, .job-tool-running { margin-left: 8px; font-weight: 500; }
+.job-tool-error { color: var(--fail); }
 
 /* ---------- bottom panel ---------- */
 #panel { height: var(--panel-h); display: flex; flex-direction: column; min-height: 0; flex: none; background: var(--surface-2); }
