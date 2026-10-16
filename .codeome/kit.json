@@ -1,12 +1,12 @@
 {
-  "version": "0.6.0",
+  "version": "0.6.1",
   "groups": [
     "core",
     "research",
     "web",
     "release"
   ],
-  "installedAt": "2026-10-11T05:02:06.055Z",
+  "installedAt": "2026-10-16T12:32:03.489Z",
   "files": {
     ".claude/skills/cross-review/SKILL.md": "fbab9d238b6354be35a6205eb650e6fe84d7a6a40233963c0fc9ccc346ad742b",
     ".claude/skills/delegate/SKILL.md": "a208dcc6b0b6d9d8a49d7f616eafb7f7e14b55e437fee4ad38a308d1d26a2a9a",
@@ -17,7 +17,7 @@
     ".claude/skills/release/conda-forge.md": "752da5ab777f0b6f2f04720bc382abe282f23c9b2b64a23dfe76295802f89021",
     ".claude/skills/release/cran.md": "d322718f0a9d213a0f4d1a2af160302ef92e7cd8d7d32007c1b9f5510a9905cc",
     ".claude/skills/release/pypi.md": "a6ed6776366b2bc8cc4f4c6082b33df2c00ee64cc04c2442e97dd50de045e5dd",
-    ".claude/agents/analyst.md": "fe94323b3728fc8c9ce7438e6f43132e5af880a6479e1e5794d980fdd8990996",
+    ".claude/agents/analyst.md": "066b1407c16364e5fcdb62b10cbe227d293e0a48397a94232a836ee8d388eb86",
     ".claude/agents/backend.md": "be982d758cd3ec8775d76e5e43ad10d5b19b9b979a64016d8e197e542c6c46e5",
     ".claude/agents/debugger.md": "3df80b6197b9c4855ba3e3d5c9359719c90c2c0f5d9fbecdad79249e68db63b6",
     ".claude/agents/docs-writer.md": "e61c397839844bba4e52eb0546b69d471206009ef4e9db0f75c3d43c40cf7f7c",
@@ -28,11 +28,11 @@
     ".claude/agents/pipeline-engineer.md": "600b8ede0291e76384507eb8243597e84b68ef377371ccd4b1c715e129029bd7",
     ".claude/agents/planner.md": "38c3f5caa8e10e0d355795e7502eb74159b9bcd147b8a305373110c2eceb7f91",
     ".claude/agents/release-manager.md": "c3e9c326714f43f8e93702bef1edb7e7d3b57745007c24df801108388b8ba33b",
-    ".claude/agents/report-writer.md": "f2d91eef9ee8bfa01319404eee0d5a88b4a458bc9f526a9672c32d2628aa4759",
+    ".claude/agents/report-writer.md": "f3e85967d32ae60547669f89e7f30cd3d6ae0e0ece5ee3cc718a30c27fa84f20",
     ".claude/agents/reviewer.md": "3705098194d2afb596a6eb2379405ee9523764b4cdace0ca207b4f54dea8795e",
     ".claude/agents/security-reviewer.md": "e726cd87cffdef24157105b1393956851f7ef8896b00c5861eaabf8accfbf7f1",
     ".claude/agents/tester.md": "8b1e81b7dd901945afb2423b5fe2f6bca53a302df66fbb0e15a21f37b52fc2e2",
     ".claude/skills/orchestrate/routing.md": "9669925980b8e8bfd7d32ec0fb53577ab99f5e6a05d0c9785c68f4657dc12105",
-    ".codeome/bin/codeome-agent": "485d4f23a6e03e7f8bc3cc6bc15158a722b51a3b0a74b4ebe145a62a56bcdb89"
+    ".codeome/bin/codeome-agent": "19805ca3a2729b5b0355d3199d52065cd9f73a68e80b4889e6d5d904fa5acbfc"
   }
 }

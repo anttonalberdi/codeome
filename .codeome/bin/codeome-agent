@@ -3,8 +3,8 @@
 
 Installed by Codeome at <project>/.codeome/bin/codeome-agent. Standard library
 only, so it runs on a Mac and on the HPC alike. Every job gets a folder in
-<project>/.codeome/jobs/<id>/ holding job.json, brief.md, log.txt and
-result.md; Codeome's Agent chat and Jobs list read those folders.
+<project>/.codeome/jobs/<id>/ holding job.json, brief.md, log.txt,
+events.jsonl and result.md; Codeome's Agent chat and Jobs list read those folders.
 
   codeome-agent codex --role ROLE --title TITLE [--worktree] [--model M] [--resume SESSION] [--account NAME] < brief
   codeome-agent usage [--json]  (Claude and Codex limits per account, as Codeome last saw them)
@@ -21,6 +21,7 @@ import secrets
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -137,8 +138,13 @@ def read_role(role):
     path = os.path.join(ROOT, '.claude', 'agents', role + '.md')
     text = read_text(path, None)
     if text is None:
-        have = sorted(n[:-3] for n in os.listdir(os.path.dirname(path))) if os.path.isdir(os.path.dirname(path)) else []
-        sys.exit('codeome-agent: no role "%s" in .claude/agents/ (installed: %s)' % (role, ', '.join(have) or 'none'))
+        general = os.path.join(CODEOME_HOME, 'agents', role + '.md')
+        text = read_text(general, None)
+        if text is None:
+            have = set(n[:-3] for n in os.listdir(os.path.dirname(path))) if os.path.isdir(os.path.dirname(path)) else set()
+            if os.path.isdir(os.path.dirname(general)):
+                have.update(n[:-3] for n in os.listdir(os.path.dirname(general)) if n.endswith('.md'))
+            sys.exit('codeome-agent: no role "%s" in .claude/agents/ (installed: %s)' % (role, ', '.join(sorted(have)) or 'none'))
     meta, body = {}, text
     m = re.match(r'^---\n(.*?)\n---\n?(.*)$', text, re.S)
     if m:
@@ -342,6 +348,27 @@ def linked_dirs():
     return out
 
 
+def codex_event_line(event):
+    """One readable log line for a Codex JSONL event."""
+    kind = event.get('type') or 'event'
+    item = event.get('item')
+    if kind in ('item.started', 'item.completed') and isinstance(item, dict):
+        kind = item.get('type') or kind
+        if kind == 'command_execution':
+            if event['type'] == 'item.started':
+                return '[command] %s' % ' '.join(str(item.get('command') or '').split())
+            output = str(item.get('aggregated_output') or '').splitlines()
+            return '[exit %s]%s' % (item.get('exit_code'), ' ' + output[0] if output else '')
+        if kind == 'agent_message':
+            return '[codex] %s' % ' '.join(str(item.get('text') or '').split())
+        return '[%s]' % kind
+    if kind == 'thread.started':
+        return '[thread.started] %s' % (event.get('thread_id') or '')
+    error = event.get('error')
+    message = event.get('message') or (error.get('message') if isinstance(error, dict) else error)
+    return '[%s]%s' % (kind, ' ' + ' '.join(str(message).split()) if message else '')
+
+
 def cmd_codex(a):
     brief = read_text(a.brief_file) if a.brief_file else sys.stdin.read()
     if not brief.strip():
@@ -373,14 +400,15 @@ def cmd_codex(a):
 
     result = os.path.join(d, 'result.md')
     log = os.path.join(d, 'log.txt')
+    events = os.path.join(d, 'events.jsonl')
     prompt = FOLLOW_UP.format(brief=brief.strip()) if a.resume else PREAMBLE.format(role=role, body=body, brief=brief.strip())
     write_text(os.path.join(d, 'brief.md'), brief)
 
     codex = os.environ.get('CODEOME_CODEX', 'codex')
     if a.resume:
-        argv = [codex, 'exec', 'resume', a.resume, '-c', 'sandbox_mode="%s"' % sandbox, '-o', result]
+        argv = [codex, 'exec', 'resume', a.resume, '-c', 'sandbox_mode="%s"' % sandbox, '-o', result, '--json']
     else:
-        argv = [codex, 'exec', '-C', workdir, '-s', sandbox, '-o', result]
+        argv = [codex, 'exec', '-C', workdir, '-s', sandbox, '-o', result, '--json']
         if sandbox == 'workspace-write':
             for d in linked_dirs():
                 argv += ['--add-dir', d]
@@ -409,11 +437,17 @@ def cmd_codex(a):
     }
     save_job(job)
 
+    logf = eventsf = None
     try:
-        logf = open(log, 'w', encoding='utf-8')
-        child = subprocess.Popen(argv, cwd=workdir, stdin=subprocess.PIPE, stdout=logf, stderr=subprocess.STDOUT,
-                                 text=True, start_new_session=True, env=env)
+        logf = open(log, 'w', encoding='utf-8', buffering=1)
+        eventsf = open(events, 'w', encoding='utf-8', buffering=1)
+        child = subprocess.Popen(argv, cwd=workdir, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=logf,
+                                 text=True, encoding='utf-8', errors='replace', start_new_session=True, env=env)
     except OSError as e:
+        if logf:
+            logf.close()
+        if eventsf:
+            eventsf.close()
         job.update(status='failed', endedAt=now_iso(), exitCode=-1, error=str(e))
         save_job(job)
         sys.exit('codeome-agent: could not start %s: %s' % (codex, e))
@@ -431,20 +465,48 @@ def cmd_codex(a):
 
     job['childPid'] = child.pid
     save_job(job)
+    seen_thread = {'v': False}
+
+    def read_events():
+        for line in iter(lambda: child.stdout.readline(1 << 20), ''):
+            eventsf.write(line)
+            try:
+                event = json.loads(line)
+            except ValueError:
+                logf.write(line)
+                continue
+            if not isinstance(event, dict):
+                logf.write(line)
+                continue
+            if event.get('type') == 'thread.started' and event.get('thread_id'):
+                seen_thread['v'] = True
+                job['session'] = event['thread_id']
+                save_job(job)
+            logf.write(codex_event_line(event) + '\n')
+
+    reader = threading.Thread(target=read_events)
+    reader.start()
     try:
         child.stdin.write(prompt)
         child.stdin.close()
     except BrokenPipeError:
         pass
     code = child.wait()
+    reader.join(5)
+    try:
+        child.stdout.close()
+    except OSError:
+        pass
+    reader.join(1)
     logf.close()
+    eventsf.close()
 
     log_text = read_text(log)
     m = re.search(r'session id:\s*(\S+)', log_text)
-    if m:
+    if m and not seen_thread['v']:
         job['session'] = m.group(1)
     ok = code == 0 and os.path.exists(result)
-    if not ok and LIMIT_HIT.search(log_text[-4000:]):
+    if not ok and (LIMIT_HIT.search(log_text[-4000:]) or LIMIT_HIT.search(read_text(events)[-4000:])):
         job['limitHit'] = True
     job.update(status='cancelled' if cancelled['v'] else ('done' if ok else 'failed'), endedAt=now_iso(), exitCode=code)
     save_job(job)
