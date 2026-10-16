@@ -115,9 +115,9 @@
     clearTimeout(saveTimers[chat.id]);
     const run = () => {
       const items = chat.items.map((it) => (it.result && it.result.length > 4000 ? { ...it, result: it.result.slice(0, 4000) + '\n…' } : it));
-      codeome.chat.save(chat.project, { id: chat.id, title: chat.title, engine: engineOf(chat), role: chat.role || '', account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
+      return codeome.chat.save(chat.project, { id: chat.id, title: chat.title, engine: engineOf(chat), role: chat.role || '', account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
     };
-    if (now) run(); else saveTimers[chat.id] = setTimeout(run, 800);
+    if (now) return run(); else saveTimers[chat.id] = setTimeout(run, 800);
   }
 
   // A new tab; an unused blank tab is reused rather than piling up.
@@ -168,7 +168,7 @@
     const i = t.tabs.indexOf(chat);
     if (i < 0) return;
     t.tabs.splice(i, 1);
-    save(chat, true);
+    await save(chat, true);
     if (!t.tabs.length) t.tabs.push(blank(chat.project));
     if (t.active === chat) { t.active = null; C.activate(t.tabs[Math.min(i, t.tabs.length - 1)]); }
     else { paintTabs(); persistTabs(chat.project); App.emit('chat-state'); }
@@ -197,6 +197,44 @@
 
   C.remove = async (id) => { await codeome.chat.delete(App.project, id); };
 
+  C.prepareMove = async (ids) => {
+    for (const id of ids) {
+      const chat = C.byId[id];
+      if (!chat || !App.isIdeas(chat.project)) continue;
+      if (chat.running) {
+        chat.stopping = true;
+        let cancelWait;
+        const exited = new Promise((resolve, reject) => {
+          const off = codeome.chat.onExit((event) => { if (event.id === id) { off(); clearTimeout(timer); resolve(); } });
+          const timer = setTimeout(() => { off(); reject(new Error('The chat session did not stop. Try again.')); }, 10000);
+          cancelWait = () => { off(); clearTimeout(timer); };
+        });
+        try {
+          const stopped = await codeome.chat.stop(id);
+          if (stopped?.error) throw new Error(stopped.error);
+          await exited;
+        } catch (cause) { cancelWait(); throw cause; }
+      }
+      if (tabsOf(chat.project).includes(chat)) await C.closeTab(chat);
+    }
+  };
+
+  C.finishMove = async (target, ids) => {
+    if (!ids.length) return;
+    for (const id of ids) delete C.byId[id];
+    const state = C.byProject[target] || (C.byProject[target] = await restore(target));
+    for (const id of ids) {
+      if (state.tabs.some((chat) => chat.id === id)) continue;
+      const record = await codeome.chat.load(target, id);
+      if (!record?.items) throw new Error('A moved chat could not be loaded from the project.');
+      state.tabs.push(live(record));
+    }
+    state.tabs = state.tabs.filter((chat) => chat.started || chat.items.length);
+    const moved = state.tabs.filter((chat) => ids.includes(chat.id));
+    if (moved.length) state.active = moved[moved.length - 1];
+    persistTabs(target);
+  };
+
   // ---------- history ----------
   // Every saved conversation of the project, newest first, behind the clock button in the
   // Agent header. Picking one opens it in a tab; one that is not open can be deleted.
@@ -210,7 +248,11 @@
     if (App.pop && App.pop.hist) return App.closePopover();
     const project = App.project;
     if (!project) return App.toast('Open a project folder first.');
-    let list = await codeome.chat.list(project), q = '', arming = null;
+    let list;
+    try { list = await codeome.chat.list(project); if (!Array.isArray(list)) throw new Error(list?.error || 'Could not load chat history.'); }
+    catch (cause) { App.err(cause.message || String(cause)); return; }
+    let q = '', arming = null;
+    const selected = new Set();
     await loadPersonas();
     if (project !== App.project) return;
     const multi = App.cfg.accounts.claude.list.length + App.cfg.accounts.codex.list.length > 2;
@@ -229,20 +271,32 @@
         const live = C.byId[c.id], title = (live && open.has(c.id) && live.title) || c.title;
         const sub = [c.engine === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, App.fmtAgo(c.updatedAt), c.messages ? `${c.messages} message${c.messages > 1 ? 's' : ''}` : null, multi && c.account && c.account !== 'auto' ? c.account : null].filter(Boolean).join(' · ');
         listEl.append(h('div.hist-row',
+          App.isIdeas(project) ? h('input.hist-check', { type: 'checkbox', checked: selected.has(c.id), 'aria-label': 'Select ' + title,
+            onchange: (event) => { if (event.target.checked) selected.add(c.id); else selected.delete(c.id); moveBtn.disabled = !selected.size; } }) : null,
           h('button.hist-open', { title, onclick: () => pick(c) }, h('span.hist-t', title), h('span.hist-s', sub)),
           open.has(c.id) ? h('span.pill.ok', 'open')
-            : arming === c.id ? h('button.btn.small.danger', { onclick: async () => { await codeome.chat.delete(project, c.id); delete C.byId[c.id]; list = list.filter((x) => x !== c); arming = null; draw(); } }, 'Delete')
+            : arming === c.id ? h('button.btn.small.danger', { onclick: async () => { await codeome.chat.delete(project, c.id); delete C.byId[c.id]; list = list.filter((x) => x !== c); selected.delete(c.id); moveBtn.disabled = !selected.size; arming = null; draw(); } }, 'Delete')
               : h('button.icon-btn.small', { title: 'Delete this chat', 'aria-label': 'Delete ' + title, onclick: () => { arming = c.id; draw(); listEl.querySelector('.btn.danger')?.focus(); }, html: App.icons.trash })));
       }
     };
     const search = h('input', { type: 'text', placeholder: 'Search chats', 'aria-label': 'Search chats',
       oninput: (e) => { q = e.target.value.trim().toLowerCase(); arming = null; draw(); },
       onkeydown: (e) => { if (e.key === 'Enter' && shown()[0]) pick(shown()[0]); } });
+    const moveBtn = h('button.btn.small', { disabled: true, onclick: async () => {
+      const result = await App.views.projects.moveIdeas({ chats: [...selected] });
+      if (!result) return;
+      try { list = await codeome.chat.list(project); if (!Array.isArray(list)) throw new Error(list?.error || 'Could not refresh chat history.'); }
+      catch (cause) { App.err(cause.message || String(cause)); return; }
+      for (const id of result.chats) selected.delete(id);
+      moveBtn.disabled = !selected.size;
+      if (project === App.project && App.pop?.hist) draw();
+    } }, 'Move to project…');
     draw();
     App.popover(anchor, h('div.u-pop.hist',
       h('div.u-pop-head', h('h3', 'Chat history'), countEl),
       h('div.hist-search', search), listEl,
       h('div.u-pop-foot', h('button.btn.small', { onclick: () => { App.closePopover(); C.newChat(); } }, 'New chat'), h('span.grow'),
+        App.isIdeas(project) ? moveBtn : null,
         h('button.btn.small.ghost', { onclick: () => { App.closePopover(); C.openFullHistory(); } }, 'Show full history'))), 'Chat history').hist = true;
   };
 
@@ -257,6 +311,11 @@
         let q = '';
         const body = h('div.stats-page.hist-page');
         let list = [];
+        const selected = new Set();
+        const moveBtn = h('button.btn.small', { disabled: true, onclick: async () => {
+          const result = await App.views.projects.moveIdeas({ chats: [...selected] });
+          if (result) { for (const id of result.chats) selected.delete(id); await reload(); }
+        } }, 'Move to project…');
         const draw = () => {
           body.innerHTML = '';
           const rows = list.filter((c) => !q || c.title.toLowerCase().includes(q));
@@ -266,13 +325,28 @@
             const g = dayGroup(c.updatedAt);
             if (g !== group) { group = g; body.append(h('h3', g), box = h('div.hist-links')); }
             const sub = [c.engine === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, App.fmtAgo(c.updatedAt), c.messages ? `${c.messages} message${c.messages > 1 ? 's' : ''}` : null].filter(Boolean).join(' · ');
-            box.append(h('button.hist-open', { title: c.title, onclick: () => { if (project === App.project) C.open(c.id); } }, h('span.hist-t', c.title), h('span.hist-s', sub)));
+            box.append(h('div.hist-row',
+              App.isIdeas(project) ? h('input.hist-check', { type: 'checkbox', checked: selected.has(c.id), 'aria-label': 'Select ' + c.title,
+                onchange: (event) => { if (event.target.checked) selected.add(c.id); else selected.delete(c.id); moveBtn.disabled = !selected.size; } }) : null,
+              h('button.hist-open', { title: c.title, onclick: () => { if (project === App.project) C.open(c.id); } }, h('span.hist-t', c.title), h('span.hist-s', sub))));
           }
         };
-        reload = async () => { await loadPersonas(); list = await codeome.chat.list(project); draw(); };
+        reload = async () => {
+          body.replaceChildren(h('div.empty', 'Loading chats…'));
+          try {
+            await loadPersonas();
+            list = await codeome.chat.list(project);
+            if (!Array.isArray(list)) throw new Error(list?.error || 'Could not load chat history.');
+            draw();
+          } catch (cause) {
+            body.replaceChildren(h('div.empty', h('p.note.error', cause.message || String(cause)),
+              h('button.btn.small', { onclick: () => { void reload(); } }, 'Retry')));
+          }
+        };
         el.append(h('div.toolbar.st-bar',
           h('span.hint.grow', 'Every saved chat of this project, newest first'),
           h('input', { type: 'text', placeholder: 'Search chats', 'aria-label': 'Search chats', oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } }),
+          App.isIdeas(project) ? moveBtn : null,
           h('button.btn.small', { onclick: () => reload() }, 'Refresh')), body);
         reload();
       }
@@ -1265,6 +1339,7 @@
       { label: 'New chat', run: () => C.newChat() },
       '-',
       App.isIdeas(c.project) ? null : { label: 'Continue in a terminal', disabled: !c.started, run: () => { C.activate(c); C.toTerminal(); } },
+      App.isIdeas(c.project) ? { label: 'Move to project…', disabled: !c.started && !c.items.length, run: () => App.views.projects.moveIdeas({ chats: [c.id] }) } : null,
       { label: 'Overview', disabled: !c.items.length, run: () => C.overview(c) },
       '-',
       { label: 'Close chat', run: () => C.closeTab(c) },

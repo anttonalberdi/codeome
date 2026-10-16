@@ -7,6 +7,7 @@ const path = require('path');
 process.env.CODEOME_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-home-'));
 const chat = require('../main/chat');
 const usage = require('../main/usage');
+const scratch = require('../main/scratch');
 
 const ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
@@ -122,6 +123,47 @@ test('conversations are saved per project and listed newest first', () => {
   chat.deleteChat(p, other);
   assert.deepStrictEqual(chat.listChats(p).map((c) => c.id), [ID]);
   assert.deepStrictEqual(chat.listChats(path.join(p, 'missing')), []);
+});
+
+test('an Ideas chat moves into an existing project with its embedded project updated', () => {
+  const from = scratch.dir(), to = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-promote-'));
+  chat.saveChat(from, { id: ID, title: 'Idea', items: [{ t: 'user', text: 'hello' }] });
+  assert.deepStrictEqual(chat.moveChat(ID, from, to), { ok: true });
+  assert.deepStrictEqual(chat.listChats(from), []);
+  assert.deepStrictEqual(chat.listChats(to).map((c) => c.id), [ID]);
+  assert.strictEqual(chat.loadChat(to, ID).project, to);
+});
+
+test('chat promotion refuses other sources and invalid targets without removing the source', () => {
+  const from = scratch.dir(), other = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-promote-'));
+  const id = '1f8fad5b-d9cb-469f-a165-70867728950e';
+  chat.saveChat(from, { id, title: 'Keep' });
+  chat.saveChat(other, { id: ID, title: 'Other' });
+  assert.throws(() => chat.moveChat(ID, other, from), /Source must be Ideas/);
+  assert.throws(() => chat.moveChat(id, from, from), /Target must be a project/);
+  const alias = path.join(other, 'ideas-link');
+  fs.symlinkSync(from, alias);
+  assert.throws(() => chat.moveChat(id, from, alias), /Target must be a project/);
+  assert.throws(() => chat.moveChat(id, from, path.join(other, 'missing')), /Project folder not found/);
+  chat.saveChat(other, { id, title: 'Collision' });
+  assert.throws(() => chat.moveChat(id, from, other), /already exists/);
+  assert.strictEqual(chat.loadChat(from, id).title, 'Keep');
+  assert.strictEqual(chat.loadChat(other, id).title, 'Collision');
+});
+
+test('Claude session history and subagents copy to the target project cwd', () => {
+  const from = scratch.dir(), to = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-promote-'));
+  const account = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-acct-'));
+  const keyed = (project) => fs.realpathSync(project).replace(/[^A-Za-z0-9]/g, '-');
+  const source = path.join(account, 'projects', keyed(from));
+  fs.mkdirSync(path.join(source, ID, 'subagents'), { recursive: true });
+  fs.writeFileSync(path.join(source, ID + '.jsonl'), '{"n":1}\n');
+  fs.writeFileSync(path.join(source, ID, 'subagents', 'agent.jsonl'), '{}\n');
+  chat.copyProjectSession(account, ID, from, to);
+  const target = path.join(account, 'projects', keyed(to));
+  assert.strictEqual(fs.readFileSync(path.join(target, ID + '.jsonl'), 'utf8'), '{"n":1}\n');
+  assert.strictEqual(fs.readFileSync(path.join(target, ID, 'subagents', 'agent.jsonl'), 'utf8'), '{}\n');
+  assert.ok(fs.existsSync(path.join(source, ID + '.jsonl')));
 });
 
 // A stand-in for `claude -p` that speaks just enough stream-json.

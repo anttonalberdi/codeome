@@ -17,6 +17,7 @@ const scratch = require('./scratch');
 const stats = require('./stats');
 const { CodexSession } = require('./codexchat');
 const chat = require('./chat');
+const forumstore = require('./forumstore');
 const { createHost } = require('./forumhost');
 const rtools = require('./rtools');
 const setup = require('./setup');
@@ -931,6 +932,84 @@ const forumHost = createHost({ getCfg: () => cfg, send, claudeCmd, codexCmd, lau
   makeAgentSession: (seat, project) => createAgentSession({ id: seat.sessionId, project, engine: seat.engine,
     account: seat.account, resume: !!seat.started, mode: 'plan', forum: true }).s });
 forumHost.register(ipcMain);
+ipcMain.handle('scratch:promote', (_e, { target, chats: chatIds, forums: forumIds } = {}) => {
+  try {
+    const from = scratch.dir();
+    target = scratch.checkMove(from, target);
+    if (!Array.isArray(chatIds) || !Array.isArray(forumIds) ||
+      new Set(chatIds).size !== chatIds.length || new Set(forumIds).size !== forumIds.length)
+      throw new Error('Bad promotion selection.');
+    if (chatIds.some((id) => typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id))) throw new Error('Bad chat');
+    if (forumIds.some((id) => typeof id !== 'string' || !forumstore.validId(id))) throw new Error('Bad forum');
+    const accountPath = (dir) => path.resolve(expandHome(dir || usage.DEFAULT_DIR.claude));
+    const realAccountPath = (dir) => {
+      const p = accountPath(dir);
+      try { return fs.realpathSync(p); } catch { return p; }
+    };
+    const claudeAccountDir = (name) => {
+      const n = !name || name === 'auto' ? cfg.accounts.claude.active : name;
+      const account = cfg.accounts.claude.list.find((a) => a.name === n || (a.aka || []).includes(n));
+      return account ? accountPath(account.dir) : null;
+    };
+    const rollback = (created) => { for (const p of created.reverse()) try { fs.rmSync(p, { recursive: true, force: true }); } catch {} };
+    const warnings = [];
+    let movedChats = 0, movedForums = 0;
+    for (const id of chatIds) {
+      if (chats.has(id)) throw new Error('The session is still running.');
+      const record = chat.loadChat(from, id);
+      if (!record && chat.loadChat(target, id)?.project === target) continue;
+      if (!record || record.project !== from) throw new Error('Chat not found.');
+      const created = [], changes = {};
+      try {
+        if (record.started && chat.engineOf(record.engine) === 'claude') {
+          const accountDir = claudeAccountDir(record.accountName || record.account);
+          const copied = accountDir ? chat.copyProjectSession(accountDir, id, from, target) : { missing: true, created: [] };
+          created.push(...copied.created);
+          if (copied.missing) {
+            changes.started = false;
+            warnings.push({ type: 'chat', id, message: accountDir
+              ? 'Claude transcript not found; this chat will start a new session.'
+              : 'Claude account not configured; this chat will start a new session.' });
+          }
+        }
+        chat.moveChat(id, from, target, changes);
+      } catch (error) { rollback(created); throw error; }
+      movedChats++;
+    }
+    for (const id of forumIds) {
+      const record = forumstore.load(from, id);
+      if (!record && forumstore.load(target, id)) continue;
+      if (!record) throw new Error('Forum not found.');
+      const active = forumHost.forums.get(id);
+      if (active && active.project !== from) throw new Error('Forum belongs to another project.');
+      if (active) forumHost.close(id);
+      const latest = active ? forumstore.load(from, id) : record;
+      const created = [], seats = (latest.seats || []).map((seat) => ({ ...seat }));
+      try {
+        for (const seat of seats) {
+          if (!seat.started || seat.engine !== 'claude') continue;
+          const account = cfg.accounts.claude.list.find((a) =>
+            (!seat.account || a.name === seat.account || (a.aka || []).includes(seat.account)) &&
+            realAccountPath(a.dir) === realAccountPath(seat.dir));
+          if (!account) {
+            seat.started = false;
+            warnings.push({ type: 'forum', id, seatId: seat.id, message: 'Seat account folder is not configured; this seat will start a new session.' });
+            continue;
+          }
+          const copied = chat.copyProjectSession(accountPath(account.dir), seat.sessionId, from, target);
+          created.push(...copied.created);
+          if (copied.missing) {
+            seat.started = false;
+            warnings.push({ type: 'forum', id, seatId: seat.id, message: 'Claude transcript not found; this seat will start a new session.' });
+          }
+        }
+        forumstore.move(id, from, target, { seats });
+      } catch (error) { rollback(created); throw error; }
+      movedForums++;
+    }
+    return { moved: { chats: movedChats, forums: movedForums }, ...(warnings.length ? { warnings } : {}) };
+  } catch (e) { return { error: String(e.message || e) }; }
+});
 // Move a stopped conversation to another Claude account, where its next message resumes it.
 ipcMain.handle('chat:move', (_e, { id, from, to, engine }) => {
   if (chat.engineOf(engine) === 'codex') return { error: 'Codex chats can\'t change account yet.' };

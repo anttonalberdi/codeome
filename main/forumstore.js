@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const usage = require('./usage');
+const scratch = require('./scratch');
 
 const validId = (id) => /^[0-9a-f-]{36}$/.test(id || '');
 const safeName = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 40) || 'project';
@@ -53,4 +54,20 @@ function remove(project, id) {
   return { ok: true };
 }
 
-module.exports = { validId, folder, save, load, list, remove };
+function move(id, from, to, changes = {}) {
+  to = scratch.checkMove(from, to);
+  if (!validId(id)) throw new Error('Bad forum');
+  const record = load(from, id);
+  if (!record) throw new Error('Forum not found.');
+  const source = file(from, id), target = file(to, id);
+  if (fs.existsSync(target)) throw new Error('Forum already exists in the target project.');
+  fs.mkdirSync(folder(to), { recursive: true });
+  try {
+    fs.writeFileSync(target + '.tmp', JSON.stringify({ ...record, ...changes, project: to }));
+    fs.renameSync(target + '.tmp', target);
+    try { fs.unlinkSync(source); } catch (error) { fs.unlinkSync(target); throw error; }
+  } finally { try { fs.unlinkSync(target + '.tmp'); } catch {} }
+  return { ok: true };
+}
+
+module.exports = { validId, folder, save, load, list, remove, move };

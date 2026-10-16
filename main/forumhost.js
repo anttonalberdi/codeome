@@ -262,7 +262,7 @@ function createHost(deps) {
   function disposeAll() {
     for (const id of [...forums.keys()]) closeForum(id);
   }
-  return { register, disposeAll, forums };
+  return { register, disposeAll, forums, close: closeForum };
 }
 
 module.exports = { createHost };

@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('codeome', {
     has: invoke('secrets:has'), copy: invoke('secrets:copy')
   },
   project: { clone: invoke('project:clone') },
-  scratch: { dir: invoke('scratch:dir') },
+  scratch: { dir: invoke('scratch:dir'), promote: invoke('scratch:promote') },
   dialog: { folder: invoke('dialog:folder'), files: invoke('dialog:files'), save: invoke('dialog:save'), confirm: invoke('dialog:confirm') },
   shell: { open: invoke('shell:open'), reveal: invoke('shell:reveal'), openPath: invoke('shell:openPath') },
   pty: {

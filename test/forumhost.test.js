@@ -245,3 +245,22 @@ test('host validates labels and clamps a saved budget on reopen', async () => {
   assert.equal(opened.forum.budgetLimit, 2);
   h.host.disposeAll();
 });
+
+test('a promoted forum opens in its new project and a started seat resumes', async () => {
+  const from = scratch.dir(), project = fs.mkdtempSync(path.join(os.tmpdir(), 'forumhost-promoted-'));
+  const id = require('crypto').randomUUID(), sessionId = require('crypto').randomUUID();
+  store.save(from, { id, title: 'Promoted', seats: [{ id: 'claude-1', name: 'Claude', engine: 'claude',
+    sessionId, started: true, account: 'claude-account', bin: '/bin/claude', dir: '/claude-account' }], transcript: [] });
+  store.move(id, from, project);
+  const h = harness({ project });
+  assert.equal((await h.invoke('forum:open', { project, id })).ok, true);
+  await h.invoke('forum:post', { id, text: 'Continue this discussion.' });
+  await tick();
+  const hand = h.host.forums.get(id).hands[0];
+  assert.ok(hand);
+  await h.invoke('forum:allow', { id, handId: hand.id });
+  await tick();
+  assert.equal(h.sessions[0].resumedAtStart, true);
+  assert.equal(h.sessions[0].idAtStart, sessionId);
+  h.host.disposeAll();
+});

@@ -80,6 +80,15 @@
 
   F.show = () => { markSeen(); if (pinned) scrollEnd(); setTimeout(() => { if (current()) textarea?.focus(); }, 0); };
   F.hide = () => {};
+  F.reload = () => loadProject(App.project);
+  F.prepareMove = async (ids) => {
+    const forum = current();
+    if (!forum || !App.isIdeas(forum.project) || !ids.includes(forum.id)) return;
+    const result = await codeome.forum.close(forum.id);
+    if (result?.error) throw new Error(result.error);
+    F.snapshot = null;
+    paint();
+  };
   F.demo = (snapshot) => {
     if (!demoMode && current()) void call(codeome.forum.close(current().id));
     demoMode = true;
@@ -220,10 +229,11 @@
   function paintHeader() {
     header.replaceChildren();
     const forum = current();
-    if (!forum) return;
-    const title = h('button.forum-title', { title: 'Rename forum', 'aria-label': `Rename ${forum.title || 'forum'}`, onclick: rename }, forum.title || 'New forum');
+    const title = forum ? h('button.forum-title', { title: 'Rename forum', 'aria-label': `Rename ${forum.title || 'forum'}`, onclick: rename }, forum.title || 'New forum')
+      : h('span.forum-title', 'No forum open');
     const history = h('button.btn.small', { onclick: (event) => { void openHistory(event.currentTarget); }, 'aria-label': 'Forums history' }, 'Forums');
     header.append(h('div.forum-header-row', title, history));
+    if (!forum) return;
     const doc = forum.doc;
     header.append(doc ? h('div.forum-document',
       h('span.forum-doc-name', { title: doc.path }, App.basename(doc.path)),
@@ -235,15 +245,47 @@
   async function openHistory(anchor) {
     if (!App.project) return;
     const project = App.project;
-    const listed = await call(codeome.forum.list(project));
-    if (!listed || project !== App.project) return;
-    const items = [{ label: 'New forum', run: newForum }, '-', { header: 'Recent forums' }];
-    for (const forum of (listed.forums || []).slice(0, 20)) {
-      items.push({ label: forum.title || 'Untitled forum', key: App.fmtAgo(forum.updatedAt), run: () => { void openForum(forum.id); } });
-      items.push({ label: `Delete ${forum.title || 'Untitled forum'}`, danger: true, run: () => { void deleteForum(forum); } });
-    }
-    if (!listed.forums?.length) items.push({ header: 'No forums yet' });
-    App.menuAt(anchor, items);
+    const selected = new Set();
+    const listEl = h('div.hist-list', h('div.empty', 'Loading forums…'));
+    const moveBtn = h('button.btn.small', { disabled: true, onclick: async () => {
+      const result = await App.views.projects.moveIdeas({ forums: [...selected] });
+      if (!result) return;
+      for (const id of result.forums) selected.delete(id);
+      if (project === App.project) await refresh();
+    } }, 'Move to project…');
+    const refresh = async () => {
+      let listed;
+      try {
+        listed = await codeome.forum.list(project);
+        if (listed?.error) throw new Error(listed.error);
+      } catch (cause) {
+        listEl.replaceChildren(h('div.empty', h('p.note.error', cause.message || String(cause)),
+          h('button.btn.small', { onclick: () => { void refresh(); } }, 'Retry')));
+        return;
+      }
+      if (project !== App.project) return;
+      listEl.replaceChildren();
+      const forums = listed.forums || [];
+      if (!forums.length) { listEl.append(h('div.empty', 'No forums yet.')); return; }
+      for (const forum of forums) {
+        const title = forum.title || 'Untitled forum';
+        listEl.append(h('div.hist-row',
+          App.isIdeas(project) ? h('input.hist-check', { type: 'checkbox', checked: selected.has(forum.id), 'aria-label': 'Select ' + title,
+            onchange: (event) => { if (event.target.checked) selected.add(forum.id); else selected.delete(forum.id); moveBtn.disabled = !selected.size; } }) : null,
+          h('button.hist-open', { onclick: () => { App.closePopover(); void openForum(forum.id); } },
+            h('span.hist-t', title), h('span.hist-s', App.fmtAgo(forum.updatedAt))),
+          App.isIdeas(project) ? h('button.btn.small.ghost', { title: 'Move to project…', 'aria-label': 'Move ' + title + ' to project',
+            onclick: async () => { const result = await App.views.projects.moveIdeas({ forums: [forum.id] }); if (result && project === App.project) await refresh(); } }, 'Move…') : null,
+          h('button.icon-btn.small', { title: 'Delete ' + title, 'aria-label': 'Delete ' + title,
+            onclick: async () => { if (await deleteForum(forum)) { selected.delete(forum.id); moveBtn.disabled = !selected.size; await refresh(); } }, html: App.icons.trash })));
+      }
+    };
+    App.popover(anchor, h('div.u-pop.hist',
+      h('div.u-pop-head', h('h3', 'Forums')),
+      listEl,
+      h('div.u-pop-foot', h('button.btn.small', { onclick: () => { App.closePopover(); void newForum(); } }, 'New forum'),
+        h('span.grow'), App.isIdeas(project) ? moveBtn : null)), 'Forums history');
+    await refresh();
   }
 
   async function newForum() {
@@ -265,10 +307,11 @@
     }
   }
   async function deleteForum(forum) {
-    if (!(await App.confirm('Delete forum?', `Delete “${forum.title || 'Untitled forum'}” and its discussion?`, 'Delete forum', true))) return;
+    if (!(await App.confirm('Delete forum?', `Delete “${forum.title || 'Untitled forum'}” and its discussion?`, 'Delete forum', true))) return false;
     const project = App.project;
     const result = await call(codeome.forum.delete(project, forum.id));
     if (result && project === App.project) void loadProject(project);
+    return !!result;
   }
   async function rename() {
     const forum = current();

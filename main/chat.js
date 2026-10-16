@@ -333,13 +333,35 @@ function deleteChat(project, id) {
   return { ok: true };
 }
 
+function moveChat(id, from, to, changes = {}) {
+  to = scratch.checkMove(from, to);
+  if (!validId(id)) throw new Error('Bad chat');
+  const record = loadChat(from, id);
+  if (!record || record.id !== id || record.project !== from) throw new Error('Chat not found.');
+  const source = path.join(chatsDir(from), id + '.json');
+  const target = path.join(chatsDir(to), id + '.json');
+  if (fs.existsSync(target)) throw new Error('Chat already exists in the target project.');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  try {
+    fs.writeFileSync(target + '.tmp', JSON.stringify({ ...record, ...changes, project: to }));
+    fs.renameSync(target + '.tmp', target);
+    try { fs.unlinkSync(source); } catch (error) { fs.unlinkSync(target); throw error; }
+  } finally { try { fs.unlinkSync(target + '.tmp'); } catch {} }
+  return { ok: true };
+}
+
 // Claude Code keeps a conversation in its account's config folder: projects/<project folder>/<id>.jsonl, with the
 // files of its subagents in <id>/ beside it. Copying both into another account's folder lets that account resume it.
+function sessionFolder(accountDir, id) {
+  const root = path.join(accountDir, 'projects');
+  try { return fs.readdirSync(root).find((d) => fs.existsSync(path.join(root, d, id + '.jsonl'))) || null; }
+  catch { return null; }
+}
+
 function moveSession(fromDir, toDir, id) {
   if (!validId(id)) throw new Error('Bad chat');
   const root = path.join(fromDir, 'projects');
-  let folder = null;
-  try { folder = fs.readdirSync(root).find((d) => fs.existsSync(path.join(root, d, id + '.jsonl'))); } catch {}
+  const folder = sessionFolder(fromDir, id);
   if (!folder) throw new Error('This conversation has no transcript in its account folder.');
   const dest = path.join(toDir, 'projects', folder);
   fs.mkdirSync(dest, { recursive: true });
@@ -347,4 +369,43 @@ function moveSession(fromDir, toDir, id) {
   if (fs.existsSync(path.join(root, folder, id))) fs.cpSync(path.join(root, folder, id), path.join(dest, id), { recursive: true });
 }
 
-module.exports = { Session, ENGINES, engineOf, systemPrompt, listPersonas, personaPrompt, codexPrompt, forumPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveSession, MODES };
+// Claude Code keys its project folder on cwd. Copy a started session so --resume works after promotion.
+function copyProjectSession(accountDir, id, from, to) {
+  if (!validId(id)) throw new Error('Bad chat');
+  const keyed = (project) => {
+    let real; try { real = fs.realpathSync(project); } catch { real = path.resolve(project); }
+    return real.replace(/[^A-Za-z0-9]/g, '-');
+  };
+  const expected = keyed(from);
+  const root = path.join(accountDir, 'projects');
+  const source = path.join(root, expected);
+  const dest = path.join(root, keyed(to));
+  const transcript = path.join(source, id + '.jsonl');
+  if (!fs.existsSync(transcript)) return { missing: true, created: [] };
+  const destTranscript = path.join(dest, id + '.jsonl');
+  const destAgents = path.join(dest, id);
+  if (fs.existsSync(destTranscript) && fs.statSync(destTranscript).size !== fs.statSync(transcript).size)
+    throw new Error('Session already exists in the target project.');
+  fs.mkdirSync(dest, { recursive: true });
+  const agents = path.join(source, id);
+  const temp = destTranscript + '.tmp-' + crypto.randomUUID();
+  const created = [];
+  try {
+    if (fs.existsSync(agents) && !fs.existsSync(destAgents)) {
+      created.push(destAgents);
+      fs.cpSync(agents, destAgents, { recursive: true });
+    }
+    if (!fs.existsSync(destTranscript)) {
+      fs.copyFileSync(transcript, temp);
+      fs.renameSync(temp, destTranscript);
+      created.push(destTranscript);
+    }
+  } catch (error) {
+    try { fs.unlinkSync(temp); } catch {}
+    for (const p of created.reverse()) try { fs.rmSync(p, { recursive: true, force: true }); } catch {}
+    throw error;
+  }
+  return { missing: false, created };
+}
+
+module.exports = { Session, ENGINES, engineOf, systemPrompt, listPersonas, personaPrompt, codexPrompt, forumPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveChat, moveSession, copyProjectSession, MODES };

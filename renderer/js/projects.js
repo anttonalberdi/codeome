@@ -105,6 +105,71 @@
     });
   }
 
+  // Move saved Ideas conversations into a real project. The picker is the same folder
+  // picker used by New project; a folder chosen here may be new to the sidebar.
+  P.moveIdeas = async ({ chats = [], forums = [] }) => {
+    if (!App.isIdeas() || (!chats.length && !forums.length)) return null;
+    const target = await chooseMoveTarget();
+    if (!target) return null;
+    const scratch = App.scratchDir;
+    try {
+      await App.views.chat.prepareMove(chats);
+      await App.views.forum.prepareMove(forums);
+      const result = await codeome.scratch.promote({ target, chats, forums });
+      // A failed batch may already have moved some entries. Reconcile from disk in
+      // both cases rather than trusting the returned counts alone.
+      const [chatList, forumList] = await Promise.all([codeome.chat.list(scratch), codeome.forum.list(scratch)]);
+      if (chatList?.error) throw new Error(chatList.error);
+      if (forumList?.error) throw new Error(forumList.error);
+      const remainingChats = new Set(chatList.map((c) => c.id));
+      const remainingForums = new Set((forumList.forums || []).map((f) => f.id));
+      const movedChats = chats.filter((id) => !remainingChats.has(id));
+      const movedForums = forums.filter((id) => !remainingForums.has(id));
+      await App.views.chat.finishMove(target, movedChats);
+      if (result?.error) App.err(result.error);
+      else if (!result?.moved) App.err('Could not move the selected Ideas.');
+      if (movedChats.length || movedForums.length) {
+        await P.open(target);
+        await App.views.forum.reload();
+      } else await App.views.forum.reload();
+      if (result?.moved) App.toast(`Moved ${result.moved.chats} chats and ${result.moved.forums} forums to ${App.basename(target)}`);
+      return { chats: movedChats, forums: movedForums };
+    } catch (cause) {
+      App.err(cause.message || String(cause));
+      await App.views.forum.reload();
+      return { chats: [], forums: [] };
+    }
+  };
+
+  function chooseMoveTarget() {
+    const choices = P.list.filter((dir) => !App.isIdeas(dir));
+    const ov = document.getElementById('overlay');
+    return new Promise((resolve) => {
+      const close = (dir) => { ov.hidden = true; ov.replaceChildren(); ov.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(dir || null); };
+      const onKey = (event) => { if (event.key === 'Escape') { event.preventDefault(); close(); } };
+      const select = h('select', { 'aria-label': 'Project folder' },
+        choices.map((dir) => h('option', { value: dir }, App.basename(dir))));
+      const error = h('div.agent-field-error', { role: 'alert' });
+      const choose = async () => {
+        const dir = await codeome.dialog.folder({ defaultPath: App.cfg.localRoot || App.cfg.projectsDir });
+        if (!dir) return;
+        if (App.isIdeas(dir)) { error.textContent = 'Choose a project folder outside Ideas.'; return; }
+        close(dir);
+      };
+      const modal = h('div.modal', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Move to project' },
+        h('header', h('h2', 'Move to project')),
+        h('div.body',
+          choices.length ? h('label.field', h('span', 'Open project'), select) : h('p.hint', 'No other projects are open.'),
+          h('button.btn', { type: 'button', onclick: choose }, 'Choose or create folder…'), error),
+        h('footer', h('button.btn', { onclick: () => close() }, 'Cancel'),
+          h('button.btn.primary', { disabled: !choices.length, onclick: () => close(select.value) }, 'Move')));
+      ov.replaceChildren(modal); ov.hidden = false;
+      ov.onclick = (event) => { if (event.target === ov) close(); };
+      document.addEventListener('keydown', onKey, true);
+      setTimeout(() => (choices.length ? select : modal.querySelector('.body button')).focus(), 0);
+    });
+  }
+
   // Records the current view (and Agent pane) for the active project; kept across restarts.
   P.rememberView = (save) => {
     if (!App.project) return;

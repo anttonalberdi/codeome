@@ -63,6 +63,12 @@ const steps = {
   welcome: [],
   'ideas-welcome': [`App.views.projects.switchTo(null); 0`],
   ideas: [`App.views.projects.openIdeas().then(() => { App.setView('agents'); App.views.agents.show('chat'); }); 0`],
+  'ideas-move': [`(async () => {
+    await App.views.projects.open(${JSON.stringify(path.resolve(__dirname, '..'))});
+    await App.views.projects.openIdeas();
+    App.setView('agents'); App.views.agents.show('chat');
+    void App.views.projects.moveIdeas({ chats: ['shot-preview'] });
+  })(); 0`],
   editor: [`App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../main/slurm.js'))})`],
   slurm: [`App.views.slurm.refresh = ()=>{}; App.hpcConnected = true; App.emit('hpc', true); App.views.slurm.queue = [{id:'4810231',name:'metaspades_assembly',state:'RUNNING',elapsed:'5:12:40',limit:'1-00:00:00',cpus:'32',partition:'gpu',reason:'node-a17',workdir:'/projects/holo/asm'},{id:'4810240',name:'kraken2_classify',state:'PENDING',elapsed:'0:00',limit:'8:00:00',cpus:'16',partition:'standard',reason:'(Priority)'}]; App.views.slurm.history=[{id:'4810101',name:'fastp_qc',state:'COMPLETED',elapsed:'00:42:10',exitcode:'0:0',maxrss:'3.1G',end:new Date(Date.now()-3600e3).toISOString()},{id:'4810099',name:'bowtie2_map',state:'OUT_OF_MEMORY',elapsed:'01:02:00',exitcode:'0:125',maxrss:'64G',end:new Date(Date.now()-7200e3).toISOString()}]; App.emit('jobs',{running:1,pending:1,failed:1}); App.views.slurm.resources = {total:{nodes:42,offline:2,cpus:2560,cpusUsed:1984,mem:20480000,memUsed:9216000,gpus:8,gpusUsed:5},partitions:[{name:'standard',nodes:36,offline:2,cpus:2176,cpusUsed:1900,mem:17408000,memUsed:8000000,gpus:0,gpusUsed:0,pendingJobs:212,pendingCpus:3392},{name:'gpu',nodes:4,offline:0,cpus:384,cpusUsed:84,mem:3072000,memUsed:1216000,gpus:8,gpusUsed:5,pendingJobs:0,pendingCpus:0}]}; if (${JSON.stringify(process.env.SHOT_DARK || '')}) document.documentElement.dataset.theme = 'dark'; App.setView('slurm'); App.views.slurm.render();`],
   // SHOT_PROJECT: a repository to show (e.g. one with many changed files).
@@ -79,7 +85,7 @@ const steps = {
   })(); 0`],
   // Three file sections; the storage one lists SHOT_STORAGE through the stand-in sftp.
   files: [`(async () => {
-    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    await App.views.projects.open(${JSON.stringify(path.resolve(__dirname, '..'))});
     App.setView('files');
     App.storageConnected = true; App.emit('storage', true);
     if (${JSON.stringify(process.env.SHOT_COLLAPSE || '')}) { App.views.files.toggle('remote'); App.views.files.rename('local'); document.querySelector('.pane-rename').value = 'Laptop'; document.querySelector('.pane-rename').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); }
@@ -317,7 +323,7 @@ const steps = {
     await App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../kit/manifest.json'))});
     // SHOT_LINK: connect this project to the other one and to a closed one, shown as chained tags in the title bar.
     if (${JSON.stringify(process.env.SHOT_LINK || '')}) App.cfg.projectLinks[${JSON.stringify(path.resolve(__dirname, '..'))}] = [${JSON.stringify(process.env.SHOT_PROJECT2 || path.resolve(__dirname, '../kit'))}, ${JSON.stringify(path.resolve(__dirname, '../renderer'))}];
-    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    await App.views.projects.open(${JSON.stringify(path.resolve(__dirname, '..'))});
     await App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../main/usage.js'))});
     App.views.projects.state[${JSON.stringify(process.env.SHOT_PROJECT2 || path.resolve(__dirname, '../kit'))}] = { jobs: 2 };
     App.views.projects.render();
