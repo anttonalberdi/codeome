@@ -1,0 +1,3 @@
+# Slurm
+
+Running, waiting and finished jobs in three sections that collapse and resize like the ones in Files: live `squeue`, and recent `sacct` history with exit codes and memory, where jobs that failed, timed out or ran out of memory are marked in red. A fourth section at the bottom shows what the cluster has free and in use (CPUs, memory, GPUs and the jobs waiting, for the whole cluster and per partition). Click a job for its log viewer, which follows `stdout`/`stderr`; a job that hasn't finished opens on its details instead. Also cancel, submit (`sbatch`) from the editor, and a job-script template.

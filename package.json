@@ -3,6 +3,7 @@
   "productName": "Codeome",
   "version": "0.5.0",
   "description": "One Mac app for R/Python work on your laptop and HPC: editor, terminals, Claude Code & Codex sessions, Slurm, file transfer, reports, GitHub, Zenodo and PyPI.",
+  "homepage": "https://anttonalberdi.github.io/codeome/",
   "main": "main/main.js",
   "author": "Antton Alberdi",
   "license": "MIT",

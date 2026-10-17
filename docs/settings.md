@@ -1,0 +1,38 @@
+# Settings
+
+Open **Settings** (`⌘,`). It is a full page with a section list on the left. Changes save as you make them, and `Esc` or *Done* returns to your work.
+
+## Set up
+
+1. **HPC login** — ideally a Host alias from `~/.ssh/config`, for example:
+   ```
+   Host myhpc
+     HostName login.cluster.example.org
+     User abc123
+     IdentityFile ~/.ssh/id_ed25519
+   ```
+   See [HPC connection](/guide/hpc) for how the connection works.
+2. **Network** — how Codeome reaches the cluster's network:
+   - *Campus network, or a VPN for the whole Mac* (e.g. Cisco Secure Client). Optionally give a **VPN check** host, only reachable on the VPN, so the title bar shows whether the VPN is up.
+   - *Codeome's own VPN tunnel*: only Codeome's connections to the HPC go through the VPN; the rest of the Mac stays on its own network. It runs [OpenConnect](https://www.infradead.org/openconnect/), which speaks Cisco's AnyConnect protocol, with `ocproxy`, so it needs no admin rights and changes none of the Mac's routes or DNS. Set the **VPN server** (e.g. `vpn.example.org`; the servers in Cisco Secure Client's profile are suggested). Connecting to the HPC starts the tunnel in the background; Codeome asks in dialogs for anything not saved (username, password, second factor) and waits while you approve the sign-in on your MFA device. While it runs, ssh to the HPC host goes through it. When it is not running, ssh goes direct, so the same setting also works on campus. The **VPN** dot in the title bar shows the tunnel; click the cluster strip to stop it. Use it instead of Cisco Secure Client, not alongside it.
+3. **Setup checklist** — below the login, Codeome checks each step and offers the button that does it: install OpenConnect and ocproxy (with Homebrew, which it installs first if needed, always after asking), start the tunnel, create an ssh key, copy it to the HPC (you sign in with your password once), test a login without a password, and connect. Settings → *This Mac* also offers to install missing command-line tools.
+4. **Agents** — in two parts. *All projects* is kept on this Mac; *This project* is kept in the open project's `.claude/` folder, and travels with it in git.
+   - All projects:
+     - *Agent chat*: the orchestrator's Claude model (or the one in its command).
+     - *Command-line agents*: name and command for each agent offered as a terminal session. Defaults: `Claude Code = claude`, `Codex = codex`. Add variants like `Claude (Opus) = claude --model opus`.
+     - *Agents for all projects*: Codeome's general agents, kept in `~/.codeome/agents` (or `$CODEOME_HOME/agents`) and mirrored into every Claude account's `agents/` folder, never over a file Codeome did not write or you edited. The chat can hand work to them in any project, and Codex jobs use them when a project has no agent of that name. Each has a Claude **Model** and **Effort**. *+ New agent* creates one.
+     - *Global skills*: every skill in `~/.claude/skills/`, marked as a command or a playbook. *+ New skill* creates one there.
+   - This project:
+     - *Team in `<project>`*: every agent in the project's `.claude/agents/`, kit roles and your own. Each has an **AI** dropdown (Claude, Codex, or the other engine for reviewers) and a **Model** dropdown (Claude models for Claude, the models your Codex account offers for Codex, or *Other…* for any model ID). *Edit .md* opens the agent's instructions in the editor, *Expand scope…* copies it to the general store and/or other projects (never overwriting), and *+ New agent* creates one. The AI goes into `routing.md`, the Claude model into the agent file, and the Codex model into `.codeome/agents.json`. Kit updates keep these choices.
+     - *Skills in `<project>`*: every skill in `.claude/skills/`, kit skills and your own, marked as a **command** (typed in the chat) or a **playbook** (read when a task needs it). Each extra file of a skill, such as a registry playbook, has its own button, and *+ New skill* creates one.
+   - When a global and a project item share a name, both rows say which one Claude Code uses: the project's agent replaces the global one, and the global skill replaces the project's. With several Claude accounts, the global ones are those in the active account's folder.
+5. **Accounts & usage limits** — an account is an email address, and one card shows each with its sign-in and its usage. *Add a … account…* asks for the address and signs it in once through a terminal and your browser; the account is *confirmed* when the sign-in is for that address. Each account keeps its sign-in in its own folder (a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that Codeome chooses; `~/.claude` and `~/.codex` are the first account's), so every confirmed account stays signed in and work moves between them without asking again. *Sign in to the other N…* takes every account that is not signed in, one after the other. An account signed in with another address is not used until you sign in again or switch it to that address. Sign-ins already on the Mac (`~/.claude-lab`) are offered as cards to add. Accounts from before take the address they are signed in with. You can also set the stop threshold here.
+6. **Git & GitHub accounts** — add each GitHub account (github.com or a GitHub Enterprise host) by pasting a personal access token, or import the one `gh` is signed in with; then bind a project to it in the Git view's *Account* section (see [Git & GitHub](/guide/git-github)). Classic tokens need `repo` (and `workflow` to push workflow files); fine-grained tokens need Contents and Pull requests access. Tokens are checked with GitHub when added and whenever the section opens. Hooks and local Git config in a project you open still run during push and pull, with the account's token in their environment, as with any Git client.
+7. **Zenodo / PyPI tokens** if you publish from here (see [Publishing](/guide/publishing)).
+8. **Secrets** — your own tokens and keys, if you want them at hand or set in terminals and agent sessions (see [Secrets](/guide/secrets)).
+
+## Where the usage numbers come from
+
+- **Codex**: Codeome asks `codex app-server` for each account every few minutes and when a Codex job ends.
+- **Claude**: Codeome asks a headless `claude -p` for each signed-in account's usage every few minutes; no message is sent, so the check uses none of the limit. Between two checks, Claude Code sessions started from Codeome get a status line, `~/.codeome/bin/codeome-statusline`, that records the rate limits Claude Code reports and then shows your own status line, so your settings files are untouched, and the Agent chat records the rate limits that come with each reply in the same place. A reading older than 30 minutes (an account that is signed out, or a check that fails) is shown as stale. Windows that have reset since count as empty.
+- Codeome writes the combined picture to `~/.codeome/usage.json`. `codeome-agent` reads it to choose accounts and hold jobs back. Without it (Codeome closed, or on the HPC) jobs run on the default account with no limit checks. Codeome never reads or stores the CLIs' credentials.
