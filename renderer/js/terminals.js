@@ -64,6 +64,25 @@
     if (spec.lang === 'r') t.ready = new Promise((res) => { t.onReady = res; setTimeout(res, 20000); });
     T.list.push(t);
     term.onData((d) => codeome.pty.write(id, d));
+    // Dropping files (from Finder or the file tree) types their absolute paths, shell-quoted.
+    const dropPaths = (dt) => {
+      const out = [...dt.files].map((f) => codeome.pathForFile(f)).filter(Boolean);
+      for (const ty of ['codeome/local', 'codeome/remote']) {
+        const raw = dt.getData(ty);
+        if (raw) { try { out.push(JSON.parse(raw).path); } catch {} }
+      }
+      return out;
+    };
+    const droppable = (dt) => dt.types.includes('Files') || dt.types.some((ty) => ty.startsWith('codeome/'));
+    el.addEventListener('dragover', (e) => { if (!droppable(e.dataTransfer)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    el.addEventListener('drop', (e) => {
+      if (!droppable(e.dataTransfer)) return;
+      e.preventDefault(); e.stopPropagation();
+      const paths = dropPaths(e.dataTransfer);
+      if (!paths.length) return;
+      term.paste(paths.map((p) => /^[\w@%+=:,./-]+$/.test(p) ? p : "'" + p.replace(/'/g, "'\\''") + "'").join(' ') + ' ');
+      term.focus();
+    });
     term.onResize(({ cols, rows }) => codeome.pty.resize(id, cols, rows));
     new ResizeObserver(() => { if (!el.hidden) { try { fit.fit(); } catch {} } }).observe(el);
     T.activate(id);
