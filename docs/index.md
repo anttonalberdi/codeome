@@ -5,7 +5,8 @@ hero:
   name: Codeome
   tagline: One Mac app for research computing, from your laptop to the HPC
   image:
-    src: /logo.svg
+    light: /logo.svg
+    dark: /logo-dark.svg
     alt: Codeome
   actions:
     - theme: brand

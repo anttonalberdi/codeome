@@ -1,31 +1,41 @@
 <!--
   Home hero screenshot (used by theme/index.js in the home-hero-after slot).
-  Shows /screens/home-hero.png in a window frame. If the file is missing the
-  whole block is removed, so the hero degrades to text + logo.
+  Shows /screens/home-hero.webp (dark) or /screens/home-hero-light.webp (light),
+  following the site theme through CSS on the <html class="dark"> toggle.
+  If the dark file is missing the whole block is removed; a missing light file
+  falls back to the dark one. Images are 2x; width/height set the aspect ratio.
 -->
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { withBase } from 'vitepress'
+import { lightSrc } from '../themeSrc.js'
+
+const SRC = '/screens/home-hero.webp'
 const failed = ref(false)
-// probe the file after mount: an error event on the SSR img can fire before hydration
-onMounted(() => {
-  const probe = new Image()
-  probe.onerror = () => { failed.value = true }
-  probe.src = withBase('/screens/home-hero.png')
-})
+const lightFailed = ref(false)
 </script>
 
 <template>
   <div v-if="!failed" class="hero-shot">
     <div class="shot-frame">
-      <div class="shot-bar" aria-hidden="true"><i /><i /><i /></div>
       <img
-        :src="withBase('/screens/home-hero.png')"
+        class="theme-img theme-img-dark"
+        :src="withBase(SRC)"
         alt="The Codeome app window showing projects, agent chats and the editor"
-        width="1440"
-        height="900"
+        width="1500"
+        height="940"
         decoding="async"
         @error="failed = true"
+      />
+      <img
+        class="theme-img theme-img-light"
+        :src="withBase(lightFailed ? SRC : lightSrc(SRC))"
+        alt="The Codeome app window showing projects, agent chats and the editor"
+        width="1500"
+        height="940"
+        loading="lazy"
+        decoding="async"
+        @error="lightFailed = true"
       />
     </div>
   </div>
@@ -36,12 +46,14 @@ onMounted(() => {
 .shot-frame {
   border: 1px solid var(--vp-c-divider); border-radius: 10px; overflow: hidden;
   background: var(--vp-c-bg-soft);
-  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.02);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.55);
 }
-.shot-bar { display: flex; gap: 6px; padding: 9px 12px; background: var(--vp-c-bg-alt); border-bottom: 1px solid var(--vp-c-divider); }
-.shot-bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--vp-c-divider); }
-.shot-bar i:nth-child(1) { background: #fb7185; }
-.shot-bar i:nth-child(2) { background: #fbbf24; }
-.shot-bar i:nth-child(3) { background: #34d399; }
-.shot-frame img { display: block; width: 100%; height: auto; aspect-ratio: 1440 / 900; }
+.shot-frame img { display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 1500 / 940; }
+</style>
+
+<style>
+/* theme swap: keyed on the class VitePress sets on <html>; hidden lazy images are not fetched */
+.theme-img-light { display: none !important; }
+html:not(.dark) .theme-img-dark { display: none !important; }
+html:not(.dark) .theme-img-light { display: block !important; }
 </style>

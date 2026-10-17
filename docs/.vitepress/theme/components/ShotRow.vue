@@ -3,8 +3,8 @@
 
   Usage
     <ShotRow>
-      <Shot bare src="/screens/a.png" alt="First detail" caption="One" />
-      <Shot bare src="/screens/b.png" alt="Second detail" caption="Two" />
+      <Shot bare src="/screens/a.webp" alt="First detail" caption="One" />
+      <Shot bare src="/screens/b.webp" alt="Second detail" caption="Two" />
     </ShotRow>
 -->
 <template>

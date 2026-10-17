@@ -7,13 +7,15 @@ export default defineConfig({
   base: '/codeome/',
   appearance: 'dark',
   cleanUrls: true,
+  srcExclude: ['scripts/**'],
   lastUpdated: true,
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/codeome/favicon.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/codeome/favicon.svg', media: '(prefers-color-scheme: light)' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/codeome/favicon-dark.svg', media: '(prefers-color-scheme: dark)' }],
     ['meta', { name: 'theme-color', content: '#1a1f26' }]
   ],
   themeConfig: {
-    logo: '/logo.svg',
+    logo: { light: '/logo.svg', dark: '/logo-dark.svg', alt: 'Codeome' },
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Settings', link: '/settings' },

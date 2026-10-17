@@ -3,6 +3,18 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs');
+// SHOT_BG=1 (set by docs/scripts/capture.sh): capture in the background. No Dock icon, no focus, the window
+// stays hidden, and the pictures are taken through the DevTools protocol at SHOT_SCALE (default 2) x.
+// SHOT_THEME=dark|light forces the theme for every scenario just before the capture.
+const BG = !!process.env.SHOT_BG;
+if (BG) {
+  if (app.dock) app.dock.hide();
+  if (process.platform === 'darwin') app.setActivationPolicy('accessory');
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+  app.on('browser-window-created', (_e, w) => { w.hide(); w.webContents.setBackgroundThrottling(false); });
+}
 const rest = process.argv.slice(process.argv.findIndex((a) => a.endsWith('shot.js')) + 1);
 const out = path.resolve(rest[0] || 'shots');
 const scenario = rest[1] || 'welcome';
@@ -108,7 +120,7 @@ const steps = {
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
     App.storageConnected = true; App.emit('storage', true);
     const X = App.views.transfer;
-    App.cfg.ui.transfer = { left: { host: 'local' }, right: { host: 'storage' }, parallel: 1 };
+    App.cfg.ui.transfer = { left: { host: 'local' }, right: { host: 'storage' }, parallel: ${BG ? 2 : 1} };
     X.open();
     await new Promise((r) => setTimeout(r, 1500));
     const { left, right } = X.panes;
@@ -166,7 +178,7 @@ const steps = {
       doc: { kind: 'md', path: project + '/README.md' }
     });
   })(); 0`],
-  settings: [`document.documentElement.dataset.theme='dark'; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(${JSON.stringify(process.env.SHOT_SECTION || '')}); 0`],
+  settings: [`document.documentElement.dataset.theme=${JSON.stringify(process.env.SHOT_THEME || 'dark')}; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(${JSON.stringify(process.env.SHOT_SECTION || '')}); 0`],
   'settings-git': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('git'); 0`],
   // The HPC setup checklist; SHOT_TEST also runs the key test.
   'settings-hpc': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('hpc').then(() => { if (!${JSON.stringify(process.env.SHOT_TOP || '')}) setTimeout(() => document.querySelector('.su-list').scrollIntoView(), 600); }); if (${JSON.stringify(process.env.SHOT_TEST || '')}) setTimeout(() => App.setup.testLogin(), 800); if (${JSON.stringify(process.env.SHOT_VPN || '')}) setTimeout(() => App.setup.testVpn(), 800); 0`],
@@ -297,7 +309,7 @@ const steps = {
   })(); 0`],
   // Settings → Accounts & limits with five made-up accounts: confirmed, signed out, another sign-in, and one doubled.
   'settings-accounts': [`(async () => {
-    const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });
+    const now = Date.now() / 1000, nextTue = (() => { const d = new Date(); d.setDate(d.getDate() + ((2 - d.getDay() + 7) % 7 || 7)); d.setHours(12, 0, 0, 0); return d.getTime() / 1000; })(), w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: nextTue } });
     const fake = { version: 1, stopAt: 90,
       claude: { active: 'me@example.org', accounts: [
         { name: 'me@example.org', dir: '', email: 'me@example.org', plan: 'max', signedIn: true, windows: w(93, 61), asOf: now - 90 },
@@ -315,7 +327,7 @@ const steps = {
   })(); 0`],
   // Two project cards, a file in each, and usage bars from made-up readings.
   projects: [`(async () => {
-    const now = Date.now() / 1000, w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: now + 3.2 * 86400 } });
+    const now = Date.now() / 1000, nextTue = (() => { const d = new Date(); d.setDate(d.getDate() + ((2 - d.getDay() + 7) % 7 || 7)); d.setHours(12, 0, 0, 0); return d.getTime() / 1000; })(), w = (a, b) => ({ fiveHour: { pct: a, resetsAt: now + 4800 }, weekly: { pct: b, resetsAt: nextTue } });
     App.views.usage.snap = { version: 1, stopAt: 90,
       claude: { active: 'me@example.org', accounts: [{ name: 'me@example.org', dir: '', email: 'me@example.org', plan: 'max', signedIn: true, windows: w(93, 61), asOf: now - 90 }, { name: 'lab@example.org', dir: '~/.claude-lab-example-org', email: 'lab@example.org', plan: 'pro', signedIn: true, windows: w(12, 34), asOf: now - 600 }] },
       codex: { active: 'me@example.org', accounts: [{ name: 'me@example.org', dir: '', email: 'me@example.org', plan: 'plus', signedIn: true, windows: w(41, 77), asOf: now - 120 }] } };
@@ -379,6 +391,8 @@ const steps = {
 
 app.whenReady().then(() => {
   setTimeout(async () => {
+    let dbg, error;
+    try {
     const win = BrowserWindow.getAllWindows()[0];
     // SHOT_W: window width in px, to check the title bar in a narrow window.
     if (process.env.SHOT_W) win.setSize(Number(process.env.SHOT_W), win.getSize()[1]);
@@ -396,8 +410,24 @@ app.whenReady().then(() => {
     // SHOT_NOJOB: leave the job's detail tab closed (the made-up job has no log to show).
     if (scenario === 'slurm') await win.webContents.executeJavaScript(`App.views.slurm.stop(); App.views.slurm.render(); if (!${JSON.stringify(process.env.SHOT_NOJOB || '')}) App.views.slurm.openJob(App.views.slurm.queue[0]);`).catch((e)=>console.log(e.message));
     await new Promise((r) => setTimeout(r, 800));
-    const img = await win.webContents.capturePage();
-    fs.writeFileSync(path.join(out, scenario + '.png'), img.toPNG());
+    // Capture runs hide update toasts (they reflect this Mac's installed tools, not the app).
+    if (BG) await win.webContents.insertCSS('#toasts { display: none !important; }');
+    const theme = process.env.SHOT_THEME;
+    if (theme) {
+      await win.webContents.executeJavaScript(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}; App.views.editor.applyTheme(); try { App.views.terminals.retheme(); } catch {} 0`);
+      await new Promise((r) => setTimeout(r, 900));
+    }
+    let shoot;
+    if (BG) {
+      dbg = win.webContents.debugger;
+      dbg.attach('1.3');
+      const scale = Number(process.env.SHOT_SCALE) || 2;
+      const [w, h] = await win.webContents.executeJavaScript('[innerWidth, innerHeight]');
+      await dbg.sendCommand('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: scale, mobile: false });
+      await new Promise((r) => setTimeout(r, 700));
+      shoot = async (clip) => Buffer.from((await dbg.sendCommand('Page.captureScreenshot', { format: 'png', fromSurface: true, ...(clip ? { clip: { ...clip, scale: 1 } } : {}) })).data, 'base64');
+    } else shoot = async (clip) => (await win.webContents.capturePage(clip)).toPNG();
+    fs.writeFileSync(path.join(out, scenario + '.png'), await shoot());
     // SHOT_CLIP: a CSS selector; also save just that element (12px padding, kept inside the window) as
     // <scenario>-clip.png, or SHOT_CLIP_NAME.png. SHOT_CLIP_ALL=1 joins every match into one rectangle.
     if (process.env.SHOT_CLIP) {
@@ -409,11 +439,19 @@ app.whenReady().then(() => {
         const x = Math.max(0, Math.floor(x1 - 12)), y = Math.max(0, Math.floor(y1 - 12));
         return { x, y, width: Math.min(innerWidth, Math.ceil(x2 + 12)) - x, height: Math.min(innerHeight, Math.ceil(y2 + 12)) - y };
       })()`);
-      if (r) fs.writeFileSync(path.join(out, path.basename(process.env.SHOT_CLIP_NAME || scenario + '-clip') + '.png'), (await win.webContents.capturePage(r)).toPNG());
+      if (r) fs.writeFileSync(path.join(out, path.basename(process.env.SHOT_CLIP_NAME || scenario + '-clip') + '.png'), await shoot(r));
       else console.log('clip: no element matches', process.env.SHOT_CLIP);
     }
     const errs = await win.webContents.executeJavaScript('window.__errs || []').catch(() => []);
     console.log('saved', scenario, errs.length ? errs : '');
-    app.exit(0);
+    } catch (e) {
+      error = e;
+      console.error('screenshot capture failed:', e);
+    } finally {
+      if (dbg) {
+        try { if (dbg.isAttached()) dbg.detach(); } catch (e) { error = e; console.error('CDP detach failed:', e); }
+      }
+    }
+    app.exit(error ? 1 : 0);
   }, 5000);
 });
