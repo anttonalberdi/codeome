@@ -2,9 +2,9 @@
 // cluster has free, job logs, cancel and submit.
 (function () {
   const h = App.h;
-  const S = { queue: [], history: [], resources: null, timer: null, sel: null, lastError: '' };
+  const S = { queue: [], history: [], resources: null, timer: null, sel: null, lastError: '', all: false };
   App.views.slurm = S;
-  let root, stamp, emptyEl;
+  let root, stamp, emptyEl, scopeBtn;
 
   const FAIL = ['FAILED', 'TIMEOUT', 'OUT_OF_MEMORY', 'NODE_FAIL', 'CANCELLED', 'PREEMPTED', 'BOOT_FAIL', 'DEADLINE'];
   // Ended because something went wrong (a job the user cancelled did not).
@@ -19,6 +19,19 @@
   };
   const norm = (s) => (s || '').split(' ')[0].replace(/\+$/, '');
   const isLive = (j) => S.queue.some((x) => x.id === j.id);
+  // A job belongs to the project when it runs inside the project's HPC folder.
+  const inProject = (j) => {
+    const dir = (App.remoteDir || '').replace(/\/+$/, '');
+    if (!dir || dir === '~') return true;
+    const w = j.workdir || '';
+    return w === dir || w.startsWith(dir + '/');
+  };
+  const scoped = (list) => (S.all ? list : list.filter(inProject));
+  const paintScope = () => {
+    if (!scopeBtn) return;
+    scopeBtn.textContent = S.all ? 'All jobs' : 'This project';
+    scopeBtn.title = S.all ? 'Showing all your jobs. Click to show only this project’s.' : 'Showing jobs run in ' + (App.remoteDir || 'the HPC folder') + '. Click to show all your jobs.';
+  };
 
   // The sections of the view, top to bottom. Each lists jobs, except the last.
   const SECTIONS = [
@@ -34,12 +47,15 @@
     root.classList.add('files-view');
     stamp = h('span.hint');
     emptyEl = h('div.empty');
+    scopeBtn = h('button.btn.small.ghost', { onclick: () => { S.all = !S.all; paintScope(); render(); } });
+    paintScope();
     for (const s of SECTIONS) { s.dot = h('span.pane-count'); s.body = s.list = h('div.pane-scroll' + (s.meta ? '.jobs' : '.res')); }
     S.stack = App.stack({ key: 'slurmPanes', sections: SECTIONS });
     root.append(
-      h('div.side-head', h('h2', 'Slurm jobs'), App.iconBtn('plus', 'New job script', () => S.newScript()), App.iconBtn('refresh', 'Refresh now', () => S.refresh(true))),
+      h('div.side-head', h('h2', 'Slurm jobs'), scopeBtn, App.iconBtn('plus', 'New job script', () => S.newScript()), App.iconBtn('refresh', 'Refresh now', () => S.refresh(true))),
       h('div.pad', { style: { paddingTop: 0 } }, stamp),
       emptyEl, S.stack.el);
+    App.listen('remote-dir', () => { if (!S.all) { paintScope(); render(); } });
     App.listen('hpc', (c) => { if (c) S.start(); else S.stop(); render(); });
     render();
   };
@@ -82,11 +98,13 @@
         App.cfg.hpc.host ? h('button.btn.small.primary', { onclick: () => App.connectHpc() }, 'Connect') : h('button.btn.small', { onclick: () => App.views.settings.open() }, 'Open Settings'));
       return;
     }
+    paintScope();
     const active = new Set(S.queue.map((j) => j.id));
+    const queue = scoped(S.queue);
     const jobs = {
-      running: S.queue.filter((j) => j.state === 'RUNNING'),
-      waiting: S.queue.filter((j) => j.state !== 'RUNNING'),
-      finished: S.history.filter((j) => !active.has(j.id) && !['RUNNING', 'PENDING'].includes(norm(j.state))).slice(0, 80)
+      running: queue.filter((j) => j.state === 'RUNNING'),
+      waiting: queue.filter((j) => j.state !== 'RUNNING'),
+      finished: scoped(S.history).filter((j) => !active.has(j.id) && !['RUNNING', 'PENDING'].includes(norm(j.state))).slice(0, 80)
     };
     for (const s of SECTIONS) if (s.meta) group(s, jobs[s.id]);
     renderResources(jobs);

@@ -136,7 +136,7 @@
     if (r.error) { p.list.innerHTML = ''; p.list.append(h('div.empty', r.error)); return; }
     F[side].dir = r.cwd; F[side].entries = r.entries.filter((x) => App.cfg.showHidden || !x.name.startsWith('.'));
     F[side].sel = null;
-    if (side === 'remote') App.remoteDir = r.cwd;
+    if (side === 'remote') { App.remoteDir = r.cwd; App.emit('remote-dir', r.cwd); }
     p.pathInput.value = r.cwd;
     render(side);
   };
