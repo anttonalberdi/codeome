@@ -115,6 +115,19 @@
       App.listen(ev, () => { for (const p of panes()) { paintSeg(p); if (p.host === host) go(p); } });
     }
     App.listen('config', () => { for (const p of panes()) { paintSeg(p); if (!isUp(p.host)) offline(p); } });
+    // The Mac side follows the active project: each project keeps the folder it was left in.
+    let last = App.project;
+    App.listen('project', (dir) => {
+      const keep = (ui().localDirs = ui().localDirs || {});
+      for (const p of panes()) {
+        if (last && p.dir && p.host === 'local') keep[last] = p.dir;
+        p.dirs.local = dir && !App.isIdeas(dir) ? keep[dir] || dir : p.dirs.local;
+        remember(p);
+        if (p.host === 'local' && dir && !App.isIdeas(dir)) { p.dir = null; go(p); }
+      }
+      last = dir;
+      App.saveConfig();
+    });
     App.listen('transferred', (t) => { for (const p of panes()) if (p.host === t.to && p.dir === t.destDir) go(p); });
   };
 
@@ -470,6 +483,9 @@
     const u = ui();
     X.panes.left = pane('left', 'local');
     X.panes.right = pane('right', App.cfg.hpc.host ? 'remote' : App.cfg.storage.host ? 'storage' : 'local');
+    // Panes saved under another project start in this project's folder.
+    const mine = App.project && !App.isIdeas(App.project) && ((u.localDirs || {})[App.project] || App.project);
+    if (mine) for (const p of [X.panes.left, X.panes.right]) p.dirs.local = mine;
     mid = {
       toRight: App.iconBtn('right', 'Copy the selection to the right pane', () => X.copy('left')),
       toLeft: App.iconBtn('left', 'Copy the selection to the left pane', () => X.copy('right'))
