@@ -10,6 +10,9 @@ hero:
     alt: Codeome
   actions:
     - theme: brand
+      text: Download for Mac
+      link: https://github.com/anttonalberdi/codeome/releases/latest
+    - theme: alt
       text: Get started
       link: /guide/getting-started
     - theme: alt
