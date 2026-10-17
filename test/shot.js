@@ -47,7 +47,7 @@ if (scenario === 'git-account') {
   ipcMain.removeHandler('git:status');
   ipcMain.handle('git:status', () => ({ repo: true, root, head: 'feature/github-accounts...origin/feature/github-accounts',
     files: [], remote: 'https://github.com/lab-research/codeome.git',
-    log: [{ hash: 'a1b2c3d', subject: 'Add GitHub accounts', author: 'Antton Alberdi', when: '2 hours ago' }],
+    log: [{ hash: 'a1b2c3d', subject: 'Add GitHub accounts', author: 'Alex Example', when: '2 hours ago' }],
     gh: !accountError, accountId: 'a1', accountError,
     ...(accountError ? {} : { account: { id: 'a1', login: 'lab-research', host: 'github.com', status: 'valid' } }) }));
   ipcMain.removeHandler('gitacct:list');
@@ -56,7 +56,7 @@ if (scenario === 'git-account') {
     { id: 'a2', provider: 'github', host: 'ghe.example.org', login: 'old-account', status: 'invalid', scopes: null }
   ], bindings: { [root]: 'a1' } } }));
   ipcMain.removeHandler('gitacct:identity-get');
-  ipcMain.handle('gitacct:identity-get', () => ({ data: { name: 'Antton Alberdi', email: '', effectiveName: 'Antton Alberdi', effectiveEmail: 'alex@example.org' } }));
+  ipcMain.handle('gitacct:identity-get', () => ({ data: { name: 'Alex Example', email: '', effectiveName: 'Alex Example', effectiveEmail: 'alex@example.org' } }));
 }
 
 const steps = {

@@ -93,7 +93,7 @@ test('the status line records rate limits under the account key Codeome reads, t
 
 test('an account is an email address: its folder is derived, and only a matching sign-in counts', () => {
   assert.ok(usage.isEmail('Alice.Smith+lab@example.org'));
-  for (const bad of ['Work', 'me@uni', 'me @example.org', 'me@example.org; rm -rf ~', '']) assert.ok(!usage.isEmail(bad), bad);
+  for (const bad of ['Work', 'me@example', 'me @example.org', 'me@example.org; rm -rf ~', '']) assert.ok(!usage.isEmail(bad), bad);
   assert.strictEqual(usage.folderFor('claude', 'Alice.Smith@example.org'), '~/.claude-alice-smith-example-org');
   assert.strictEqual(usage.folderFor('codex', 'lab@example.org'), '~/.codex-lab-example-org');
 
