@@ -69,7 +69,7 @@ Work through tasks in dependency order. For each task:
 
 **Running as a Codex chat.** Claude roles are not available there. For work that needs the network, the HPC or a Google document, say in one line that a Claude chat is needed, and carry on with the parts that do not.
 
-**Google documents.** Roles have a fixed tool list that does not include the Google connectors, and Codex has no connectors at all. Edit a `.gdoc`, `.gsheet` or `.gslides` yourself, or give it to a `general-purpose` subagent with the document id in the brief. Never to a named role or to Codex.
+**Google documents.** Roles have a fixed tool list that does not include the Google connectors, and Codex has no connectors at all. Edit a `.gdoc`, `.gsheet` or `.gslides` yourself, or give it to a `general-purpose` subagent with the document id in the brief. Never to a named role or to Codex. A Codex job (or named role) that only needs to *read* the document gets a snapshot: read it through the connector, write it as Markdown (CSV for a Sheet) to `.codeome/context/<name>.md`, and name that path in the brief, noting it is a snapshot taken now. Codex may draft replacement text; you apply it to the document.
 
 **Usage limits.** Codeome tracks the 5-hour and weekly limits of every Claude and Codex account and holds new jobs back near them. Run `.codeome/bin/codeome-agent usage` before Gate 1 and include a one-line budget note with the plan when an account is above 75%.
 - A Codex job that is held back exits with code 75 and a line starting `codeome-agent: job NOT started (usage limit)`. Codex jobs pick an account with headroom on their own, so this means every Codex account is past the limit.

@@ -2,10 +2,19 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.0.2
 
 ### Added
+- **Launch code blocks as prompts**: code blocks in chat have icon buttons to run them as a prompt in a new session, next to copy.
+- **Drop files on a terminal**: dropping files on a terminal types their absolute paths.
+- **Agent kit 0.6.2**: Codex reads Google documents through snapshots in `.codeome/context/` (now git-ignored).
 - **Set up as R project**: right-click the active project when it is not detected as an R project and choose *Set up as R project…* to add a `.Rproj` file, initialise renv, add R entries to `.gitignore` and optionally a starter `analysis.Rmd`. renv is on by default on the Mac and off for the HPC. It works on the Mac or the HPC project folder, following the R selector, never overwrites existing files (skipped ones are named), and the R libraries section appears afterwards.
+
+### Changed
+- The default zsh prompt uses the terminal palette and local terminals enable `CLICOLOR`.
+
+### Fixed
+- Dependabot alerts: `dompurify` and `vite` overridden to patched versions.
 
 ## 1.0.1
 

@@ -7,3 +7,6 @@ dist/
 .codeome/jobs/
 .codeome/worktrees/
 .codeome/plans/
+
+# Codeome agent jobs
+.codeome/context/

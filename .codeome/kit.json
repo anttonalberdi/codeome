@@ -1,16 +1,16 @@
 {
-  "version": "0.6.1",
+  "version": "0.6.2",
   "groups": [
     "core",
     "research",
     "web",
     "release"
   ],
-  "installedAt": "2026-10-16T12:32:03.489Z",
+  "installedAt": "2026-10-17T08:22:25.746Z",
   "files": {
     ".claude/skills/cross-review/SKILL.md": "fbab9d238b6354be35a6205eb650e6fe84d7a6a40233963c0fc9ccc346ad742b",
     ".claude/skills/delegate/SKILL.md": "a208dcc6b0b6d9d8a49d7f616eafb7f7e14b55e437fee4ad38a308d1d26a2a9a",
-    ".claude/skills/orchestrate/SKILL.md": "368f7fc51c53321c021275db7e362163e608f81a13dede439cfb6dbae8e282c8",
+    ".claude/skills/orchestrate/SKILL.md": "cb80573f65a58e3d9fe0a835a4515ecb435dc8eba3bd43319d4cf45614f7b3f2",
     ".claude/skills/release/SKILL.md": "5dec72fd19bee8c4a67b671fd0c685a9ee417ed95b60fde5f85707aa9e431731",
     ".claude/skills/release/bioconda.md": "174e13b1816ea90bb5831074b0416379f54fd9100bcc1ea0fafa5455ff13262f",
     ".claude/skills/release/bioconductor.md": "4fe40ca2ac26b00f5e2df873c01af3a26cb9cb542acad84737b61631ca548842",
