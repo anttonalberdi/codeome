@@ -4,6 +4,9 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+### Added
+- **Set up as R project**: right-click the active project when it is not detected as an R project and choose *Set up as R project…* to add a `.Rproj` file, initialise renv, add R entries to `.gitignore` and optionally a starter `analysis.Rmd`. renv is on by default on the Mac and off for the HPC. It works on the Mac or the HPC project folder, following the R selector, never overwrites existing files (skipped ones are named), and the R libraries section appears afterwards.
+
 ## 1.0.1
 
 ### Added

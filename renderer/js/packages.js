@@ -6,10 +6,11 @@
   const h = App.h;
   const P = {
     py: { where: 'local', pkgs: [], filter: '' },
-    r: { where: 'local', data: null, filter: '', shut: {}, old: null, project: null }
+    r: { where: 'local', data: null, filter: '', shut: {}, old: null, project: null, detected: false }
   };
   App.views.packages = P;
   const UI = {};
+  let rDetection = 0;
 
   P.init = () => {
     const root = document.querySelector('.view[data-view="packages"]');
@@ -17,8 +18,8 @@
     P.stack = App.stack({ key: 'pkgPanes', sections: [pySection(), rSection()] });
     root.append(P.stack.el);
     App.listen('view', (v) => { if (v === 'packages') P.loadVisible(); });
-    App.listen('project', () => { P.r.data = null; P.r.old = null; if (!App.isIdeas()) { detectR(); if (App.currentView === 'packages') P.loadVisible(); } });
-    App.listen('hpc', () => { for (const k of ['py', 'r']) if (P[k].where === 'hpc') (k === 'py' ? P.loadPy : P.loadR)(); });
+    App.listen('project', () => { P.r.data = null; P.r.old = null; detectR(); if (!App.isIdeas() && App.currentView === 'packages') P.loadVisible(); });
+    App.listen('hpc', (up) => { for (const k of ['py', 'r']) if (P[k].where === 'hpc') (k === 'py' ? P.loadPy : P.loadR)(); if (up && P.r.where === 'hpc') detectR(); });
     detectR();
   };
   P.loadVisible = () => {
@@ -77,7 +78,7 @@
   // ---------- R ----------
   const SOURCES = [{ value: 'cran', label: 'CRAN' }, { value: 'bioc', label: 'Bioconductor' }, { value: 'github', label: 'GitHub' }];
   function rSection() {
-    const whereSel = whereSelect('R installation', (v) => { P.r.where = v; P.r.data = null; P.r.old = null; P.loadR(); });
+    const whereSel = whereSelect('R installation', (v) => { P.r.where = v; P.r.data = null; P.r.old = null; detectR(); });
     UI.rVersion = h('span.hint.r-ver');
     const source = h('select', { 'aria-label': 'Install from', title: 'Where to install from' }, SOURCES.map((s) => h('option', { value: s.value }, s.label)));
     const install = h('input', { type: 'text', spellcheck: 'false', 'aria-label': 'R packages to install', placeholder: 'e.g. vegan, or user/repo',
@@ -105,7 +106,7 @@
           { label: 'R settings…', run: () => App.views.settings.open('r') },
           '-', ...P.stack.items('r')];
       },
-      items: () => [rToggleItem()],
+      items: () => [rToggleItem(), P.r.detected && !P.r.project && App.project && !App.isIdeas() ? { label: 'Set up as R project…', run: () => P.setupRProject() } : null],
       body: [h('div.pad.form.pkg-form', h('div.row', whereSel, UI.rVersion), h('div.row', source, install, h('button.btn.small', { onclick: go }, 'Install')), filter), UI.rList],
       onExpand: () => { if (!P.r.data) P.loadR(); }
     };
@@ -123,23 +124,92 @@
   const R_MARKERS = ['DESCRIPTION', 'NAMESPACE', 'renv.lock', 'renv', '.Rprofile'];
   P.isRProject = (names) => names.some((n) => R_MARKERS.includes(n) || /\.(rproj|r|rmd)$/i.test(n));
   async function detectR() {
-    const dir = App.project;
-    P.r.project = null; applyR();
-    if (!dir) return;
-    const r = await codeome.local.list(dir);
-    if (dir !== App.project || r.error) return;
-    P.r.project = P.isRProject(r.entries.map((e) => e.name)) ? dir : null;
+    const dir = App.project, where = P.r.where, current = ++rDetection;
+    P.r.detected = false;
+    if (!dir || App.isIdeas(dir)) { P.r.project = null; P.r.detected = true; applyR(); return; }
+    const checks = [codeome.local.list(dir)];
+    if (where === 'hpc' && App.remoteDir && App.hpcConnected) checks.push(codeome.remote.list(App.remoteDir));
+    const results = await Promise.allSettled(checks);
+    if (current !== rDetection || dir !== App.project || where !== P.r.where) return;
+    P.r.project = results.some((r) => r.status === 'fulfilled' && !r.value.error && P.isRProject(r.value.entries.map((e) => e.name))) ? dir : null;
+    P.r.detected = true;
     applyR();
   }
 
+  const R_IGNORE = ['.Rproj.user', '.Rhistory', '.RData', 'renv/library'];
+  const RPROJ = 'Version: 1.0\nRestoreWorkspace: No\nSaveWorkspace: No\nAlwaysSaveHistory: No\nEnableCodeIndexing: Yes\nUseSpacesForTab: Yes\nNumSpacesForTab: 2\nEncoding: UTF-8\nRnwWeave: Sweave\nLaTeX: pdfLaTeX\n';
+  P.rScaffold = (name, opts, names, ignore = '') => {
+    const present = new Set(names), files = [], skipped = [];
+    const add = (file, content) => { if (present.has(file)) skipped.push(file); else files.push({ name: file, content }); };
+    if (opts.rproj) add(name + '.Rproj', RPROJ);
+    if (opts.rmd) add('analysis.Rmd', `---\ntitle: ${JSON.stringify(name + ' analysis')}\noutput: html_document\n---\n\n# Analysis\n\n\`\`\`{r}\nsummary(cars)\n\`\`\`\n`);
+    if (opts.gitignore) {
+      const existing = new Set(ignore.split(/\r?\n/).map((line) => line.trimEnd().replace(/^\/+/, '').replace(/\/$/, '')));
+      const missing = R_IGNORE.filter((line) => !existing.has(line));
+      const nl = ignore.includes('\r\n') ? '\r\n' : '\n';
+      if (missing.length) files.push({ name: '.gitignore', content: ignore + (ignore && !ignore.endsWith('\n') ? nl : '') + missing.join(nl) + nl });
+      else skipped.push('.gitignore (entries already present)');
+    }
+    return { files, skipped };
+  };
+
+  P.setupRProject = async () => {
+    const dir = App.project, where = P.r.where, remote = where === 'hpc';
+    if (!dir || App.isIdeas(dir)) return;
+    if (remote && !App.remoteDir) return App.toast('Open an HPC project folder first.');
+    if (remote && !App.requireHpc()) return;
+    const target = remote ? App.remoteDir : dir, api = codeome[remote ? 'remote' : 'local'];
+    const before = await api.list(target);
+    if (before.error) return App.err(before.error);
+    if (P.isRProject(before.entries.map((e) => e.name))) { await detectR(); return App.toast('This folder is already an R project.'); }
+    const v = await App.modal({ title: 'Set up as R project', ok: 'Set up', fields: [
+      { key: 'rproj', type: 'check', label: '.Rproj file', value: true },
+      { key: 'renv', type: 'check', label: 'renv (renv::init)', value: !remote },
+      { key: 'gitignore', type: 'check', label: '.gitignore entries (.Rproj.user, .Rhistory, .RData, renv/library)', value: true },
+      { key: 'rmd', type: 'check', label: 'Starter analysis.Rmd', value: false }
+    ] });
+    if (!v) return;
+    if (!v.rproj && !v.renv && !v.gitignore && !v.rmd) return App.toast('Select at least one setup option.');
+    const listing = await api.list(target);
+    if (listing.error) return App.err(listing.error);
+    const names = listing.entries.map((e) => e.name);
+    let ignore = '';
+    if (v.gitignore && names.includes('.gitignore')) {
+      const read = await api.read(App.join(target, '.gitignore'));
+      if (read.error) return App.err('Could not read .gitignore: ' + read.error);
+      ignore = read.content;
+    }
+    const { files, skipped } = P.rScaffold(App.basename(target), v, names, ignore);
+    const written = [];
+    let failed = false;
+    for (const file of files) {
+      const r = await api.write(App.join(target, file.name), file.content);
+      if (r.error) { App.err('Could not write ' + file.name + ': ' + r.error); failed = true; break; }
+      written.push(file.name);
+    }
+    if (written.length || skipped.length) App.toast(`R project: ${written.length} file${written.length === 1 ? '' : 's'} written${skipped.length ? '; skipped ' + skipped.join(', ') : ''}.`, { ms: 8000 });
+    if (written.length) App.emit(remote ? 'remote-changed' : 'local-changed');
+    if (App.project !== dir || P.r.where !== where || (remote && App.remoteDir !== target)) {
+      App.toast(v.renv ? 'Project changed during setup; renv was skipped.' : 'Project changed during setup; R project refresh was skipped.');
+      return;
+    }
+    if (written.length) detectR();
+    if (v.renv && !failed) rRun('initialize renv', 'if (!requireNamespace("renv", quietly=TRUE)) install.packages("renv"); renv::init()', detectR);
+  };
+
   const rWhere = () => (P.r.where === 'hpc' ? { remote: true, cwd: App.remoteDir || '~' } : { remote: false, cwd: App.project || '~' });
   // Runs R code in a terminal (in the project folder, so renv installs into the project library).
-  function rRun(title, code) {
+  function rRun(title, code, onDone) {
     const rcmd = (P.r.where === 'hpc' ? App.cfg.r.remote : App.cfg.r.local) || 'R --no-save --quiet';
     const cmd = `${rcmd} -s -e ${App.shq(REPOS + code)}`;
     const t = 'R ' + (title.length > 40 ? title.slice(0, 39) + '…' : title);
-    if (P.r.where === 'hpc') { if (!App.requireHpc()) return; App.views.terminals.hpcTask(t, cmd, rWhere().cwd); setTimeout(() => P.loadR(), 20000); }
-    else App.views.terminals.open({ kind: 'task', title: t, command: cmd, cwd: rWhere().cwd, badge: 'Mac', onExit: () => P.loadR() });
+    const refresh = () => { P.loadR(); if (onDone) onDone(); };
+    if (P.r.where === 'hpc') {
+      if (!App.requireHpc()) return;
+      if (onDone) App.views.terminals.open({ kind: 'hpc-task', title: t, command: cmd, cwd: rWhere().cwd, badge: 'HPC', onExit: refresh });
+      else { App.views.terminals.hpcTask(t, cmd, rWhere().cwd); setTimeout(refresh, 20000); }
+    }
+    else App.views.terminals.open({ kind: 'task', title: t, command: cmd, cwd: rWhere().cwd, badge: 'Mac', onExit: refresh });
   }
   // A CRAN mirror when none is set, so install.packages() doesn't ask.
   const REPOS = 'local({ r <- getOption("repos"); if (is.null(r) || identical(unname(r["CRAN"]), "@CRAN@")) options(repos = c(CRAN = "https://cloud.r-project.org")) }); ';
