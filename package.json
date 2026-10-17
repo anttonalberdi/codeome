@@ -54,5 +54,8 @@
       "node_modules/node-pty/**",
       "kit/**"
     ]
+  },
+  "overrides": {
+    "dompurify": "^3.4.16"
   }
 }
