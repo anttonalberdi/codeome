@@ -71,6 +71,8 @@
       tools: [
         App.iconBtn('up', 'Parent folder', () => F.go(side, App.dirname(F[side].dir || '/'))),
         App.iconBtn('home', side === 'local' ? 'Project folder' : 'Start folder', () => F.go(side, F.startDir(side))),
+        App.iconBtn('newfile', 'New file', () => newItem(side, false)),
+        App.iconBtn('newfolder', 'New folder', () => newItem(side, true)),
         App.iconBtn('refresh', 'Refresh', () => F.refresh(side))],
       menu: () => folderMenu(side), items: () => sectionItems(side),
       body: [h('div.pathbar', pathInput), searchBox ? h('div.pathbar.searchbar', searchBox, searchClear) : null, list].filter(Boolean),
@@ -94,6 +96,14 @@
       if (side !== 'local') for (const f of e.dataTransfer.files) { const fp = codeome.pathForFile(f); if (fp) F.transfer('local', fp, side, dest); }
     });
     list.addEventListener('keydown', (e) => keyNav(side, e));
+    // Right-click on empty space: create in the current folder.
+    list.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.fitem') || !F[side].dir) return;
+      e.preventDefault();
+      App.menu(e.clientX, e.clientY, [
+        { label: 'New file…', run: () => newItem(side, false) },
+        { label: 'New folder…', run: () => newItem(side, true) }]);
+    });
     return { section, list, pathInput, dot, searchBox };
   }
 
@@ -252,6 +262,8 @@
     const isScript = /\.(sh|slurm|sbatch|job)$/i.test(e.name);
     return [
       !e.dir ? { label: 'Open', run: () => openEntry(side, e) } : { label: 'Open folder', run: () => F.go(side, full) },
+      e.dir ? { label: 'New file here…', run: () => newItem(side, false, full) } : null,
+      e.dir ? { label: 'New folder here…', run: () => newItem(side, true, full) } : null,
       !e.dir && ed.isPreviewable(full) ? { label: 'Preview', run: () => ed.preview(full, where(side)) } : null,
       remote && isScript ? { label: 'Submit to Slurm', run: () => App.views.slurm.submit(full) } : null,
       '-',
@@ -292,10 +304,11 @@
     ];
   }
 
-  async function newItem(side, folder) {
+  async function newItem(side, folder, base = F[side].dir) {
+    if (!base) return App.toast('Open a folder first.');
     const name = await App.prompt(folder ? 'New folder' : 'New file', 'Name', '', { ok: 'Create' });
     if (!name) return;
-    const p = App.join(F[side].dir, name);
+    const p = App.join(base, name);
     const r = folder ? await api(side).mkdir(p) : await api(side).write(p, '');
     if (r.error) return App.err(r.error);
     F.refresh(side);
