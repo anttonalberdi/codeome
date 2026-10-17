@@ -106,6 +106,35 @@ function buildMenu() {
 // ---------- terminals ----------
 function loginShell() { return process.env.SHELL || '/bin/zsh'; }
 
+// zsh sessions start from a small config that loads the user's own files, then colours the
+// stock prompt (env, user@host, folder, symbol) with the terminal's ANSI palette, so it
+// follows the app theme. A prompt the user has customised is left alone.
+const ZSH_FILES = {
+  '.zshenv': '[[ -r "$CODEOME_USER_ZDOTDIR/.zshenv" ]] && source "$CODEOME_USER_ZDOTDIR/.zshenv"\n',
+  '.zprofile': '[[ -r "$CODEOME_USER_ZDOTDIR/.zprofile" ]] && source "$CODEOME_USER_ZDOTDIR/.zprofile"\n',
+  '.zlogin': '[[ -r "$CODEOME_USER_ZDOTDIR/.zlogin" ]] && source "$CODEOME_USER_ZDOTDIR/.zlogin"\n',
+  '.zshrc': [
+    'ZDOTDIR="$CODEOME_USER_ZDOTDIR"',
+    '[[ -r "$ZDOTDIR/.zshrc" ]] && source "$ZDOTDIR/.zshrc"',
+    'if [[ "${PROMPT#\\(*\\) }" == \'%n@%m %1~ %# \' ]]; then',
+    '  _codeome_prompt() {',
+    '    local e="${CONDA_DEFAULT_ENV:-${VIRTUAL_ENV:t}}"',
+    '    [[ -n $e ]] && e="%F{5}($e)%f " || e=',
+    '    PROMPT="${e}%F{2}%n@%m%f %F{4}%1~%f %(?.%F{3}.%F{1})%#%f "',
+    '  }',
+    '  precmd_functions+=(_codeome_prompt)',
+    'fi',
+    ''
+  ].join('\n')
+};
+function zshEnv() {
+  if (path.basename(loginShell()) !== 'zsh') return {};
+  const dir = path.join(app.getPath('userData'), 'zsh');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [f, body] of Object.entries(ZSH_FILES)) if (!fs.existsSync(path.join(dir, f)) || fs.readFileSync(path.join(dir, f), 'utf8') !== body) fs.writeFileSync(path.join(dir, f), body);
+  return { ZDOTDIR: dir, CODEOME_USER_ZDOTDIR: process.env.ZDOTDIR || os.homedir() };
+}
+
 function ptySpec(spec) {
   const sh = loginShell();
   const cwd = expandHome(spec.cwd) || os.homedir();
@@ -198,7 +227,7 @@ ipcMain.handle('pty:spawn', (_e, spec) => {
     let acct = null;
     if (spec.kind === 'agent-local' && usage.ENV_VAR[spec.engine]) { acct = launchOn(spec.engine, spec.account, spec.command); spec = { ...spec, command: acct.command }; }
     const s = ptySpec(spec);
-    const env = augmentedEnv({ ...userSecretEnv(SECRET_SCOPE[spec.kind], spec.project), TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Codeome', ...(spec.env || {}), ...secretEnv(spec.secretEnv), ...(acct ? acct.env : {}) });
+    const env = augmentedEnv({ ...userSecretEnv(SECRET_SCOPE[spec.kind], spec.project), TERM: 'xterm-256color', COLORTERM: 'truecolor', CLICOLOR: '1', TERM_PROGRAM: 'Codeome', ...(['shell', 'task', 'agent-local'].includes(spec.kind) ? zshEnv() : {}), ...(spec.env || {}), ...secretEnv(spec.secretEnv), ...(acct ? acct.env : {}) });
     if (acct) for (const k of acct.unset) delete env[k];
     const p = pty.spawn(s.file, s.args, { name: 'xterm-256color', cols: spec.cols || 100, rows: spec.rows || 30, cwd: fs.existsSync(s.cwd) ? s.cwd : os.homedir(), env });
     ptys.set(spec.id, p);
