@@ -36,6 +36,10 @@
   const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
   const isRule = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
 
+  const COPY_IC = '<svg viewBox="0 0 16 16"><path d="M5.5 5.5h7v8h-7z M3.5 10.5v-8h7" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+  const LAUNCH_IC = '<svg viewBox="0 0 16 16"><path d="M4.5 3l8 5-8 5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+  const CHECK_IC = '<svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+
   function render(src) {
     const lines = String(src || '').replace(/\r/g, '').split('\n');
     const out = [];
@@ -48,7 +52,7 @@
         i++;
         while (i < lines.length && !lines[i].trim().startsWith(fence)) body.push(lines[i++]);
         i++;
-        out.push(`<div class="code-block"><button type="button" class="code-copy" title="Copy to clipboard">Copy</button><pre><code${m[2] ? ` data-lang="${esc(m[2])}"` : ''}>${esc(body.join('\n'))}</code></pre></div>`);
+        out.push(`<div class="code-block"><span class="code-actions"><button type="button" class="code-launch" title="Launch in a new session" aria-label="Launch in a new session">${LAUNCH_IC}</button><button type="button" class="code-copy" title="Copy to clipboard" aria-label="Copy to clipboard">${COPY_IC}</button></span><pre><code${m[2] ? ` data-lang="${esc(m[2])}"` : ''}>${esc(body.join('\n'))}</code></pre></div>`);
         continue;
       }
       if (!l.trim()) { i++; continue; }
@@ -105,9 +109,15 @@
     if (!btn) return;
     const code = btn.parentElement.querySelector('pre');
     navigator.clipboard.writeText(code ? code.textContent : '').then(() => {
-      btn.textContent = 'Copied';
-      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      btn.innerHTML = CHECK_IC; btn.title = 'Copied';
+      setTimeout(() => { btn.innerHTML = COPY_IC; btn.title = 'Copy to clipboard'; }, 1500);
     }, () => App.toast('Could not copy.'));
+  });
+  if (typeof document !== 'undefined') document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('.code-launch');
+    if (!btn) return;
+    const code = btn.closest('.code-block').querySelector('pre');
+    App.views.chat.launchPrompt(code ? code.textContent : '');
   });
 
   App.md = render;

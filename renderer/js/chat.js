@@ -455,6 +455,23 @@
   }
 
   // Continue the same conversation in a Claude Code terminal session.
+  // Start a fresh agent session in the terminal panel with a prompt from an answer.
+  C.launchPrompt = (text) => {
+    text = String(text || '').trim();
+    if (!text) return;
+    const chat = cur();
+    const engine = chat ? engineOf(chat) : 'claude';
+    let cmd = (App.cfg.agents.find((a) => new RegExp('^' + engine + '(\\s|$)').test(a.cmd)) || { cmd: engine }).cmd;
+    const { model, effort } = App.cfg.chat || {};
+    if (engine === 'claude') {
+      if (model) cmd = cmd.replace(/\s--model(=|\s+)\S+/, '') + ' --model ' + model;
+      if (effort) cmd = cmd.replace(/\s--effort(=|\s+)\S+/, '') + ' --effort ' + effort;
+    }
+    const project = chat ? chat.project : App.project;
+    const dirs = engine === 'claude' ? App.views.projects.linksOf(project).map((d) => ' --add-dir ' + App.shq(d)).join('') : '';
+    App.views.terminals.open({ kind: 'agent-local', title: 'New session', command: cmd + dirs + ' ' + App.shq(text), cwd: project, badge: 'Mac', engine, account: (chat && chat.accountName) || 'auto' });
+  };
+
   C.toTerminal = async () => {
     if (App.isIdeas()) return;
     const chat = cur();
