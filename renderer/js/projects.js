@@ -496,7 +496,7 @@
       { label: 'Copy path', run: () => navigator.clipboard.writeText(dir) },
       '-',
       { label: 'Open another project…', key: '⌘O', run: () => P.open() },
-      { label: '💡 Ideas', run: () => P.openIdeas() },
+      { label: 'Deselect project (no-project chat)', run: () => P.openIdeas() },
       { label: 'Close project', key: '⇧⌘W', danger: true, run: () => P.close(dir) }
     ];
   }
@@ -508,6 +508,7 @@
     // Dropping a card on the empty part of the list takes it out of its group.
     const list = h('div.proj-list', {
       role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Projects',
+      onclick: (e) => { if (e.target === list && !App.isIdeas()) P.openIdeas(); },
       ondragover: (e) => { if (dragging && groupOf(dragging) && !e.target.closest('.pg')) e.preventDefault(); },
       ondrop: (e) => {
         if (!dragging || e.target.closest('.pg, .proj')) return;
@@ -521,7 +522,6 @@
     const collapsed = !!App.cfg.ui.projectsCollapsed;
     el.append(list, h('div.proj-foot',
       h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Project')),
-      h('button.proj-add', { title: 'Ideas · chat and forum', 'aria-label': 'Open Ideas', onclick: () => P.openIdeas() }, h('span', '💡'), collapsed ? null : h('span', 'Ideas')),
       h('button.proj-add', { title: 'New group of projects', 'aria-label': 'New group of projects', onclick: () => P.addGroup(true) }, h('span', { html: collapsed ? GROUP_ICON : App.icons.plus }), collapsed ? null : h('span', 'Group')),
       h('button.proj-fold', { title: collapsed ? 'Show project names' : 'Hide project names', 'aria-label': collapsed ? 'Expand project column' : 'Collapse project column', onclick: toggleCollapsed },
         h('span', { html: `<svg viewBox="0 0 16 16"><path d="${collapsed ? 'm6 4 4 4-4 4' : 'm10 4-4 4 4 4'}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` }))));
@@ -551,7 +551,7 @@
     const c = h('div.proj.ptint' + (active ? '.active' : ''), {
       role: 'tab', 'aria-selected': String(active), 'aria-label': label, tabindex: active ? '0' : '-1', draggable: String(!ideas),
       title: ideas ? 'Chat and forum with no project' : App.tildify(dir), style: '--ph: ' + colorOf(dir),
-      onclick: () => P.switchTo(dir),
+      onclick: () => { if (active && !ideas) P.openIdeas(); else P.switchTo(dir); },
       onauxclick: (e) => { if (e.button === 1) P.close(dir); },
       oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, menu(dir, c)); },
       onkeydown: (e) => {
