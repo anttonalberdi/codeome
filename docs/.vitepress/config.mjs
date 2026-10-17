@@ -5,9 +5,13 @@ export default defineConfig({
   description:
     'One Mac app for R/Python work on your laptop and HPC: editor, terminals, Claude Code & Codex sessions, Slurm, file transfer, reports, GitHub, Zenodo and PyPI.',
   base: '/codeome/',
+  appearance: 'dark',
   cleanUrls: true,
   lastUpdated: true,
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/codeome/favicon.svg' }]],
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/codeome/favicon.svg' }],
+    ['meta', { name: 'theme-color', content: '#1a1f26' }]
+  ],
   themeConfig: {
     logo: '/logo.svg',
     nav: [

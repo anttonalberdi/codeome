@@ -204,13 +204,14 @@ const steps = {
     const C = App.views.chat;
     const mk = (title, f) => { C.newChat(); const c = C.current(); c.title = title; c.started = true; c.items.push({ t: 'user', text: title }); f(c); return c; };
     const now = Date.now();
-    mk('Fix the failing assembly tests', (c) => { c.running = c.busy = true; c.items.push({ t: 'job', id: 'j1', engine: 'codex', role: 'debugger', title: 'Find why test_assembly fails', status: 'running', startedAt: now - 95000 }, { t: 'job', id: 'j2', engine: 'claude', role: 'explorer', title: 'Map the assembly module', status: 'running', startedAt: now - 40000, activity: 'Read main/assembly.py' }); });
+    const first = mk('Fix the failing assembly tests', (c) => { c.running = c.busy = true; c.items.push({ t: 'job', id: 'j1', engine: 'codex', role: 'debugger', title: 'Find why test_assembly fails', status: 'running', startedAt: now - 95000 }, { t: 'job', id: 'j2', engine: 'claude', role: 'explorer', title: 'Map the assembly module', status: 'running', startedAt: now - 40000, activity: 'Read main/assembly.py' }); });
     mk('Plan the 0.4 release', (c) => { c.running = c.busy = true; const it = { t: 'ask', requestId: 'r1', questions: [{ question: 'Ship the kit update in 0.4?', header: 'Release', options: [{ label: 'Yes', description: 'Bump to 0.4.0' }, { label: 'Later' }] }] }; c.items.push(it); c.requests.r1 = { input: {}, item: it }; });
     mk('How is this project organised?', (c) => { c.running = true; c.unread = true; c.outcome = 'done'; c.items.push({ t: 'text', text: 'Three parts: **main/** (Electron), **renderer/** (UI) and **kit/**.' }); });
     const d = mk('Review my uncommitted changes', (c) => { c.running = true; c.items.push({ t: 'tool', id: 't1', name: 'Bash', input: { command: 'git diff --stat' }, done: true }, { t: 'text', text: 'The diff touches **4 files**. Two findings:\\n\\n1. renderer/js/chat.js:120 — the draft is lost when a tab closes.\\n2. Missing test for withModel.' }); });
     // SHOT_QUICK: also attach two files and open the saved-messages menu.
     if (${JSON.stringify(process.env.SHOT_QUICK || '')}) { d.items.push({ t: 'user', text: 'Does this match the README?', files: [P + '/README.md'] }); d.attach.push(P + '/package.json', P + '/main/chat.js'); }
-    C.activate(d);
+    // SHOT_FIRST: show the first chat (the one with two running jobs) instead of the last.
+    C.activate(${JSON.stringify(process.env.SHOT_FIRST || '')} ? first : d);
     if (${JSON.stringify(process.env.SHOT_SIDE || '')}) document.documentElement.style.setProperty('--side-w', ${JSON.stringify(process.env.SHOT_SIDE || '')} + 'px');
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
     if (${JSON.stringify(process.env.SHOT_QUICK || '')}) setTimeout(() => document.querySelector('.chat-row .icon-btn:last-child').click(), 300);
@@ -290,6 +291,9 @@ const steps = {
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
     document.documentElement.style.setProperty('--side-w', '380px');
     App.setView('packages');
+    // SHOT_RFILTER: filter the R library list, to keep a long system library out of the picture.
+    const rf = ${JSON.stringify(process.env.SHOT_RFILTER || '')};
+    if (rf) setTimeout(() => { const i = document.querySelector('[aria-label="Filter installed R packages"]'); i.value = rf; i.dispatchEvent(new Event('input')); }, 2500);
   })(); 0`],
   // Settings → Accounts & limits with five made-up accounts: confirmed, signed out, another sign-in, and one doubled.
   'settings-accounts': [`(async () => {
@@ -389,10 +393,25 @@ app.whenReady().then(() => {
       say({ type: 'result', subtype: 'success' });
       await win.webContents.executeJavaScript(`App.views.stats.open(); if (${JSON.stringify(process.env.SHOT_POPOVER || '')}) setTimeout(() => document.querySelector('.chat-ctx').click(), 400); 0`);
     }
-    if (scenario === 'slurm') await win.webContents.executeJavaScript(`App.views.slurm.stop(); App.views.slurm.render(); App.views.slurm.openJob(App.views.slurm.queue[0]);`).catch((e)=>console.log(e.message));
+    // SHOT_NOJOB: leave the job's detail tab closed (the made-up job has no log to show).
+    if (scenario === 'slurm') await win.webContents.executeJavaScript(`App.views.slurm.stop(); App.views.slurm.render(); if (!${JSON.stringify(process.env.SHOT_NOJOB || '')}) App.views.slurm.openJob(App.views.slurm.queue[0]);`).catch((e)=>console.log(e.message));
     await new Promise((r) => setTimeout(r, 800));
     const img = await win.webContents.capturePage();
     fs.writeFileSync(path.join(out, scenario + '.png'), img.toPNG());
+    // SHOT_CLIP: a CSS selector; also save just that element (12px padding, kept inside the window) as
+    // <scenario>-clip.png, or SHOT_CLIP_NAME.png. SHOT_CLIP_ALL=1 joins every match into one rectangle.
+    if (process.env.SHOT_CLIP) {
+      const r = await win.webContents.executeJavaScript(`(() => {
+        const els = [...document.querySelectorAll(${JSON.stringify(process.env.SHOT_CLIP)})].filter((e) => e.getBoundingClientRect().width);
+        if (!els.length) return null;
+        const bs = (${JSON.stringify(process.env.SHOT_CLIP_ALL || '')} ? els : els.slice(0, 1)).map((e) => e.getBoundingClientRect());
+        const x1 = Math.min(...bs.map((b) => b.left)), y1 = Math.min(...bs.map((b) => b.top)), x2 = Math.max(...bs.map((b) => b.right)), y2 = Math.max(...bs.map((b) => b.bottom));
+        const x = Math.max(0, Math.floor(x1 - 12)), y = Math.max(0, Math.floor(y1 - 12));
+        return { x, y, width: Math.min(innerWidth, Math.ceil(x2 + 12)) - x, height: Math.min(innerHeight, Math.ceil(y2 + 12)) - y };
+      })()`);
+      if (r) fs.writeFileSync(path.join(out, path.basename(process.env.SHOT_CLIP_NAME || scenario + '-clip') + '.png'), (await win.webContents.capturePage(r)).toPNG());
+      else console.log('clip: no element matches', process.env.SHOT_CLIP);
+    }
     const errs = await win.webContents.executeJavaScript('window.__errs || []').catch(() => []);
     console.log('saved', scenario, errs.length ? errs : '');
     app.exit(0);

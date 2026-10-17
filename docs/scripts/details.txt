@@ -1,0 +1,13 @@
+detail-usage-meters|projects|SHOT_POPOVER=1 SHOT_CLIP_ALL=1|#usage, .popover
+detail-job-cards|chats|SHOT_FIRST=1 SHOT_SIDE=520 SHOT_CLIP_ALL=1|.jobcard
+detail-chat-tabs|chats|SHOT_FIRST=1 SHOT_SIDE=520 SHOT_CLIP_ALL=1|.chat-tabbar, .chat-sum
+detail-chat-context|stats|SHOT_POPOVER=1|.popover
+detail-plots-export|plots|SHOT_CLIP_ALL=1|.plot-form, .plot-thumbs
+detail-transfer-queue|transfer|SHOT_STORAGE=@STORAGE@ SHOT_CLIP_ALL=1|.xf-qhead, .xq:not(.compact)
+detail-slurm-resources|slurm|SHOT_NOJOB=1 SHOT_CLIP_ALL=1|.res-part
+detail-secrets|settings-secrets|SHOT_CLIP_ALL=1|.sec-row
+detail-project-cards|groups|SHOT_CLIP_ALL=1|.proj-list .pg, .proj-list .proj
+detail-files-sections|files|SHOT_STORAGE=@STORAGE@|.pane-stack
+detail-forum-seats|forum||.forum-seats
+detail-account-card|settings-accounts||.acct-card
+detail-vpn-prompt|vpn||.modal
