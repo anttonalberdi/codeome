@@ -1,5 +1,5 @@
 // Settings: a full page over the workspace, showing one section at a time. Changes save as you make them.
-// Sections: HPC, long-term storage, Agents (for all projects: the chat's model, the command-line agents and
+// Sections: HPC, long-term storage, Transfer (favourite folders), Agents (for all projects: the chat's model, the command-line agents and
 // the global agents and skills; for the open project: its agents with their engine and model, and its skills),
 // accounts and limits, Python, publishing tokens, your own secrets,
 // appearance, and what was found on this Mac.
@@ -35,7 +35,7 @@
   const ENGINE_NAME = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
   const MODEL_RE = /^[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
-    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
+    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
     ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
   const ALIAS = { github: 'git', zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
@@ -82,6 +82,7 @@
     // The HPC checklist follows the connection, the tunnel and setup steps as they happen.
     for (const ev of ['setup', 'hpc', 'vpn', 'login', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
     for (const ev of ['storage', 'login', 'config']) App.listen(ev, () => { if (S.isOpen) renderStorage(); });
+    App.listen('config', () => { if (S.isOpen && current === 'transfer' && !favBusy) sections.transfer.replaceWith(transferSection()); });
     for (const ev of ['usage', 'config']) App.listen(ev, () => { if (S.isOpen) renderAccounts(); });
     App.listen('env', () => { if (S.isOpen && current === 'mac') sections.mac.replaceWith(macSection()); });
   }
@@ -176,7 +177,7 @@
   // ---------- render ----------
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
-    hpc: hpcSection, storage: storageSection, agents: agentsSection, accounts: accountsSection, r: rSection,
+    hpc: hpcSection, storage: storageSection, transfer: transferSection, agents: agentsSection, accounts: accountsSection, r: rSection,
     projects: projectsSection, python: pythonSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
   };
   let showSeq = 0;
@@ -401,6 +402,31 @@
     storageHost.replaceChildren(h('div.sp-card', h('div.sp-card-h', 'Connection'), h('div.su-list',
       connectionRow({ target: 'storage', host, connected: App.storageConnected, connect: App.connectStorage, disconnect: App.disconnectStorage,
         uses: `Files and copies to and from ${App.views.files.title('storage')} use this connection.`, asks: 'a password if the server wants one' }))));
+  }
+
+  // Favourite folders of the Transfer view, one card per host. Each pane there stars the folder it shows.
+  let favBusy = false;
+  function transferSection() {
+    const X = App.views.transfer, files = App.views.files;
+    const redraw = () => { favBusy = false; sections.transfer.replaceWith(transferSection()); flash(); };
+    const card1 = (host, hint) => {
+      const list = (App.cfg.transferFavs = App.cfg.transferFavs || {})[host] || [];
+      const add = async (dir) => { dir = (dir || '').trim().replace(/(.)\/+$/, '$1'); if (!dir) return; favBusy = true; X.addFav(host, dir); redraw(); };
+      const input = h('input', { type: 'text', placeholder: hint, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Add a favourite folder on ' + files.title(host),
+        onkeydown: (e) => { if (e.key === 'Enter') add(input.value); } });
+      return card(files.title(host),
+        ...(list.length ? list.map((d, i) => h('div.sp-row', h('div.sp-label', h('label', d)),
+          h('div.sp-ctl', h('div.row',
+            h('button.btn.small', { disabled: i === 0, 'aria-label': 'Move up', onclick: () => { [list[i - 1], list[i]] = [list[i], list[i - 1]]; App.saveConfig(); redraw(); } }, '↑'),
+            h('button.btn.small', { disabled: i === list.length - 1, 'aria-label': 'Move down', onclick: () => { [list[i + 1], list[i]] = [list[i], list[i + 1]]; App.saveConfig(); redraw(); } }, '↓'),
+            h('button.btn.small', { onclick: () => { favBusy = true; X.removeFav(host, d); redraw(); } }, 'Remove')))))
+          : [h('div.sp-empty', 'No favourites yet.')]),
+        h('div.sp-row', h('div.sp-label', h('label', 'Add a folder')),
+          h('div.sp-ctl', h('div.row', input, h('button.btn.small', { onclick: () => add(input.value) }, 'Add'),
+            host === 'local' ? h('button.btn.small', { onclick: async () => { const d = await codeome.dialog.folder({ defaultPath: App.project || '~' }); if (d) add(d); } }, 'Choose…') : null))));
+    };
+    return section('transfer', 'Transfer', 'Favourite folders for the panes of the Transfer view. In a pane, click the star to favourite the folder it shows, or the list next to it to jump to a favourite; right-click a folder and choose Add to favourites.',
+      card1('local', '/Users/you/data  or  ~/data'), card1('remote', '/projects/mygroup/scratch/me'), card1('storage', '/home/data'));
   }
 
   function rSection(c) {

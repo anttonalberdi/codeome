@@ -105,3 +105,13 @@ test('folders sort first, then by the chosen column', () => {
   assert.equal(names({ key: 'size', asc: false }), 'z a.txt b.txt');
   assert.equal(names({ key: 'mtime', asc: false }), 'z b.txt a.txt');
 });
+
+test('favourite folders are kept per host, once each', () => {
+  const { X, App } = load();
+  App.saveConfig = () => {};
+  X.addFav('remote', '/projects/a'); X.addFav('remote', '/projects/a'); X.addFav('local', '/projects/a');
+  assert.deepEqual(App.cfg.transferFavs.remote, ['/projects/a']);
+  assert.ok(X.isFav('local', '/projects/a') && !X.isFav('storage', '/projects/a'));
+  X.toggleFav('remote', '/projects/a');
+  assert.ok(!X.isFav('remote', '/projects/a'));
+});

@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vitepress'
+
+const { version } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
 
 export default defineConfig({
   title: 'Codeome',
@@ -7,6 +10,7 @@ export default defineConfig({
   base: '/codeome/',
   appearance: 'dark',
   cleanUrls: true,
+  vite: { define: { __CODEOME_VERSION__: JSON.stringify(version) } },
   srcExclude: ['scripts/**'],
   lastUpdated: true,
   head: [

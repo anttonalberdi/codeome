@@ -187,6 +187,29 @@
   const panes = () => (root ? [X.panes.left, X.panes.right] : []);
   const other = (p) => (p.id === 'left' ? X.panes.right : X.panes.left);
   const configured = (host) => host === 'local' || !!(host === 'remote' ? App.cfg.hpc.host : App.cfg.storage.host);
+  // Favourite folders per host, kept in App.cfg.transferFavs and edited in Settings → Transfer.
+  const favs = (host) => ((App.cfg.transferFavs = App.cfg.transferFavs || {})[host] = App.cfg.transferFavs[host] || []);
+  X.isFav = (host, dir) => !!dir && favs(host).includes(dir);
+  X.addFav = (host, dir) => { if (dir && !X.isFav(host, dir)) { favs(host).push(dir); App.saveConfig(); App.emit('config'); } };
+  X.removeFav = (host, dir) => { const l = favs(host), i = l.indexOf(dir); if (i >= 0) { l.splice(i, 1); App.saveConfig(); App.emit('config'); } };
+  X.toggleFav = (host, dir) => (X.isFav(host, dir) ? X.removeFav(host, dir) : X.addFav(host, dir));
+  const paintStar = (p) => {
+    const on = X.isFav(p.host, p.dir);
+    p.star.innerHTML = App.icons[on ? 'starfill' : 'star'];
+    p.star.classList.toggle('on', on);
+    p.star.disabled = !p.dir;
+    p.star.title = p.star.ariaLabel = on ? 'Remove this folder from the favourites' : 'Add this folder to the favourites';
+  };
+  function favMenu(p) {
+    const list = favs(p.host);
+    return [
+      ...(list.length ? list.map((d) => ({ label: App.tildify(d), run: () => go(p, d) })) : [{ label: 'No favourites yet', disabled: true }]),
+      '-',
+      { label: 'Add this folder', disabled: !p.dir || X.isFav(p.host, p.dir), run: () => { X.addFav(p.host, p.dir); paintStar(p); } },
+      { label: 'Manage favourites…', run: () => App.views.settings.open('transfer') }
+    ];
+  }
+
   const remember = (p) => { ui()[p.id] = { host: p.host, dirs: p.dirs }; };
 
   X.sortEntries = (entries, { key, asc }) => {
@@ -200,11 +223,15 @@
     const side = id === 'left' ? 'Left' : 'Right';
     p.seg = h('div.xf-seg', { role: 'tablist', 'aria-label': side + ' pane: host' });
     p.path = h('input', { type: 'text', spellcheck: 'false', 'aria-label': side + ' pane: folder', onkeydown: (e) => { if (e.key === 'Enter') go(p, p.path.value.trim()); } });
+    p.star = App.iconBtn('star', 'Add this folder to the favourites', () => { X.toggleFav(p.host, p.dir); paintStar(p); });
+    p.favBtn = App.iconBtn('history', 'Favourite folders', (e) => App.menuAt(e.currentTarget, favMenu(p)));
+    p.favBtn.innerHTML = App.icons.starlist;
     p.cols = h('div.xf-cols');
     p.list = h('div.flist.xf-list', { tabindex: '0', role: 'listbox', 'aria-multiselectable': 'true', 'aria-label': side + ' pane: files' });
     p.foot = h('div.xf-foot');
     p.el = h('section.xf-pane', { 'aria-label': side + ' pane' },
       h('div.xf-head', p.seg, h('span.grow'),
+        p.star, p.favBtn,
         App.iconBtn('up', 'Parent folder', () => p.dir && go(p, App.dirname(p.dir))),
         App.iconBtn('home', 'Start folder', () => go(p, F().startDir(p.host))),
         App.iconBtn('refresh', 'Refresh', () => go(p)),
@@ -245,6 +272,7 @@
 
   function paintSeg(p) {
     p.seg.innerHTML = '';
+    paintStar(p);
     for (const host of HOSTS) {
       const tip = host === 'local' ? 'Files on this Mac' : isUp(host) ? 'Connected' : configured(host) ? 'Not connected' : 'Not set up';
       p.seg.append(h('button' + (host === p.host ? '.on' : ''), { role: 'tab', 'aria-selected': String(host === p.host), title: tip, onclick: () => X.setHost(p, host) },
@@ -291,6 +319,7 @@
     p.dir = p.dirs[host] = r.cwd; remember(p);
     p.entries = r.entries.filter((x) => App.cfg.showHidden || !x.name.startsWith('.'));
     p.path.value = r.cwd;
+    paintStar(p);
     render(p);
   }
 
@@ -404,6 +433,7 @@
       { label: `Copy ${one ? '' : items.length + ' items '}to ${title(o.host)}${o.dir ? ': ' + App.basename(o.dir) : ''}`, disabled: !o.dir, run: () => X.copy(p.id) },
       one ? (e.dir ? { label: 'Open folder', run: () => go(p, full) } : { label: 'Open in the editor', run: () => openEntry(p, e) }) : null,
       '-',
+      one && e.dir ? { label: X.isFav(p.host, full) ? 'Remove from favourites' : 'Add to favourites', run: () => { X.toggleFav(p.host, full); paintStar(p); } } : null,
       one ? { label: 'Copy path', run: () => navigator.clipboard.writeText(full) } : null,
       one && p.host === 'local' ? { label: 'Reveal in Finder', run: () => codeome.shell.reveal(full) } : null,
       one ? { label: 'Rename…', run: () => renameItem(p, full) } : null,

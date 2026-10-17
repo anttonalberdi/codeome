@@ -4,6 +4,11 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+## 1.0.1
+
+### Added
+- **Transfer favourites**: star a folder in a Transfer pane (or right-click a folder → Add to favourites) and pick it later from the favourites list next to the star. Settings has a new Transfer section to add, reorder and remove favourites for this Mac, the HPC and the storage.
+
 ## 1.0.0
 
 First stable release.

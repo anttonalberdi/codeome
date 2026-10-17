@@ -76,7 +76,8 @@ const DEFAULTS = {
   // pkgPanes: the same for the Packages view (python / r), plus shown: true|false for R;
   // transfer: the Transfer view → { left, right: { host, dirs }, queueH, parallel }.
   ui: { projectsCollapsed: false, panes: {}, pkgPanes: {}, slurmPanes: {}, gitPanes: {}, transfer: {} },
-  recentFolders: []
+  recentFolders: [],
+  transferFavs: { local: [], remote: [], storage: [] }  // favourite folders of the Transfer view, per host
 };
 
 function file(name) { return path.join(app.getPath('userData'), name); }

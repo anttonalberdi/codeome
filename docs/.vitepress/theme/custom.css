@@ -160,3 +160,18 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
+
+/* Home feature cards: icon tile, even heights, lift on hover */
+.VPFeatures { padding-top: 24px; }
+.VPFeatures .container { max-width: 1152px; }
+.VPFeatures .items { margin: -10px; }
+.VPFeatures .item { padding: 10px; }
+.VPFeature { height: 100%; padding: 4px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); }
+.VPFeature:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.4); }
+.VPFeature .box { padding: 22px; gap: 0; }
+.VPFeature .icon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-bottom: 16px; border-radius: 10px; background: var(--vp-c-brand-soft); border: 1px solid var(--vp-c-divider); }
+.VPFeature .icon img { width: 22px; height: 22px; }
+.VPFeature .title { font-size: 16px; line-height: 24px; font-weight: 600; }
+.VPFeature .details { margin-top: 6px; font-size: 14px; line-height: 22px; flex-grow: 1; }
+.VPFeature .link-text { padding-top: 14px; }
+.VPFeature .link-text-value { color: var(--vp-c-brand-1); font-size: 13px; font-weight: 600; }
