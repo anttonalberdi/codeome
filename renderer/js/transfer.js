@@ -306,6 +306,7 @@
     paintCols(p);
     p.list.innerHTML = '';
     p.shown = X.sortEntries(p.entries, p.sort);
+    if (p.dir && p.dir !== '/') p.list.append(h('div.fitem.xf-row.updir', { role: 'option', title: 'Parent folder', ondblclick: () => go(p, App.dirname(p.dir)) }, h('span', { html: App.icons.folder }), h('span.nm', '..'), h('span.sz'), h('span.mt')));
     if (!p.shown.length) p.list.append(h('div.empty', 'This folder is empty.'));
     for (const e of p.shown) {
       p.list.append(h('div.fitem.xf-row' + (e.dir ? '.dir' : ''), {

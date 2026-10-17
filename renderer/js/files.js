@@ -221,6 +221,7 @@
     const s = F[side]; const p = F.panes[side];
     if (side === 'local' && s.searching && p.searchBox?.value.trim()) return;
     p.list.innerHTML = '';
+    if (s.dir && s.dir !== '/') p.list.append(h('div.fitem.updir', { role: 'option', title: 'Parent folder', ondblclick: () => F.go(side, App.dirname(s.dir)) }, h('span', { html: App.icons.folder }), h('span.nm', '..'), h('span.sz')));
     if (!s.entries.length) { p.list.append(h('div.empty', 'This folder is empty.')); return; }
     for (const e of s.entries) {
       const full = App.join(s.dir, e.name);
