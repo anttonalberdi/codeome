@@ -38,6 +38,7 @@
     <button data-view="publish" title="Publish: Zenodo & PyPI (⌘5)"><svg viewBox="0 0 20 20"><path d="M10 13V3.5M6.5 7 10 3.5 13.5 7M4 12.5v4h12v-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
     <button data-view="packages" title="Packages: Python and R (⌘6)"><svg viewBox="0 0 20 20"><path d="M10 2.8 16.5 6.5v7L10 17.2 3.5 13.5v-7Z M3.5 6.5 10 10.2l6.5-3.7M10 10.2v7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
     <button data-view="plots" title="Plots (⌘7)"><svg viewBox="0 0 20 20"><rect x="3" y="3.5" width="14" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m5.5 13.5 3-4 2.5 2.5 3.5-5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg></button>
+    <button data-view="projectSettings" title="Project settings (⌘9)" aria-label="Project settings"><svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="5" r="2" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.4"/><circle cx="13" cy="10" r="2" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="15" r="2" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.4"/></svg></button>
   </nav>
 
   <aside id="sidebar">
@@ -48,6 +49,7 @@
     <section class="view" data-view="publish" hidden></section>
     <section class="view" data-view="packages" hidden></section>
     <section class="view" data-view="plots" hidden></section>
+    <section class="view" data-view="projectSettings" hidden></section>
   </aside>
   <button id="side-band" class="band" title="Show the sidebar" aria-label="Show the sidebar" hidden><svg viewBox="0 0 20 20"><path d="m8 5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
   <div id="sidebar-resizer" class="resizer v"></div>
@@ -95,6 +97,7 @@
 <script src="js/publish.js"></script>
 <script src="js/packages.js"></script>
 <script src="js/plots.js"></script>
+<script src="js/projectsettings.js"></script>
 <script src="js/md.js"></script>
 <script src="js/chat.js"></script>
 <script src="js/overview-model.js"></script>

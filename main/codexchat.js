@@ -27,6 +27,7 @@ const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const usage = require('./usage');
 const { Meter } = require('./stats');
+const projectPolicy = require('./policy');
 
 // Claude Code's permission modes, as the nearest Codex approval and sandbox policy.
 const POLICIES = {
@@ -83,9 +84,9 @@ class CodexSession extends EventEmitter {
   // Also: instructions (developer instructions, set when the thread starts), resume (true: the
   // thread this chat id had; or a thread id), threadId, model, effort, mode (a Claude permission
   // mode), addDirs (more folders the agent may write in).
-  constructor({ id, cwd, shell, bin, args = [], env, autoAllow, meter, instructions = '', resume = false, threadId = null, model = '', effort = '', mode = 'default', addDirs = [] }) {
+  constructor({ id, cwd, shell, bin, args = [], env, autoAllow, meter, instructions = '', resume = false, threadId = null, model = '', effort = '', mode = 'default', addDirs = [], policy }) {
     super();
-    Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow, instructions, model, effort, addDirs });
+    Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow, instructions, model, effort, addDirs, projectPolicy: policy });
     this.resume = resume;
     this.threadId = threadId || (typeof resume === 'string' ? resume : null);
     this.mode = POLICIES[mode] ? mode : 'default';
@@ -307,7 +308,10 @@ class CodexSession extends EventEmitter {
       this.asked.set(key, { rpc: m.id, kind, params: p, ...extra });
       // Auto mode is Claude's "approve without asking": Codex's own reviewer still escalates some
       // requests to the client, so the host allows commands, edits and access requests here.
-      if (this.mode === 'auto' && (kind === 'command' || kind === 'file' || kind === 'permissions')) return this.respond(key, { behavior: 'allow', updatedInput: request.input });
+      if (this.mode === 'auto' && (kind === 'command' || kind === 'file' || kind === 'permissions')) {
+        const decision = this.projectPolicy && projectPolicy.decide(this.projectPolicy(), { tool_name: request.tool_name, input: request.input, cwd: this.cwd });
+        return this.respond(key, decision || { behavior: 'allow', updatedInput: request.input });
+      }
       this.handle({ type: 'control_request', request_id: key, request: { subtype: 'can_use_tool', tool_use_id: p.itemId, ...request } });
     };
     switch (m.method) {
@@ -317,8 +321,8 @@ class CodexSession extends EventEmitter {
       case 'item/fileChange/requestApproval': {
         const st = this.items.get(p.itemId);
         const t = st && st.tools[0];
-        const files = st ? st.tools.map((x) => x.input.file_path).join(', ') : p.grantRoot || '';
-        return ask('file', { tool_name: t ? t.name : 'Edit', input: { file_path: files }, decision_reason: p.reason || undefined, permission_suggestions: [{ type: 'session' }] });
+        const files = st ? st.tools.map((x) => x.input.file_path) : [];
+        return ask('file', { tool_name: t ? t.name : 'Edit', input: { file_path: files.join(', ') || p.grantRoot || '', files, grantRoot: p.grantRoot }, decision_reason: p.reason || undefined, permission_suggestions: [{ type: 'session' }] });
       }
       case 'item/permissions/requestApproval':
         return ask('permissions', { tool_name: 'Permissions', input: { description: p.reason || 'Codex asks for more access.' }, decision_reason: p.reason || undefined });
@@ -379,6 +383,10 @@ class CodexSession extends EventEmitter {
     if (u && u.context) this.emit('message', { type: 'context', ...u.context });
     if (u && u.turn) { this.emit('turn', u.turn); this.emit('message', { type: 'turn_usage', ...u.turn }); }
     const r = m.type === 'control_request' && m.request;
+    if (r && r.subtype === 'can_use_tool' && this.projectPolicy) {
+      const decision = projectPolicy.decide(this.projectPolicy(), { tool_name: r.tool_name, input: r.input, cwd: this.cwd });
+      if (decision) return this.respond(m.request_id, decision.behavior === 'allow' ? { ...decision, updatedInput: r.input } : decision);
+    }
     if (r && r.subtype === 'can_use_tool' && this.autoAllow && this.autoAllow(r)) return this.respond(m.request_id, { behavior: 'allow', updatedInput: r.input });
     this.emit('message', m);
   }

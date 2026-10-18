@@ -22,6 +22,7 @@ const scratch = require('./scratch');
 const ssh = require('./ssh');
 const { Meter } = require('./stats');
 const { parseFrontmatter } = require('./kit');
+const projectPolicy = require('./policy');
 
 const PROMPT = path.join(__dirname, '..', 'kit', 'chat.md');
 const PROMPT_CODEX = path.join(__dirname, '..', 'kit', 'chat-codex.md');
@@ -136,8 +137,8 @@ function hpcPrompt(hpc, engine = 'claude') {
 // The Codex orchestrator's instructions in full: its own prompt, then the same notes on
 // connected projects and the HPC. Codex has no command line to put them on; this is the
 // text CodexSession gets as `instructions`.
-function codexPrompt({ kitInstalled, linked = [], hpc = null, persona, cwd } = {}) {
-  return (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'), cwd)) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex');
+function codexPrompt({ kitInstalled, linked = [], hpc = null, persona, cwd, policyAtSpawn } = {}) {
+  return (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'), cwd)) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex') + projectPolicy.policyPrompt(policyAtSpawn);
 }
 
 function forumPrompt(cwd) {
@@ -161,10 +162,22 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
 // linked: folders of the projects connected to this one. hpc: the HPC settings (host, agentRoot).
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, settings = '', persona, prompt, cwd }) {
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, settings = '', persona, prompt, cwd, policyAtSpawn }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', prompt === undefined ? (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, undefined, cwd)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) : prompt];
+    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', (prompt === undefined ? (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, undefined, cwd)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) : prompt) + projectPolicy.policyPrompt(policyAtSpawn)];
   for (const d of linked) args.push('--add-dir', d);
+  const rules = projectPolicy.policySettings(policyAtSpawn);
+  if (Object.keys(rules).length) {
+    let base = {};
+    try {
+      if (settings) base = JSON.parse(settings.trimStart().startsWith('{') ? settings : fs.readFileSync(settings, 'utf8'));
+      if (!base || typeof base !== 'object' || Array.isArray(base)) base = {};
+    } catch { base = {}; }
+    const permissions = base.permissions && typeof base.permissions === 'object' && !Array.isArray(base.permissions) ? base.permissions : {};
+    settings = JSON.stringify({ ...base, permissions: { ...permissions,
+      deny: [...(Array.isArray(permissions.deny) ? permissions.deny : []), ...rules.permissions.deny],
+      allow: [...(Array.isArray(permissions.allow) ? permissions.allow : []), ...rules.permissions.allow] } });
+  }
   if (settings) args.push('--settings', settings);
   args.push(resume ? '--resume' : '--session-id', id);
   if (mode && mode !== 'default' && MODES.includes(mode)) args.push('--permission-mode', mode);
@@ -227,9 +240,9 @@ class Session extends EventEmitter {
   // shell: a login shell, so the agent's tools see the same PATH as a terminal.
   // autoAllow(request): true for tool requests the host approves without asking.
   // meter: where a resumed conversation's token meter picks up (see stats.Meter).
-  constructor({ id, cwd, shell, bin, args, env, autoAllow, meter }) {
+  constructor({ id, cwd, shell, bin, args, env, autoAllow, meter, policy }) {
     super();
-    Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow });
+    Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow, policy });
     this.seq = 0; this.waiting = new Map(); this.stderr = ''; this.stream = {};
     this.meter = new Meter(meter);
   }
@@ -270,6 +283,10 @@ class Session extends EventEmitter {
     if (u && u.context) this.emit('message', { type: 'context', ...u.context });
     if (u && u.turn) { this.emit('turn', u.turn); this.emit('message', { type: 'turn_usage', ...u.turn }); }
     const r = m.type === 'control_request' && m.request;
+    if (r && r.subtype === 'can_use_tool' && this.policy) {
+      const decision = projectPolicy.decide(this.policy(), { tool_name: r.tool_name, input: r.input, cwd: this.cwd });
+      if (decision) return this.respond(m.request_id, decision.behavior === 'allow' ? { ...decision, updatedInput: r.input } : decision);
+    }
     if (r && r.subtype === 'can_use_tool' && this.autoAllow && this.autoAllow(r)) return this.respond(m.request_id, { behavior: 'allow', updatedInput: r.input });
     const out = slim(m, this.stream);
     if (out) this.emit('message', out);

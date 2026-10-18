@@ -23,15 +23,15 @@ test('Ideas restores as a chat workspace without becoming project metadata', asy
     openProjects: [scratch], activeProject: scratch, recentFolders: [scratch, '/project'],
     localRoot: scratch, projectColors: { [scratch]: 120 }, projectGroup: { [scratch]: 'g' },
     projectGroups: [{ id: 'g', name: 'Work', collapsed: false }],
-    projectLinks: { '/project': [scratch] }, ui: {}
+    projectLinks: { '/project': [scratch] }, projectPolicy: { [scratch]: { slurmSubmit: 'never' }, '/project': { requirePlan: 'on' } }, ui: {}
   };
   const App = {
     h: (_selector, _attrs, ...children) => { const el = element(); el.append(...children); return el; },
     cfg, scratchDir: scratch, project: null, remoteDir: null, currentView: 'files', hpcConnected: false,
     isIdeas: (dir) => dir === scratch,
     views: {
-      chat: { stats: () => ({ working: 0, waiting: 0, unread: 0 }) },
-      editor: { tabs: [] }, terminals: { list: [] }, agents: { pane: 'chat' }
+      chat: { stats: () => ({ working: 0, waiting: 0, unread: 0 }), closeProject() {} },
+      editor: { tabs: [], closeProject: async () => true }, terminals: { list: [], closeProject() {} }, agents: { pane: 'chat' }
     },
     icons: { plus: '<svg></svg>' }, basename: (dir) => path.basename(dir),
     dirname: (dir) => path.dirname(dir), tildify: (dir) => dir,
@@ -54,6 +54,8 @@ test('Ideas restores as a chat workspace without becoming project metadata', asy
   assert.equal(cfg.projectColors[scratch], undefined);
   assert.equal(cfg.projectGroup[scratch], undefined);
   assert.deepEqual(cfg.projectLinks['/project'], []);
+  assert.deepEqual(cfg.projectPolicy[scratch], { slurmSubmit: 'never' });
+  assert.deepEqual(cfg.projectPolicy['/project'], { requirePlan: 'on' });
   assert.deepEqual(Array.from(cfg.openProjects), [scratch]);
   assert.equal(jobCalls, 0);
 
@@ -62,6 +64,9 @@ test('Ideas restores as a chat workspace without becoming project metadata', asy
   assert.equal(App.project, scratch);
   assert.equal(cfg.activeProject, scratch);
   assert.deepEqual(cfg.recentFolders, ['/project']);
+  await P.close(scratch);
+  assert.equal(cfg.projectPolicy[scratch], undefined);
+  assert.deepEqual(cfg.projectPolicy['/project'], { requirePlan: 'on' });
 });
 
 test('full chat history lists the active Ideas workspace', async () => {

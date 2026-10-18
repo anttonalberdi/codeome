@@ -17,6 +17,7 @@ const scratch = require('./scratch');
 const stats = require('./stats');
 const { CodexSession } = require('./codexchat');
 const chat = require('./chat');
+const policy = require('./policy');
 const forumstore = require('./forumstore');
 const { createHost } = require('./forumhost');
 const rtools = require('./rtools');
@@ -84,6 +85,7 @@ function buildMenu() {
       { label: 'Packages', accelerator: 'CmdOrCtrl+6', click: cmd('view-packages') },
       { label: 'Plots', accelerator: 'CmdOrCtrl+7', click: cmd('view-plots') },
       { label: 'File Transfer', accelerator: 'CmdOrCtrl+8', click: cmd('transfer') },
+      { label: 'Project Settings', accelerator: 'CmdOrCtrl+9', click: cmd('view-projectSettings') },
       { label: 'New Agent Chat', accelerator: 'CmdOrCtrl+Shift+N', click: cmd('new-chat') },
       { label: 'Next Agent Chat', accelerator: 'CmdOrCtrl+Shift+]', click: cmd('next-chat') },
       { label: 'Previous Agent Chat', accelerator: 'CmdOrCtrl+Shift+[', click: cmd('prev-chat') },
@@ -245,6 +247,7 @@ ipcMain.on('pty:kill', (_e, { id }) => { const p = ptys.get(id); if (p) { try { 
 
 // ---------- config & secrets ----------
 ipcMain.handle('config:get', () => cfg);
+ipcMain.handle('policy:defaults', () => policy.POLICY_DEFAULTS);
 ipcMain.handle('scratch:dir', () => ({ dir: scratch.dir() }));
 // Codeome's own version. app.getVersion() gives Electron's when the app is started from another script.
 ipcMain.handle('app:version', () => require('../package.json').version);
@@ -927,14 +930,17 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   if (linked.length) env.CODEOME_LINKED = linked.join(path.delimiter);
   const autoAllow = (r) => kitInstalled && r.tool_name === 'Bash' && chat.isJobRunner(r.input && r.input.command);
   const meterOpt = resume ? { ...(meter || {}), resumed: true } : {};
+  const livePolicy = () => policy.policyFor(cfg, project);
+  // Prompts and CLI settings are fixed at spawn; permission decisions read cfg on every request.
+  const policyAtSpawn = livePolicy();
   let s;
   if (engine === 'codex') {
     const c = cfg.chat || {};
-    s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked,
-      instructions: forum ? chat.forumPrompt(project) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, persona, cwd: project }), model: c.codexModel || '', effort: c.codexEffort || '' });
+    s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked, policy: livePolicy,
+      instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, persona, cwd: project, policyAtSpawn }), model: c.codexModel || '', effort: c.codexEffort || '' });
   } else {
     if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings, persona, cwd: project, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt });
+    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
   return { s, acct, dir };

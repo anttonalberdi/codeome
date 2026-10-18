@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('codeome', {
   version: invoke('app:version'),
   pathForFile: (f) => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
   config: { get: invoke('config:get'), set: invoke('config:set') },
+  policy: { defaults: invoke('policy:defaults') },
   secret: { set: (key, value) => ipcRenderer.invoke('secret:set', { key, value }), has: invoke('secret:has') },
   secrets: {
     set: (name, value) => ipcRenderer.invoke('secrets:set', { name, value }), remove: invoke('secrets:remove'),

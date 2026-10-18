@@ -245,6 +245,7 @@ svg { width: 18px; height: 18px; display: block; }
 #rail button:hover { color: var(--text); background: var(--line); }
 #rail button.active { color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
 #rail button.active::before { content: ""; position: absolute; left: -6px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--accent); }
+#rail button[data-view="projectSettings"] svg { width: 20px; height: 20px; }
 
 #sidebar { grid-area: side; overflow: hidden; display: flex; flex-direction: column; background: var(--surface); }
 .view { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
@@ -261,6 +262,33 @@ svg { width: 18px; height: 18px; display: block; }
 .hint { color: var(--muted); font-size: 12px; }
 .empty { color: var(--muted); padding: 14px 12px; font-size: 12px; }
 .empty .btn { margin-top: 8px; }
+
+/* ---------- project settings ---------- */
+.ps-intro { padding: 8px 12px 12px; border-bottom: 1px solid var(--line); }
+.ps-project { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.ps-path { color: var(--muted); font: 11px/1.4 var(--mono); overflow-wrap: anywhere; margin-top: 2px; }
+.ps-intro p { margin: 12px 0 0; color: var(--muted); font-size: 11.5px; }
+.ps-list { padding: 0 12px; }
+.ps-row { padding: 12px 0 14px; border-bottom: 1px solid var(--line); }
+.ps-label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.ps-tag { color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 4px; font-size: 10px; font-weight: 500; }
+.ps-help { color: var(--muted); font-size: 11px; margin: 3px 0 9px; }
+.ps-segments { display: flex; width: fit-content; max-width: 100%; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--surface-2); }
+.ps-segments button { border: 0; border-left: 1px solid var(--line-strong); background: transparent; color: var(--muted); font-size: 11px; padding: 5px 8px; cursor: pointer; white-space: nowrap; }
+.ps-segments button:first-child { border-left: 0; }
+.ps-segments button[aria-checked="true"] { color: var(--text); background: var(--accent-soft); font-weight: 600; }
+.ps-segments button:hover:not(:disabled) { color: var(--text); }
+.ps-segments button:focus-visible { outline-offset: -2px; }
+.ps-segments button:disabled, .ps-switch:disabled { cursor: default; opacity: .65; }
+.ps-switch { width: 35px; height: 20px; border: 1px solid var(--line-strong); border-radius: 12px; padding: 2px; background: var(--surface-2); cursor: pointer; }
+.ps-switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+.ps-switch-thumb { display: block; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px #0003; transition: transform .15s; }
+.ps-switch[aria-checked="true"] .ps-switch-thumb { transform: translateX(15px); }
+.ps-footer { padding: 14px 12px 20px; }
+.ps-reset { border: 0; background: transparent; padding: 0; color: var(--accent); font-size: 11.5px; cursor: pointer; text-decoration: underline; }
+.ps-reset:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+.ps-note, .ps-error { color: var(--muted); font-size: 11px; margin: 10px 0 0; }
+.ps-error { color: var(--fail); }
 
 /* ---------- buttons & inputs ---------- */
 .btn { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }

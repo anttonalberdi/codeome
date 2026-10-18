@@ -4,7 +4,7 @@
   App.currentView = 'files';
 
   App.setView = (v) => {
-    if (App.isIdeas() && v !== 'agents') v = 'agents';
+    if (App.isIdeas() && !['agents', 'projectSettings'].includes(v)) v = 'agents';
     App.currentView = v;
     document.querySelectorAll('#rail button[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
     document.querySelectorAll('#sidebar .view').forEach((s) => { s.hidden = s.dataset.view !== v; });
@@ -24,7 +24,7 @@
 
   function paintProjectMode() {
     const ideas = App.isIdeas();
-    document.querySelectorAll('#rail button').forEach((b) => { b.hidden = ideas && b.dataset.view !== 'agents'; });
+    document.querySelectorAll('#rail button').forEach((b) => { b.hidden = ideas && !['agents', 'projectSettings'].includes(b.dataset.view); });
     document.getElementById('panel').hidden = ideas;
     document.getElementById('panel-resizer').hidden = ideas;
     document.getElementById('cluster').hidden = ideas;
@@ -202,7 +202,7 @@
     'next-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(1); },
     'prev-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(-1); },
     transfer: () => !App.isIdeas() && App.views.transfer.open(),
-    'view-publish': () => App.setView('publish'), 'view-packages': () => App.setView('packages'), 'view-plots': () => App.setView('plots'), 'view-agents': () => App.setView('agents'),
+    'view-publish': () => App.setView('publish'), 'view-packages': () => App.setView('packages'), 'view-plots': () => App.setView('plots'), 'view-projectSettings': () => App.setView('projectSettings'), 'view-agents': () => App.setView('agents'),
     'toggle-panel': () => !App.isIdeas() && App.views.terminals.togglePanel(), 'new-terminal': () => !App.isIdeas() && App.views.terminals.localShell(),
     'new-hpc-terminal': () => !App.isIdeas() && App.views.terminals.hpcShell(), 'r-console': () => !App.isIdeas() && App.views.terminals.rConsole(), preview: () => !App.isIdeas() && App.views.editor.previewCurrent()
   };
@@ -226,7 +226,7 @@
       if (clis.length) App.toast(`${clis.map((u) => `${u.label} ${u.latest}`).join(' and ')} available.`, { ms: 20000, action: { label: 'Update…', run: () => App.setup.updateClis(clis) } });
     });
     App.views.terminals.init();
-    App.views.transfer.init(); App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.packages.init(); App.views.plots.init(); App.views.agents.init();
+    App.views.transfer.init(); App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.packages.init(); App.views.plots.init(); App.views.projectSettings.init(); App.views.agents.init();
     App.views.projects.init();
     App.views.usage.init();
     App.views.editor.initMonaco();

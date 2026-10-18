@@ -26,6 +26,7 @@
     delete App.cfg.projectColors[ideas];
     delete App.cfg.projectGroup[ideas];
     delete App.cfg.projectLinks[ideas];
+    if (App.cfg.projectPolicy && !P.list.includes(ideas)) delete App.cfg.projectPolicy[ideas];
     for (const dir of Object.keys(App.cfg.projectLinks)) App.cfg.projectLinks[dir] = App.cfg.projectLinks[dir].filter((d) => d !== ideas);
     P.list = shown();
     P.list.forEach(colorOf);
@@ -201,7 +202,7 @@
     render();
     App.emit('project', dir);
     // Return to the view (and Agent pane) this project was left on.
-    if (saved && saved.view && (!App.isIdeas(dir) || saved.view === 'agents')) {
+    if (saved && saved.view && (!App.isIdeas(dir) || ['agents', 'projectSettings'].includes(saved.view))) {
       if (saved.view === 'agents' && saved.pane && (!App.isIdeas(dir) || saved.pane !== 'jobs')) App.views.agents.show(saved.pane);
       if (saved.view !== App.currentView) App.setView(saved.view);
     }
@@ -222,6 +223,7 @@
     App.views.chat.closeProject(dir);
     const i = P.list.indexOf(dir);
     if (i >= 0) P.list.splice(i, 1);
+    if (App.isIdeas(dir) && App.cfg.projectPolicy) delete App.cfg.projectPolicy[dir];
     delete P.state[dir];
     if (App.project === dir) await P.switchTo(P.list[Math.min(i, P.list.length - 1)] || null);
     else { App.cfg.openProjects = P.list.slice(); await App.saveConfig(); render(); }

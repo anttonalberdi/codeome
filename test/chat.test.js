@@ -6,6 +6,7 @@ const path = require('path');
 
 process.env.CODEOME_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-home-'));
 const chat = require('../main/chat');
+const policy = require('../main/policy');
 const usage = require('../main/usage');
 const scratch = require('../main/scratch');
 
@@ -32,6 +33,40 @@ test('arguments start a new session or resume one, with the configured extras fi
   assert.ok(!r.includes('--session-id'));
   assert.strictEqual(r[r.indexOf('--permission-mode') + 1], 'acceptEdits');
   assert.ok(!chat.buildArgs({ id: ID, mode: 'bogus' }).includes('--permission-mode'));
+});
+
+test('project rules join the prompt and the existing Claude settings only when set', () => {
+  const settings = path.join(process.env.CODEOME_HOME, 'status-settings.json');
+  const base = { statusLine: { type: 'command', command: 'status' }, permissions: { allow: ['Read(*)'], ask: ['Bash(*)'] } };
+  fs.writeFileSync(settings, JSON.stringify(base));
+  const options = { id: ID, kitInstalled: true, settings };
+  const original = chat.buildArgs(options);
+  assert.deepStrictEqual(chat.buildArgs({ ...options, policyAtSpawn: policy.policyFor({}, '/p') }), original);
+  const restricted = chat.buildArgs({ ...options, policyAtSpawn: { slurmSubmit: 'never' } });
+  assert.match(restricted[restricted.indexOf('--append-system-prompt') + 1], /Do not submit Slurm jobs/);
+  const merged = JSON.parse(restricted[restricted.indexOf('--settings') + 1]);
+  assert.deepStrictEqual(merged.statusLine, base.statusLine);
+  assert.deepStrictEqual(merged.permissions.ask, ['Bash(*)']);
+  assert.deepStrictEqual(merged.permissions.allow, ['Read(*)']);
+  assert.ok(merged.permissions.deny.includes('Bash(sbatch *)'));
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), base);
+  const inline = chat.buildArgs({ ...options, settings: JSON.stringify(base), policyAtSpawn: { slurmSubmit: 'never' } });
+  assert.ok(JSON.parse(inline[inline.indexOf('--settings') + 1]).permissions.deny.includes('Bash(sbatch *)'));
+  assert.ok(!original[original.indexOf('--append-system-prompt') + 1].includes('Do not submit Slurm jobs'));
+});
+
+test('project rule settings survive malformed and non-array Claude settings', () => {
+  const rules = { slurmSubmit: 'never' };
+  const atSettings = (settings) => {
+    const args = chat.buildArgs({ id: ID, settings, policyAtSpawn: rules });
+    return JSON.parse(args[args.indexOf('--settings') + 1]);
+  };
+  const settings = path.join(process.env.CODEOME_HOME, 'bad-settings.json');
+  fs.writeFileSync(settings, '{bad json');
+  assert.ok(atSettings(settings).permissions.deny.includes('Bash(sbatch *)'));
+  assert.ok(atSettings('{bad json').permissions.deny.includes('Bash(sbatch *)'));
+  assert.deepStrictEqual(atSettings('{"permissions":{"deny":"Bash(*)","allow":null}}').permissions.allow, []);
+  assert.deepStrictEqual(atSettings('{"permissions":{"deny":"Bash(*)","allow":null}}').permissions.deny[0], 'Bash(sbatch *)');
 });
 
 test('an explicit prompt replaces the chat, connected project and HPC instructions', () => {
@@ -203,6 +238,32 @@ test('a session relays messages, answers permission requests and its own control
   await exited;
 });
 
+test('Claude permission checks use the latest project policy before auto approval', () => {
+  const values = { slurmSubmit: 'never' };
+  const s = new chat.Session({ id: ID, cwd: '/p', policy: () => values, autoAllow: () => true });
+  const answers = [], shown = [];
+  s.respond = (id, answer) => answers.push([id, answer]);
+  s.on('message', (m) => shown.push(m));
+  const request = (id) => s.handle({ type: 'control_request', request_id: id,
+    request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'sbatch job.sh' } } });
+  request('never');
+  assert.strictEqual(answers[0][1].behavior, 'deny');
+  assert.match(answers[0][1].message, /Slurm job submission/);
+  values.slurmSubmit = 'allow';
+  s.autoAllow = () => false;
+  request('allow');
+  assert.strictEqual(answers[1][1].behavior, 'allow');
+  values.slurmSubmit = 'ask';
+  s.autoAllow = () => true;
+  request('ask');
+  assert.strictEqual(answers[2][1].behavior, 'allow'); // existing autoAllow flow
+  assert.strictEqual(shown.length, 0);
+  s.autoAllow = () => false;
+  request('ask-panel');
+  assert.deepStrictEqual(answers.map(([id]) => id), ['never', 'allow', 'ask']);
+  assert.strictEqual(shown[0].request_id, 'ask-panel');
+});
+
 test('only plain job-runner commands are approved without asking', () => {
   const ok = [
     `.codeome/bin/codeome-agent codex --role explorer --title "What does add compute" <<'BRIEF'\nGoal: read calc.py; report $x and \`y\` (data only)\nrm -rf /\nBRIEF`,
@@ -257,6 +318,8 @@ test('a Codex chat has its own prompt, with the notes on connected projects and 
   assert.ok(!solo.includes('codeome-agent codex') && !solo.includes('## Connected projects'));
   // The Claude prompt is unchanged by the engine.
   assert.ok(chat.systemPrompt(true).includes('Agent tool'));
+  assert.match(chat.codexPrompt({ kitInstalled: true, policyAtSpawn: { slurmSubmit: 'never' } }), /Do not submit Slurm jobs/);
+  assert.ok(!chat.codexPrompt({ kitInstalled: true }).includes('Do not submit Slurm jobs'));
 });
 
 test('forum participants have a separate moderated discussion prompt', () => {

@@ -171,6 +171,56 @@ test('auto mode allows command approvals without asking the panel', async () => 
   assert.ok((await done(s)).stderr.includes('decision="accept"'));
 });
 
+test('Codex applies live project policy before auto mode approves a command', () => {
+  const values = { slurmSubmit: 'never' };
+  const s = new CodexSession({ id: 'policy', cwd: '/p', mode: 'auto', policy: () => values });
+  const sent = [], shown = [];
+  s.write = (m) => sent.push(m);
+  s.on('message', (m) => shown.push(m));
+  const request = (id) => s.serverRequest({ id, method: 'item/commandExecution/requestApproval', params: { command: "/bin/zsh -lc 'sbatch job.sh'" } });
+  request(1);
+  assert.deepStrictEqual(sent[0], { id: 1, result: { decision: 'decline' } });
+  values.slurmSubmit = 'allow';
+  request(2);
+  assert.deepStrictEqual(sent[1], { id: 2, result: { decision: 'accept' } });
+  values.slurmSubmit = 'ask';
+  request(3);
+  assert.deepStrictEqual(sent[2], { id: 3, result: { decision: 'accept' } }); // old auto flow
+  assert.strictEqual(shown.length, 0);
+  s.mode = 'default';
+  request(4);
+  assert.strictEqual(shown[0].request.input.command, 'sbatch job.sh');
+  assert.strictEqual(sent.length, 3);
+});
+
+test('Codex non-auto approvals allow only a simple Slurm command and keep updatedInput', () => {
+  const s = new CodexSession({ id: 'policy-non-auto', cwd: '/p', mode: 'default', policy: () => ({ slurmSubmit: 'allow' }) });
+  const answers = [], shown = [];
+  s.respond = (id, answer) => answers.push([id, answer]);
+  s.on('message', (m) => shown.push(m));
+  s.serverRequest({ id: 1, method: 'item/commandExecution/requestApproval', params: { command: "/bin/zsh -lc 'sbatch a.sh'" } });
+  assert.deepStrictEqual(answers[0][1], { behavior: 'allow', updatedInput: { command: 'sbatch a.sh' } });
+  s.serverRequest({ id: 2, method: 'item/commandExecution/requestApproval', params: { command: "/bin/zsh -lc 'sbatch a.sh && rm -rf x'" } });
+  assert.strictEqual(answers.length, 1);
+  assert.strictEqual(shown[0].request.input.command, 'sbatch a.sh && rm -rf x');
+});
+
+test('Codex file approval checks every patch path and grant root', () => {
+  const s = new CodexSession({ id: 'policy-files', cwd: '/p', mode: 'default', policy: () => ({ writeOutsideProject: 'never' }) });
+  const sent = [], shown = [];
+  s.write = (m) => sent.push(m);
+  s.on('message', (m) => shown.push(m));
+  s.items.set('patch', { tools: [
+    { name: 'Edit', input: { file_path: '/p/a.txt' } },
+    { name: 'Edit', input: { file_path: '/outside/b.txt' } }
+  ] });
+  s.serverRequest({ id: 1, method: 'item/fileChange/requestApproval', params: { itemId: 'patch' } });
+  assert.deepStrictEqual(sent[0], { id: 1, result: { decision: 'decline' } });
+  s.serverRequest({ id: 2, method: 'item/fileChange/requestApproval', params: { grantRoot: '/outside' } });
+  assert.deepStrictEqual(sent[1], { id: 2, result: { decision: 'decline' } });
+  assert.strictEqual(shown.length, 0);
+});
+
 test('file changes show as one Edit or Write per file, with a permission request naming the files', async () => {
   const s = session();
   s.user('edit');
