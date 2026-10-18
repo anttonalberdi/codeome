@@ -1,12 +1,34 @@
 # Project settings
 
-Open Project settings with `⌘9`, the last item in the left rail. It sets rules for the agents in the open project: whether they may submit Slurm jobs, publish with git, change things on the HPC or write outside the project, and whether they must plan first. Each choice is saved as soon as you click it, and *Reset to defaults* at the bottom clears them all.
+Open Project settings with `⌘9`, the last item in the left rail. It sets rules and chat defaults for the agents in the open project: whether they may submit Slurm jobs, publish with git, change things on the HPC or write outside the project, whether they must plan first, and which models, effort, permission mode and engine new chats start with. Each choice is saved as soon as you click it.
 
-The rules are stored per project in Codeome's own config, keyed by the project folder. They are not written into the repository and are not committed, so they stay on this Mac and are not shared with collaborators.
+## App defaults and project overrides
+
+Most of these settings exist at two levels. **Settings → Agent policy** sets the five switches below as defaults for all projects. **Settings → Agents** sets the Claude and Codex model and effort, and also a *Default permission mode* (*As last used*, *Default*, *Accept edits*, *Auto* or *Plan*) and a *Default engine* (Claude or Codex). Project settings can override any of them for the open project.
+
+The rule is the same everywhere: the project value, else the app default, else the built-in default. A row you have not touched in a project inherits, so later changes to the app default reach it. Picking a value in a project always stores it, even when it equals the built-in default, so that project stops following the app default.
+
+In the Project settings view:
+
+- An inherited row shows *App default: X* under its control.
+- An overridden row is marked *overridden* and has a *Use app default* button that removes just that override.
+- *Reset to app defaults* at the bottom removes every override in the project, both rules and agent defaults.
+
+The rules are stored per project in Codeome's own config, keyed by the project folder, and the app defaults are stored in the same config. Neither is written into the repository or committed, so they stay on this Mac and are not shared with collaborators.
+
+## Agent defaults
+
+The *Agent defaults* card overrides, for this project only, the Claude model and effort, the Codex model and effort, the default permission mode and the default engine. Leave a row on *Use app default* to inherit it. They apply to chats started from then on; chats already open keep their model.
+
+*Use app default* is the only way to leave a row empty, so a project cannot pin an "empty" choice (*Claude Code default* for the model, *As last used* for the mode) when the app default is something else. Pick the concrete value you want instead.
+
+A choice made in a chat itself still wins. If you pick a permission mode in the selector, or start a chat on a particular engine, that is used instead of the default.
 
 ## The switches
 
-| Switch | Choices (default first) | What it does |
+These are the five switches in *Agent policy*, in Settings and in each project.
+
+| Switch | Choices (built-in default first) | What it does |
 | --- | --- | --- |
 | Slurm job submission | *Ask*, *Allow (best effort)*, *Never* | Agents running `sbatch`, `srun` or `salloc`, locally or over SSH. |
 | Git publishing | *Ask*, *Never* | Agents running `git commit`, `git push` or `git tag`. |

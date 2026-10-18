@@ -10,7 +10,7 @@ Replies are rendered as Markdown. Tool calls appear as one-line entries you can 
 
 Permission prompts, questions and the approval gates appear as buttons in the chat. The selector under the message box sets what the agent may do without asking: *Ask before changes*, *Accept edits*, *Auto* or *Plan only*.
 
-To restrict Slurm submissions, git publishing, HPC changes or writes outside the project for a whole project, see [Project settings](/guide/project-settings).
+The mode a new chat starts in, and the model, effort and engine, can be set for all projects in Settings → Agents or for one project in [Project settings](/guide/project-settings). To restrict Slurm submissions, git publishing, HPC changes or writes outside the project, set the rules in Settings → Agent policy or per project in Project settings.
 
 <Shot bare src="/screens/detail-job-cards.webp" alt="Two running job cards: a Codex debugger job and a Claude explorer job" caption="Each job card shows the engine, the specialist, the job title, its status and how long it has run." width="520" height="158" />
 

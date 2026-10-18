@@ -6,6 +6,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ### Added
 - **Project settings**: a new view, the last item in the rail (`⌘9`), with per-project rules for agents: Slurm job submission (ask, allow, never), Git publishing (ask, never), HPC access (full, read-only), writes outside the project (ask, never) and require a plan. They are saved in Codeome's config, not in the repository. Permission checks apply to running chats at once; the rule text and CLI rules apply to new chats. Matching is heuristic and not a security boundary, and HPC access and require a plan are advisory.
+- **App-wide defaults with project overrides**: Settings → Agent policy sets the five switches as defaults for all projects, and Settings → Agents gains a default permission mode and a default engine. Project settings shows "App default: X" on inherited rows, marks overridden rows, and has *Use app default* per row and *Reset to app defaults* at the bottom. A new *Agent defaults* card overrides the Claude and Codex model and effort, default permission mode and default engine for one project. The value used is the project's, else the app default, else the built-in default; a value picked in a project is always stored, even if it equals the built-in default. A permission mode chosen in a chat still wins.
 
 ## 1.0.2
 
