@@ -445,12 +445,14 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 
 /* ---------- main area ---------- */
 #main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
-.tabstrip { display: flex; overflow-x: auto; background: var(--surface-2); border-bottom: 1px solid var(--line); min-height: 34px; flex: none; scrollbar-width: none; }
+.tabstrip { display: flex; align-items: flex-end; gap: 2px; padding: 4px 4px 0; overflow-x: auto; background: var(--surface-2); box-shadow: inset 0 -1px 0 var(--line); min-height: 31px; flex: none; scrollbar-width: none; }
 .tabstrip::-webkit-scrollbar { display: none; }
-.tab { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 12px; border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; color: var(--muted); font-size: 12.5px; max-width: 240px; }
+.tab { display: flex; align-items: center; gap: 5px; flex: none; padding: 0 2px 0 8px; height: 27px; border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0; cursor: pointer; white-space: nowrap; color: var(--muted); font-size: 12px; max-width: 200px; user-select: none; }
 .tab .t { overflow: hidden; text-overflow: ellipsis; }
-.tab:hover { color: var(--text); }
-.tab.active { background: var(--surface); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.tab:hover { color: var(--text); background: var(--line); }
+.tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+.tab.active { background: var(--surface); color: var(--text); border-color: var(--line); height: 28px; }
 .tab .badge { font-size: 10px; padding: 0 5px; border-radius: 4px; background: var(--line); color: var(--muted); }
 .tab .badge.hpc { background: var(--accent-soft); color: var(--accent); }
 .tab .badge.r { background: color-mix(in srgb, var(--run) 18%, transparent); color: var(--run); }
@@ -459,15 +461,14 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 /* R Markdown / Quarto chunks in the editor */
 .monaco-editor .rmd-chunk { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .monaco-editor .rmd-fence { background: color-mix(in srgb, var(--accent) 11%, transparent); }
-.tab .x { width: 18px; height: 18px; border: 0; background: transparent; border-radius: 4px; color: var(--muted); cursor: pointer; display: grid; place-items: center; font-size: 14px; line-height: 1; }
-.tab .x:hover { background: var(--line); color: var(--text); }
+.tab .x { width: 18px; height: 18px; border: 0; background: transparent; border-radius: 4px; color: var(--muted); cursor: pointer; display: none; flex: none; place-items: center; font-size: 14px; line-height: 1; }
+.tab:hover .x, .tab.active .x, .tab.dirty .x { display: grid; }
+.tab .x:hover { background: var(--line-strong); color: var(--text); }
 .tab.dirty .x::before { content: "●"; font-size: 10px; }
 .tab.dirty .x span { display: none; }
 .tab.dirty .x:hover::before { content: ""; }
 .tab.dirty .x:hover span { display: inline; }
-.tabstrip.small { min-height: 30px; border-bottom: 0; background: transparent; flex: 1; }
-.tabstrip.small .tab { border-right: 0; border-radius: 6px; margin: 3px 2px; padding: 0 6px 0 10px; }
-.tabstrip.small .tab.active { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.tabstrip.small { background: transparent; box-shadow: none; flex: 1; min-width: 0; }
 .tab .live { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .tab .live.dead { background: var(--line-strong); }
 
@@ -513,7 +514,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 #panel { height: var(--panel-h); display: flex; flex-direction: column; min-height: 0; flex: none; background: var(--surface-2); }
 #panel.collapsed { height: 34px; }
 #panel.collapsed #term-host { display: none; }
-.panel-bar { display: flex; align-items: center; padding-right: 6px; border-bottom: 1px solid var(--line); flex: none; }
+.panel-bar { display: flex; align-items: stretch; padding-right: 6px; box-shadow: inset 0 -1px 0 var(--line); background: var(--surface-2); flex: none; }
 .panel-actions { display: flex; gap: 4px; align-items: center; }
 #term-host { flex: 1; position: relative; min-height: 0; }
 .term { position: absolute; inset: 0; padding: 10px 14px 6px 16px; }
@@ -768,6 +769,8 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .chat-tabs::-webkit-scrollbar { display: none; }
 .ctab { display: flex; align-items: center; gap: 5px; flex: 1 1 0; min-width: 40px; max-width: 160px; padding: 0 2px 0 8px; height: 27px; border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0; cursor: pointer; color: var(--muted); font-size: 12px; white-space: nowrap; position: relative; user-select: none; overflow: hidden; }
 .ctab.active { flex: 2.5 1 0; min-width: 92px; max-width: 180px; }
+.ctab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.ctab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .ctab:hover { color: var(--text); background: var(--line); }
 .ctab.active { background: var(--surface); color: var(--text); border-color: var(--line); margin-bottom: -1px; height: 28px; }
 .ctab .ct { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }

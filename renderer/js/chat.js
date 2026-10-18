@@ -1340,6 +1340,7 @@
   let tabsRaf = 0;
   function scheduleTabs() { if (!tabsRaf) tabsRaf = requestAnimationFrame(() => { tabsRaf = 0; paintTabs(); App.emit('chat-state'); }); }
 
+  let dragTab = null;
   function paintTabs() {
     if (!tabsEl) return;
     const t = C.byProject[App.project];
@@ -1355,6 +1356,25 @@
       const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
       const el = h('div.ctab.' + st + (active ? '.active' : ''), {
         role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
+        draggable: 'true',
+        ondragstart: (e) => { dragTab = c; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', title); },
+        ondragend: () => { dragTab = null; tabsEl.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); },
+        ondragover: (e) => {
+          if (!dragTab || dragTab === c || !t.tabs.includes(dragTab)) return;
+          e.preventDefault();
+          const r = el.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+          el.classList.toggle('drop-after', after); el.classList.toggle('drop-before', !after);
+        },
+        ondragleave: () => el.classList.remove('drop-before', 'drop-after'),
+        ondrop: (e) => {
+          e.preventDefault();
+          const from = dragTab; dragTab = null;
+          if (!from || from === c || !t.tabs.includes(from)) return;
+          const after = el.classList.contains('drop-after');
+          t.tabs.splice(t.tabs.indexOf(from), 1);
+          t.tabs.splice(t.tabs.indexOf(c) + (after ? 1 : 0), 0, from);
+          paintTabs(); persistTabs(App.project);
+        },
         onclick: () => C.activate(c),
         onauxclick: (e) => { if (e.button === 1) C.closeTab(c); },
         oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, tabMenu(c)); },

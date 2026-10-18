@@ -402,17 +402,41 @@
 
   E.layout = () => { if (E.editor) E.editor.layout(); const t = E.cur(); if (t && t.layout) t.layout(); };
 
+  let dragId = null;
+  const clearDrop = () => document.querySelectorAll('#tabs .drop-before,#tabs .drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after'));
+
   function renderTabs() {
     const el = document.getElementById('tabs'); el.innerHTML = '';
     App.emit('sessions');
     for (const t of E.visible()) {
-      el.append(h('div.tab' + (t.id === E.active ? '.active' : '') + (t.dirty ? '.dirty' : ''), {
+      const tabEl = h('div.tab' + (t.id === E.active ? '.active' : '') + (t.dirty ? '.dirty' : ''), {
+        draggable: 'true',
+        ondragstart: (e) => { dragId = t.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); },
+        ondragend: () => { dragId = null; clearDrop(); },
+        ondragover: (e) => {
+          if (!dragId || dragId === t.id) return;
+          e.preventDefault();
+          const r = tabEl.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+          tabEl.classList.toggle('drop-after', after); tabEl.classList.toggle('drop-before', !after);
+        },
+        ondragleave: () => tabEl.classList.remove('drop-before', 'drop-after'),
+        ondrop: (e) => {
+          e.preventDefault();
+          const from = E.tabs.find((x) => x.id === dragId);
+          if (!from || from === t) return;
+          const after = tabEl.classList.contains('drop-after');
+          dragId = null;
+          E.tabs.splice(E.tabs.indexOf(from), 1);
+          E.tabs.splice(E.tabs.indexOf(t) + (after ? 1 : 0), 0, from);
+          renderTabs();
+        },
         onclick: () => E.activate(t.id), title: t.path ? (t.remote ? 'HPC: ' : t.storage ? App.views.files.title('storage') + ': ' : '') + t.path : t.title,
         onauxclick: (e) => { if (e.button === 1) E.close(t.id); }
       },
       t.remote ? h('span.badge.hpc', 'HPC') : t.storage ? h('span.badge.store', App.views.files.title('storage')) : (t.badge ? h('span.badge', t.badge) : null),
       h('span.t', t.title),
-      h('button.x', { title: 'Close', onclick: (e) => { e.stopPropagation(); E.close(t.id); } }, h('span', '×'))));
+      h('button.x', { title: 'Close', onclick: (e) => { e.stopPropagation(); E.close(t.id); } }, h('span', '×')));
+      el.append(tabEl);
     }
   }
   E.renderTabs = renderTabs;
