@@ -523,7 +523,7 @@
       }
     });
     App.cfg.projectGroups.forEach((g) => list.append(groupBlock(g)));
-    members(null).forEach((dir) => list.append(card(dir)));
+    members(null).filter((dir) => !App.isIdeas(dir)).forEach((dir) => list.append(card(dir)));
     const collapsed = !!App.cfg.ui.projectsCollapsed;
     el.append(list, h('div.proj-foot',
       h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Project')),

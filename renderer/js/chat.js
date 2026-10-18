@@ -1241,6 +1241,9 @@
     const chat = cur();
     if (chat && chat.unread && seen(chat)) chat.unread = false;
     if (!App.project) { logEl.append(h('div.chat-empty', h('p', 'Open a project folder to talk to the agent.'))); paintAttach(); paintState(); return; }
+    if (App.isIdeas() && !App.views.projects.list.some((d) => !App.isIdeas(d))) {
+      logEl.append(h('div.hint', { style: { padding: '8px 12px' } }, 'This is the general chat. Create projects for project-specific sessions.'));
+    }
     if (!chat || !chat.items.length) {
       const selectable = chat && !chat.started && !chat.running;
       const selected = personaFor(chat);
