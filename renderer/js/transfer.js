@@ -5,7 +5,7 @@
 (function () {
   const h = App.h;
   const HOSTS = ['local', 'remote', 'storage'];
-  const X = { queue: [], seq: 0, paused: false, panes: {}, lists: [] };
+  const X = { queue: [], seq: 0, laneSeq: 0, paused: false, panes: {}, lists: [] };
   App.views.transfer = X;
   let root = null;
 
@@ -69,16 +69,46 @@
       const r = await codeome.storage.hpcCommand(t.from === 'remote' ? 'up' : 'down', t.src, t.destDir);
       if (t.id !== id || t.status !== 'running') return;
       if (r.error) return finish(t, 'failed', r.error);
-      const term = await App.views.terminals.open({ kind: 'hpc-transfer', title: `${t.name} → ${title(t.to)}`, command: r.command, cwd: t.from === 'remote' ? App.dirname(t.src) : t.destDir,
-        badge: 'HPC', global: true, onExit: (code) => { if (t.id === id) ended(t, code, 'sftp on the HPC exited with ' + code); } });
-      if (t.id !== id || t.status !== 'running') { if (term.alive) App.views.terminals.close(term.id); return; }
-      if (!term.alive) return finish(t, 'failed', 'Could not start a terminal on the HPC');
-      t.term = term.id; X.changed();
+      const lane = takeLane(id);
+      const ok = await lane.ready;
+      if (t.id !== id || t.status !== 'running') { if (lane.busy === id) lane.busy = null; return; }
+      if (!ok) return finish(t, 'failed', 'Could not start a terminal on the HPC');
+      t.term = lane.term; X.changed();
+      // The copy is typed into the lane's shell; the marker after it reports the exit code.
+      const cwd = t.from === 'remote' ? App.dirname(t.src) : t.destDir;
+      codeome.pty.write(lane.term, ` ( cd ${App.shPath(cwd)} 2>/dev/null; ${r.command} ); printf '\\033]7338;%s;%s\\007' ${App.shq(id)} $?\r`);
       return;
     }
     const id = t.id;
     const r = await codeome.transfer.start({ id, from: t.from, to: t.to, src: t.src, destDir: t.destDir });
     if (r.error && t.id === id) ended(t, -1, r.error);
+  }
+
+  // ---------- terminal lanes ----------
+  // HPC <-> storage copies run in terminals on the HPC. There are at most as many terminals
+  // ("lanes") as transfers allowed at once, and each lane runs its copies one after another.
+  const lanes = [];
+  const dropLane = (lane) => { const i = lanes.indexOf(lane); if (i >= 0) lanes.splice(i, 1); };
+  // An idle lane, or a new one when there is none; it is marked busy with transfer `id` at once.
+  function takeLane(id) {
+    const idle = lanes.find((l) => !l.busy);
+    if (idle) { idle.busy = id; return idle; }
+    const lane = { term: null, busy: id, ready: null };
+    lanes.push(lane);
+    lane.ready = App.views.terminals.open({ kind: 'hpc-lane', title: 'Transfers ' + (++X.laneSeq), badge: 'HPC', global: true,
+      onMarker: (data) => {
+        const [tid, code] = data.split(';'), busy = lane.busy;
+        lane.busy = null;
+        const t = X.queue.find((x) => x.id === tid);
+        if (t) ended(t, Number(code), 'sftp on the HPC exited with ' + code);
+        else if (busy) pump();
+      },
+      onExit: () => {
+        dropLane(lane);
+        const t = X.queue.find((x) => x.id === lane.busy);
+        if (t) ended(t, -1, 'The transfer terminal was closed');
+      } }).then((term) => { lane.term = term.id; return term.alive; });
+    return lane;
   }
 
   function finish(t, status, error) {
@@ -94,6 +124,8 @@
     if (t.status === 'queued') return finish(t, 'cancelled');
     if (t.status !== 'running') return;
     const term = t.term;
+    // Stopping a copy in a lane ends the lane's terminal; the next copy gets a new one.
+    if (term) dropLane(lanes.find((l) => l.term === term));
     finish(t, 'cancelled');
     if (term) App.views.terminals.close(term); else codeome.transfer.cancel(t.id);
   };

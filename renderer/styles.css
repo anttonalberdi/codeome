@@ -519,6 +519,11 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 #term-host { flex: 1; position: relative; min-height: 0; }
 .term { position: absolute; inset: 0; padding: 10px 14px 6px 16px; }
 .term .xterm { height: 100%; }
+.term-find { position: absolute; top: 8px; right: 22px; z-index: 5; display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+.term-find[hidden] { display: none; }
+.term-find-input { width: 170px; font: 12px var(--ui); color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; outline: none; }
+.term-find-input:focus { border-color: var(--accent); }
+.term-find-count { min-width: 44px; text-align: right; font: 11px var(--ui); color: var(--muted); }
 .term-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
 
 /* ---------- Slurm ---------- */

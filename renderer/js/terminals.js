@@ -37,6 +37,47 @@
     for (const t of T.list) { t.term.options.fontSize = n; if (!t.el.hidden) { try { t.fit.fit(); } catch {} } }
   };
 
+  // Find-in-terminal bar: Cmd+F opens it, Enter / Shift+Enter step through matches, Esc closes.
+  function termFind(el, term, search) {
+    const deco = {
+      matchBackground: '#7a6a1f', matchOverviewRuler: '#d9b83a',
+      activeMatchBackground: '#c9892a', activeMatchBorder: '#f0c060', activeMatchColorOverviewRuler: '#f0c060'
+    };
+    const opts = () => ({ caseSensitive: false, decorations: deco });
+    const input = h('input.term-find-input', { type: 'text', placeholder: 'Find', spellcheck: false });
+    const count = h('span.term-find-count');
+    const step = (back) => { if (input.value) (back ? search.findPrevious : search.findNext).call(search, input.value, opts()); };
+    const bar = h('div.term-find', { hidden: true },
+      input, count,
+      h('button.icon-btn.small', { title: 'Previous (⇧Enter)', onclick: () => step(true) }, '↑'),
+      h('button.icon-btn.small', { title: 'Next (Enter)', onclick: () => step(false) }, '↓'),
+      h('button.icon-btn.small', { title: 'Close (Esc)', onclick: () => api.close() }, '×'));
+    el.append(bar);
+    search.onDidChangeResults(({ resultIndex, resultCount }) => {
+      count.textContent = !input.value ? '' : resultCount ? (resultIndex >= 0 ? resultIndex + 1 : '?') + '/' + resultCount : 'No results';
+    });
+    input.addEventListener('input', () => {
+      if (!input.value) { search.clearDecorations(); count.textContent = ''; return; }
+      search.findNext(input.value, { ...opts(), incremental: true });
+    });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey); }
+      else if (e.key === 'Escape') { e.preventDefault(); api.close(); }
+    });
+    const api = {
+      open() {
+        bar.hidden = false;
+        const sel = term.hasSelection() ? term.getSelection() : '';
+        if (sel && !sel.includes('\n')) input.value = sel;
+        input.focus(); input.select();
+        if (input.value) step(false);
+      },
+      close() { bar.hidden = true; search.clearDecorations(); term.focus(); }
+    };
+    return api;
+  }
+
   // spec: {kind, title, command, cwd, session, badge, secretEnv, engine, account, project}
   T.open = async function (spec) {
     App.expandMain();
@@ -50,16 +91,22 @@
     });
     const fit = new FitAddon.FitAddon();
     term.loadAddon(fit);
+    const search = new SearchAddon.SearchAddon();
+    term.loadAddon(search);
     term.open(el);
+    const find = termFind(el, term, search);
     // Cmd+K clears, Cmd+C copies when there's a selection (xterm handles the rest).
     term.attachCustomKeyEventHandler((e) => {
       if (e.type === 'keydown' && e.metaKey && e.key === 'k') { term.clear(); return false; }
+      if (e.type === 'keydown' && e.metaKey && e.key === 'f') { find.open(); return false; }
       if (e.type === 'keydown' && e.metaKey && e.key === 'c' && term.hasSelection()) { navigator.clipboard.writeText(term.getSelection()); return false; }
       return true;
     });
     const t = { id, spec, term, fit, el, title: spec.title, alive: true, project: spec.project !== undefined ? spec.project : App.project };
     // R with plots.R sourced announces its plots in the output (see plots.js).
     term.parser.registerOscHandler(7337, (data) => { App.views.plots.osc(t, data); return true; });
+    // A transfer lane reports how each copy typed into it ended (see transfer.js).
+    term.parser.registerOscHandler(7338, (data) => { if (spec.onMarker) spec.onMarker(data); return true; });
     // R consoles report when R first shows its prompt, so code isn't typed into a starting shell.
     if (spec.lang === 'r') t.ready = new Promise((res) => { t.onReady = res; setTimeout(res, 20000); });
     T.list.push(t);
@@ -169,7 +216,7 @@
   }
 
   // Logins and setup steps: never a target for R code or plots.
-  const SETUP_KINDS = new Set(['hpc-login', 'storage-login', 'install', 'keygen', 'hpc-copy-key', 'hpc-transfer']);
+  const SETUP_KINDS = new Set(['hpc-login', 'storage-login', 'install', 'keygen', 'hpc-copy-key', 'hpc-lane']);
   function tabMenu(t) {
     const rt = T.rFor(t.project);
     return [

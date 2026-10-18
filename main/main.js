@@ -168,8 +168,9 @@ function ptySpec(spec) {
       return { file: 'ssh', args: ssh.shellArgs(host, remote), cwd: os.homedir() };
     }
     case 'hpc-task': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${q(spec.cwd || '~')} 2>/dev/null; ${spec.command}; echo; echo "[process exited with $?]"; exec $SHELL -l`)}`), cwd: os.homedir() };
-    // A queued copy between the HPC and the storage: it ends with the copy, so the queue knows how it went.
-    case 'hpc-transfer': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${q(spec.cwd || '~')} 2>/dev/null; ${finished(spec.command)}`)}`), cwd: os.homedir() };
+    // A lane of queued HPC <-> storage copies: a plain HPC shell that the transfer queue types
+    // one copy at a time into, so it reuses the terminal instead of opening one per copy.
+    case 'hpc-lane': return { file: 'ssh', args: ssh.shellArgs(host), cwd: os.homedir() };
     // HPC setup steps report how they finished.
     case 'install': {
       const ic = spec.brew ? { command: setup.BREW_INSTALL } : setup.installCommand(spec.tools || []);

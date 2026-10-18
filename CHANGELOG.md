@@ -4,7 +4,11 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+### Changed
+- **HPC ↔ storage copies share terminals**: instead of one terminal per copy, Files opens as many terminals as the *at a time* setting allows (named "Transfers 1", "Transfers 2"…) and each runs its copies one after another. Cancelling a running copy closes its terminal.
+
 ### Added
+- **Find in terminals**: `⌘F` in a terminal opens a search field at its top right. Matches are highlighted with a count, `Enter` / `⇧Enter` step forward and back, and `Esc` closes it.
 - **Worktree selector in Files**: when a project has two or more linked git worktrees (for example the ones agents create), This Mac shows a dropdown above the path bar, labelled with branch names and "(main)" for the main worktree. Picking one browses that worktree's files and search follows it; the *Project folder* button returns to the project. Chat and agents are unaffected, and projects without linked worktrees look the same as before.
 
 ## 1.1.0
