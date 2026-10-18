@@ -131,6 +131,7 @@ test('timeout terminates and reaps the child', async () => {
   const options = opts({ prompt: 'hang', timeoutMs: 500 });
   await assert.rejects(oneShot('codex', options), /^Error: one-shot timed out/);
   const call = recorded(options);
+  await untilFile(options.env.FAKE_SIGNAL);
   assert.equal(fs.readFileSync(options.env.FAKE_SIGNAL, 'utf8'), 'SIGTERM');
   reaped(call.pid);
 });
@@ -139,6 +140,7 @@ test('timeout force kills a child that ignores SIGTERM', async () => {
   const options = opts({ prompt: 'resist', timeoutMs: 500 });
   await assert.rejects(oneShot('codex', options), /^Error: one-shot timed out/);
   const call = recorded(options);
+  await untilFile(options.env.FAKE_SIGNAL);
   assert.equal(fs.readFileSync(options.env.FAKE_SIGNAL, 'utf8'), 'SIGTERM');
   reaped(call.pid);
 });
@@ -148,6 +150,7 @@ test('timeout kills a resistant process group whose grandchild holds stdout', as
   await assert.rejects(oneShot('claude', options), /^Error: one-shot timed out/);
   const call = recorded(options);
   const grandchild = Number(fs.readFileSync(options.env.FAKE_GRANDCHILD, 'utf8'));
+  await untilFile(options.env.FAKE_SIGNAL);
   assert.equal(fs.readFileSync(options.env.FAKE_SIGNAL, 'utf8'), 'SIGTERM');
   await eventuallyReaped(call.pid);
   await eventuallyReaped(grandchild);
@@ -169,6 +172,7 @@ test('abort terminates and reaps the child', async () => {
   controller.abort();
   await assert.rejects(pending, { name: 'AbortError' });
   const call = recorded(options);
+  await untilFile(options.env.FAKE_SIGNAL);
   assert.equal(fs.readFileSync(options.env.FAKE_SIGNAL, 'utf8'), 'SIGTERM');
   reaped(call.pid);
 });
