@@ -1054,3 +1054,10 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .searchbar { padding-top: 0; }
 .searchbar input { flex: 1; font-size: 12px; padding: 3px 6px; }
 .xf-head .icon-btn.on { color: var(--accent); }
+
+/* Two-option switch: the thumb slides between the labels */
+.scope-toggle { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; flex: none; margin-left: auto; padding: 2px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-2); font: inherit; font-size: 11px; cursor: pointer; }
+.scope-toggle .opt { position: relative; z-index: 1; padding: 1px 9px; white-space: nowrap; text-align: center; color: var(--muted); transition: color .18s; }
+.scope-toggle .thumb { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 999px; background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); transition: transform .18s ease; }
+.scope-toggle.right .thumb { transform: translateX(100%); }
+.scope-toggle:not(.right) .opt:first-of-type, .scope-toggle.right .opt:last-of-type { color: var(--text); font-weight: 600; }

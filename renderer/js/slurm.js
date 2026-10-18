@@ -29,7 +29,8 @@
   const scoped = (list) => (S.all ? list : list.filter(inProject));
   const paintScope = () => {
     if (!scopeBtn) return;
-    scopeBtn.textContent = S.all ? 'All jobs' : 'This project';
+    scopeBtn.classList.toggle('right', !!S.all);
+    scopeBtn.setAttribute('aria-checked', S.all ? 'true' : 'false');
     scopeBtn.title = S.all ? 'Showing all your jobs. Click to show only this project’s.' : 'Showing jobs run in ' + (App.remoteDir || 'the HPC folder') + '. Click to show all your jobs.';
   };
 
@@ -47,7 +48,8 @@
     root.classList.add('files-view');
     stamp = h('span.hint');
     emptyEl = h('div.empty');
-    scopeBtn = h('button.btn.small.ghost', { onclick: () => { S.all = !S.all; paintScope(); render(); } });
+    scopeBtn = h('button.scope-toggle', { role: 'switch', onclick: () => { S.all = !S.all; paintScope(); render(); } },
+      h('span.thumb'), h('span.opt', 'This project'), h('span.opt', 'All jobs'));
     paintScope();
     for (const s of SECTIONS) { s.dot = h('span.pane-count'); s.body = s.list = h('div.pane-scroll' + (s.meta ? '.jobs' : '.res')); }
     S.stack = App.stack({ key: 'slurmPanes', sections: SECTIONS });
