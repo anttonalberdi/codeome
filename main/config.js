@@ -70,6 +70,7 @@ const DEFAULTS = {
   projectLinks: {},       // project → [projects connected to it]; both ways, kept when a project is closed
   gitAccounts: [],        // GitHub account metadata; tokens stay in the encrypted secret store
   projectAccounts: {},    // project → GitHub account id; kept when the project is closed
+  showHidden: true,       // list dotfiles (.gitignore, .readthedocs.yaml…) in the file views
   activeProject: null,
   projectViews: {},       // project → { view, pane } it was left on; restored when switching back or reopening
   // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight };

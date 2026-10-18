@@ -73,6 +73,7 @@
         App.iconBtn('home', side === 'local' ? 'Project folder' : 'Start folder', () => F.go(side, F.startDir(side))),
         App.iconBtn('newfile', 'New file', () => newItem(side, false)),
         App.iconBtn('newfolder', 'New folder', () => newItem(side, true)),
+        App.hiddenBtn(() => SIDES.forEach(F.refresh)),
         App.iconBtn('refresh', 'Refresh', () => F.refresh(side))],
       menu: () => folderMenu(side), items: () => sectionItems(side),
       body: [h('div.pathbar', pathInput), searchBox ? h('div.pathbar.searchbar', searchBox, searchClear) : null, list].filter(Boolean),
@@ -144,7 +145,7 @@
     p.list.append(h('div.empty', h('span.spinner'), ' Loading…'));
     const r = await api(side).list(dir);
     if (r.error) { p.list.innerHTML = ''; p.list.append(h('div.empty', r.error)); return; }
-    F[side].dir = r.cwd; F[side].entries = r.entries.filter((x) => App.cfg.showHidden || !x.name.startsWith('.'));
+    F[side].dir = r.cwd; F[side].entries = r.entries.filter((x) => App.cfg.showHidden !== false || !x.name.startsWith('.'));
     F[side].sel = null;
     if (side === 'remote') { App.remoteDir = r.cwd; App.emit('remote-dir', r.cwd); }
     p.pathInput.value = r.cwd;
@@ -158,7 +159,7 @@
     try {
       const dir = s.dir, r = await api(side).list(dir);
       if (r.error || s.dir !== dir) return;
-      const next = r.entries.filter((x) => App.cfg.showHidden || !x.name.startsWith('.'));
+      const next = r.entries.filter((x) => App.cfg.showHidden !== false || !x.name.startsWith('.'));
       const sig = (a) => JSON.stringify(a);
       if (sig(next) === sig(s.entries)) return;
       s.entries = next;
@@ -179,7 +180,7 @@
     const r = await codeome.local.search(root, q);
     if (seq !== searchSeq) return;
     p.list.innerHTML = '';
-    const res = (r.results || []).filter((x) => App.cfg.showHidden || !x.rel.split('/').some((n) => n.startsWith('.')));
+    const res = (r.results || []).filter((x) => App.cfg.showHidden !== false || !x.rel.split('/').some((n) => n.startsWith('.')));
     if (!res.length) { p.list.append(h('div.empty', `No files match “${q}”.`)); return; }
     for (const x of res) {
       const name = App.basename(x.path), parent = App.dirname(x.rel);
@@ -299,7 +300,6 @@
       remote && dir ? { label: 'Set as HPC start folder', run: () => { App.cfg.hpc.remoteRoot = dir; App.saveConfig(); App.toast('HPC start folder set.'); } } : null,
       side === 'storage' && dir ? { label: `Set as ${F.title(side)} start folder`, run: () => { App.cfg.storage.root = dir; App.saveConfig(); App.toast('Start folder set.'); } } : null,
       { label: 'Open in the Transfer view', disabled: !dir, run: () => App.views.transfer.open({ host: side, dir }) },
-      { label: (App.cfg.showHidden ? 'Hide' : 'Show') + ' hidden files', run: () => { App.cfg.showHidden = !App.cfg.showHidden; App.saveConfig(); SIDES.forEach(F.refresh); } },
       '-',
       ...F.stack.items(side)
     ];

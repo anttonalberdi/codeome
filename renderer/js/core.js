@@ -47,6 +47,8 @@ App.icons = {
   file: '<svg class="ic" viewBox="0 0 16 16"><path d="M3.5 1.5h6l3 3v10h-9z M9.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>',
   up: '<svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   history: '<svg viewBox="0 0 16 16"><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5V5h2.5M8 5.5V8l2 1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
+  eye: '<svg viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>',
+  eyeoff: '<svg viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".6"/><path d="M2.5 13.5l11-11" stroke="currentColor" stroke-width="1.5"/></svg>',
   refresh: '<svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.5h-2.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
   newfile: '<svg viewBox="0 0 16 16"><path d="M3.5 1.5h6l3 3v4M3.5 1.5v13h5M9.5 1.5v3h3M12 10.5v4M10 12.5h4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
   newfolder: '<svg viewBox="0 0 16 16"><path d="M1.5 3.5h4.5l1.5 1.5h7v3M1.5 3.5v9h7M12 10v4M10 12h4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>',
@@ -65,6 +67,14 @@ App.icons = {
   bolt: '<svg viewBox="0 0 16 16"><path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>'
 };
 App.iconBtn = (name, title, onclick, extra = '') => h('button.icon-btn.small' + extra, { title, 'aria-label': title, onclick, html: App.icons[name] });
+
+// Shows or hides dotfiles in the file views; `onChange` re-lists them.
+const hiddenBtns = new Set();
+App.hiddenBtn = (onChange) => {
+  const b = h('button.icon-btn.small', { onclick: () => { App.cfg.showHidden = App.cfg.showHidden === false; App.saveConfig(); hiddenBtns.forEach((x) => x.sync()); onChange(); } });
+  b.sync = () => { const on = App.cfg.showHidden !== false; const t = on ? 'Hide hidden files' : 'Show hidden files'; b.title = t; b.setAttribute('aria-label', t); b.innerHTML = App.icons[on ? 'eye' : 'eyeoff']; };
+  b.sync(); hiddenBtns.add(b); return b;
+};
 
 // ---------- formatting ----------
 App.fmtSize = (n) => {

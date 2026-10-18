@@ -234,6 +234,7 @@
         p.star, p.favBtn,
         App.iconBtn('up', 'Parent folder', () => p.dir && go(p, App.dirname(p.dir))),
         App.iconBtn('home', 'Start folder', () => go(p, F().startDir(p.host))),
+        App.hiddenBtn(() => { panes().forEach((x) => go(x)); HOSTS.forEach(F().refresh); }),
         App.iconBtn('refresh', 'Refresh', () => go(p)),
         App.iconBtn('dots', 'More', (e) => App.menuAt(e.currentTarget, paneMenu(p)))),
       h('div.pathbar', p.path), p.cols, p.list, p.foot);
@@ -317,7 +318,7 @@
       return;
     }
     p.dir = p.dirs[host] = r.cwd; remember(p);
-    p.entries = r.entries.filter((x) => App.cfg.showHidden || !x.name.startsWith('.'));
+    p.entries = r.entries.filter((x) => App.cfg.showHidden !== false || !x.name.startsWith('.'));
     p.path.value = r.cwd;
     paintStar(p);
     render(p);
@@ -446,7 +447,6 @@
     return [
       { label: 'New folder…', disabled: !dir, run: () => newFolder(p) },
       host !== 'local' ? { label: 'Upload files from Mac…', disabled: !dir, run: async () => { const fs = await codeome.dialog.files({ defaultPath: App.project || '~' }); X.enqueue('local', fs.map((path) => ({ path })), host, dir); } } : null,
-      { label: (App.cfg.showHidden ? 'Hide' : 'Show') + ' hidden files', run: () => { App.cfg.showHidden = !App.cfg.showHidden; App.saveConfig(); panes().forEach((x) => go(x)); HOSTS.forEach(F().refresh); } },
       '-',
       { label: 'Show in the Files sidebar', disabled: !dir, run: () => F().show(host, dir) },
       host !== 'storage' ? { label: 'Terminal here', disabled: !dir, run: () => (host === 'remote' ? App.views.terminals.hpcShell(dir) : App.views.terminals.localShell(dir)) } : null,
