@@ -5,6 +5,7 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 const { run, q } = require('./util');
 
 const CONTROL_DIR = path.join(os.homedir(), '.ssh', 'codeome-cm');
@@ -37,6 +38,24 @@ async function check(host) {
   if (!host) return { connected: false, reason: 'No HPC host configured' };
   const r = await run('ssh', ['-o', `ControlPath=${CONTROL_PATH}`, '-O', 'check', host], { timeout: 5000 });
   return { connected: r.code === 0, reason: r.code === 0 ? '' : (r.stderr.trim() || 'Not connected') };
+}
+
+// A master that died without cleaning up leaves its socket file behind, and the
+// next login then logs in but silently skips multiplexing ("ControlSocket ...
+// already exists, disabling multiplexing"). Remove every socket nobody answers on.
+function clearStaleSockets() {
+  let names = [];
+  try { names = fs.readdirSync(CONTROL_DIR); } catch { return []; }
+  const removed = [];
+  for (const n of names) {
+    const sock = path.join(CONTROL_DIR, n);
+    try { if (!fs.statSync(sock).isSocket()) continue; } catch { continue; }
+    const r = spawnSync('ssh', ['-o', `ControlPath=${sock}`, '-O', 'check', 'codeome-stale-check'], { timeout: 5000, encoding: 'utf8' });
+    if (r.status !== 0 && /refused|No such file/i.test(r.stderr || '')) {
+      try { fs.unlinkSync(sock); removed.push(n); } catch {}
+    }
+  }
+  return removed;
 }
 
 async function disconnect(host) {
@@ -114,4 +133,4 @@ function passwordFiller(password, write) {
   };
 }
 
-module.exports = { CONTROL_PATH, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, disconnect, exec, execArgs, list, parseListing, readFile, writeFile, rsyncSshCommand };
+module.exports = { CONTROL_PATH, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, clearStaleSockets, disconnect, exec, execArgs, list, parseListing, readFile, writeFile, rsyncSshCommand };

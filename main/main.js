@@ -149,8 +149,8 @@ function ptySpec(spec) {
     // A console (R) ends with its program, so a dead tab means a dead session.
     case 'console': return { file: sh, args: ['-l', '-c', spec.command], cwd };
     // The logins in a terminal, offered when the background one (login.js) fails.
-    case 'hpc-login': return { file: 'ssh', args: ssh.masterArgs(host), cwd: os.homedir() };
-    case 'storage-login': return { file: 'ssh', args: ssh.masterArgs(sto()), cwd: os.homedir() };
+    case 'hpc-login': ssh.clearStaleSockets(); return { file: 'ssh', args: ssh.masterArgs(host), cwd: os.homedir() };
+    case 'storage-login': ssh.clearStaleSockets(); return { file: 'ssh', args: ssh.masterArgs(sto()), cwd: os.homedir() };
     case 'hpc-console': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '~'} 2>/dev/null; ${spec.command}`)}`), cwd: os.homedir() };
     case 'hpc-shell': {
       const dir = spec.cwd && spec.cwd !== '~' ? `cd ${q(spec.cwd)} && exec $SHELL -l` : '';
@@ -499,7 +499,7 @@ ipcMain.handle('login:start', (_e, target) => {
   const l = { state: { phase: 'starting' }, pending: '' };
   logins[target] = l;
   l.session = login.start({
-    spawn: () => pty.spawn('ssh', ssh.masterArgs(host), { name: 'xterm-256color', cols: 200, rows: 30, cwd: os.homedir(), env: augmentedEnv({ TERM: 'xterm-256color' }) }),
+    spawn: () => { ssh.clearStaleSockets(); return pty.spawn('ssh', ssh.masterArgs(host), { name: 'xterm-256color', cols: 200, rows: 30, cwd: os.homedir(), env: augmentedEnv({ TERM: 'xterm-256color' }) }); },
     verify: async () => (await ssh.check(host)).connected,
     password: secret ? config.getSecret(secret) : '',
     emit: (s) => { l.state = s; send('login:state', { target, ...s }); },
