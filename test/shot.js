@@ -274,6 +274,15 @@ const steps = {
     if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); }
     setTimeout(() => C.overview(c), 400);
   })(); 0`],
+  // A shell with some output and the find bar open on a word in it.
+  'terminal-search': [`(async () => {
+    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    const t = await App.views.terminals.localShell(${JSON.stringify(path.resolve(__dirname, '..'))});
+    setTimeout(() => {
+      codeome.pty.write(t.id, "PS1='alex@example:~/projects/codeome$ '; clear; for i in 1 2 3 4 5 6; do echo \\"sample_$i  reads=$((i*120000))  status=ok\\"; done; echo 'sample_7  reads=0  status=failed'; echo 'sample_8  reads=95000  status=ok'\\r");
+      setTimeout(() => { t.find.open(); const i = t.el.querySelector('.term-find-input'); i.value = 'sample'; i.dispatchEvent(new Event('input')); }, 1500);
+    }, 1500);
+  })(); 0`],
   // SHOT_PROJECT: an R project. Starts an R console there and draws a few plots.
   // SHOT_PLOTS: also pick a journal size and open the plots in a tab ('tab').
   plots: [`(async () => {

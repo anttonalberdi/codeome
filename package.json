@@ -1,7 +1,7 @@
 {
   "name": "codeome",
   "productName": "Codeome",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "One Mac app for R/Python work on your laptop and HPC: editor, terminals, Claude Code & Codex sessions, Slurm, file transfer, reports, GitHub, Zenodo and PyPI.",
   "homepage": "https://anttonalberdi.github.io/codeome/",
   "main": "main/main.js",

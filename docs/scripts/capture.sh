@@ -34,6 +34,7 @@ SHOTS=(
   'editor|editor||'
   'rmd|rmd|SHOT_RMD=@RMD@|'
   'plots|plots||'
+  'terminal-search|terminal-search||#panel'
   'chat-usage|stats|SHOT_POPOVER=1|'
   'forum|forum||'
   'ideas|ideas||'

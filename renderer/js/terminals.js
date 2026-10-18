@@ -10,8 +10,9 @@
   const tabsEl = () => document.getElementById('term-tabs');
 
   function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  const isDark = () => matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light' || document.documentElement.dataset.theme === 'dark';
   function theme() {
-    const dark = matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light' || document.documentElement.dataset.theme === 'dark';
+    const dark = isDark();
     const bg = cssVar(dark ? '--bg' : '--surface-2');
     return {
       background: bg, foreground: cssVar('--text'), cursor: cssVar('--accent'), cursorAccent: bg,
@@ -39,11 +40,11 @@
 
   // Find-in-terminal bar: Cmd+F opens it, Enter / Shift+Enter step through matches, Esc closes.
   function termFind(el, term, search) {
-    const deco = {
-      matchBackground: '#7a6a1f', matchOverviewRuler: '#d9b83a',
-      activeMatchBackground: '#c9892a', activeMatchBorder: '#f0c060', activeMatchColorOverviewRuler: '#f0c060'
+    const decos = {
+      dark: { matchBackground: '#7a6a1f', matchOverviewRuler: '#d9b83a', activeMatchBackground: '#c9892a', activeMatchBorder: '#f0c060', activeMatchColorOverviewRuler: '#f0c060' },
+      light: { matchBackground: '#f6e27a', matchOverviewRuler: '#d9b83a', activeMatchBackground: '#f2a33a', activeMatchBorder: '#b36b00', activeMatchColorOverviewRuler: '#b36b00' }
     };
-    const opts = () => ({ caseSensitive: false, decorations: deco });
+    const opts = () => ({ caseSensitive: false, decorations: decos[isDark() ? 'dark' : 'light'] });
     const input = h('input.term-find-input', { type: 'text', placeholder: 'Find', spellcheck: false });
     const count = h('span.term-find-count');
     const step = (back) => { if (input.value) (back ? search.findPrevious : search.findNext).call(search, input.value, opts()); };
@@ -102,7 +103,7 @@
       if (e.type === 'keydown' && e.metaKey && e.key === 'c' && term.hasSelection()) { navigator.clipboard.writeText(term.getSelection()); return false; }
       return true;
     });
-    const t = { id, spec, term, fit, el, title: spec.title, alive: true, project: spec.project !== undefined ? spec.project : App.project };
+    const t = { id, spec, term, fit, find, el, title: spec.title, alive: true, project: spec.project !== undefined ? spec.project : App.project };
     // R with plots.R sourced announces its plots in the output (see plots.js).
     term.parser.registerOscHandler(7337, (data) => { App.views.plots.osc(t, data); return true; });
     // A transfer lane reports how each copy typed into it ended (see transfer.js).

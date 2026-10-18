@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.1.1
 
 ### Changed
 - **HPC ↔ storage copies share terminals**: instead of one terminal per copy, Files opens as many terminals as the *at a time* setting allows (named "Transfers 1", "Transfers 2"…) and each runs its copies one after another. Cancelling a running copy closes its terminal.
