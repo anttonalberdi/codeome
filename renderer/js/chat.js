@@ -1046,7 +1046,7 @@
 
   // ---------- view ----------
   C.mount = (host) => {
-    logEl = h('div.chat-log', { 'aria-live': 'polite', onclick: onLinkClick });
+    logEl = h('div.chat-log', { 'aria-live': 'polite', onclick: onLinkClick, oncontextmenu: onLinkMenu });
     ta = h('textarea.chat-input', { rows: 1, placeholder: DEFAULT_PLACEHOLDER, 'aria-label': 'Message the agent', oninput: autosize, onkeydown: (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
     } });
@@ -1210,6 +1210,17 @@
     await setQuick([...new Set(r.v.split('\n').map((x) => x.trim()).filter(Boolean))]);
   }
   function autosize() { ta.style.height = 'auto'; ta.style.height = Math.min(220, ta.scrollHeight + 2) + 'px'; }
+
+  function onLinkMenu(e) {
+    const a = e.target.closest('a[data-path]');
+    if (!a) return;
+    e.preventDefault();
+    const name = App.basename(a.dataset.path.replace(/(?:#L\d+(?:-L?\d+)?|:\d+)$/, ''));
+    App.menu(e.clientX, e.clientY, [
+      { label: 'Open', run: () => a.click() },
+      { label: 'Copy name', run: () => navigator.clipboard.writeText(name) }
+    ]);
+  }
 
   async function onLinkClick(e) {
     const a = e.target.closest('a[data-path]');

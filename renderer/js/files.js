@@ -341,6 +341,7 @@
       ...(e.dir && remote ? App.cfg.agents.map((a) => ({ label: `${a.name} here`, run: () => App.views.terminals.agentHpc(a, full) })) : []),
       e.dir && local ? { label: 'Ask the agent about this folder', run: () => App.views.chat.ask(`About ${F.relRef(full)}: `) } : null,
       '-',
+      { label: 'Copy name', run: () => navigator.clipboard.writeText(e.name) },
       { label: 'Copy path', run: () => navigator.clipboard.writeText(full) },
       local ? { label: 'Reveal in Finder', run: () => codeome.shell.reveal(full) } : null,
       remote && e.dir ? { label: 'Folder size', run: async () => { App.toast('Measuring ' + e.name + '…'); const r = await codeome.remote.du(full); App.toast(`${e.name}: ${r.size || 'unknown'}`); } } : null,

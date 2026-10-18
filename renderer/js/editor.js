@@ -209,6 +209,18 @@
     return true;
   };
 
+  // Re-read a file tab from disk (asking first when it has unsaved edits); preview tabs re-render.
+  E.refresh = async function (t) {
+    if (t.kind !== 'file') { if (t.reload) t.reload(true); return; }
+    if (t.dirty && !(await App.confirm('Reload ' + t.title + '?', 'Your unsaved edits to this file will be lost.', 'Reload', true))) return;
+    const r = await fileApi(t).read(t.path);
+    if (r.error) return App.err(r.error);
+    if (r.content !== t.model.getValue()) t.model.setValue(r.content);
+    for (const x of E.tabs) if (x.model === t.model) { x.saved = t.model.getAlternativeVersionId(); x.dirty = false; }
+    renderTabs();
+    App.toast('Reloaded ' + t.title);
+  };
+
   // R code (R files, R chunks) goes to the R console; anything else to the active terminal.
   // With no selection, R sends the whole statement under the cursor, like RStudio.
   E.sendSelection = function (ed) {
@@ -431,7 +443,17 @@
           renderTabs();
         },
         onclick: () => E.activate(t.id), title: t.path ? (t.remote ? 'HPC: ' : t.storage ? App.views.files.title('storage') + ': ' : '') + t.path : t.title,
-        onauxclick: (e) => { if (e.button === 1) E.close(t.id); }
+        onauxclick: (e) => { if (e.button === 1) E.close(t.id); },
+        oncontextmenu: (e) => {
+          e.preventDefault();
+          App.menu(e.clientX, e.clientY, [
+            { label: 'Copy name', run: () => navigator.clipboard.writeText(t.path ? App.basename(t.path) : t.title) },
+            t.path ? { label: 'Copy path', run: () => navigator.clipboard.writeText(t.path) } : null,
+            t.kind === 'file' || t.reload ? { label: 'Refresh', run: () => E.refresh(t) } : null,
+            '-',
+            { label: 'Close', run: () => E.close(t.id) }
+          ]);
+        }
       },
       t.remote ? h('span.badge.hpc', 'HPC') : t.storage ? h('span.badge.store', App.views.files.title('storage')) : (t.badge ? h('span.badge', t.badge) : null),
       h('span.t', t.title),
