@@ -17,6 +17,10 @@ test('policy descriptors and project values use defaults for missing or invalid 
   assert.deepStrictEqual(POLICY_DEFAULTS.map((s) => s.key), ['slurmSubmit', 'gitPublish', 'hpcAccess', 'writeOutsideProject', 'requirePlan']);
   assert.deepStrictEqual(defaults(), { slurmSubmit: 'ask', gitPublish: 'ask', hpcAccess: 'full', writeOutsideProject: 'ask', requirePlan: 'off' });
   assert.deepStrictEqual(DEFAULTS.projectPolicy, {});
+  assert.deepStrictEqual(DEFAULTS.policyDefaults, {});
+  assert.deepStrictEqual(DEFAULTS.projectChat, {});
+  assert.strictEqual(DEFAULTS.chat.mode, '');
+  assert.strictEqual(DEFAULTS.chat.engine, '');
   assert.strictEqual(POLICY_DEFAULTS[0].type, 'tri');
   assert.deepStrictEqual(POLICY_DEFAULTS[0].options.map((o) => o.value), ['ask', 'allow', 'never']);
   assert.strictEqual(POLICY_DEFAULTS[0].options[1].label, 'Allow (best effort)');
@@ -33,6 +37,31 @@ test('policy descriptors and project values use defaults for missing or invalid 
   assert.strictEqual(policyFor(cfg, cwd).slurmSubmit, 'ask');
   assert.strictEqual(policyFor(cfg, cwd).gitPublish, 'ask');
   assert.deepStrictEqual(policyFor(cfg, '/work/other'), defaults());
+});
+
+test('project policy overrides app defaults, while missing and invalid values inherit', () => {
+  const cfg = {
+    policyDefaults: { slurmSubmit: 'never', gitPublish: 'never', hpcAccess: 'readonly', writeOutsideProject: 'bogus' },
+    projectPolicy: { [cwd]: { slurmSubmit: 'ask', gitPublish: 'bogus', hpcAccess: 'full', requirePlan: 'on' } }
+  };
+  assert.deepStrictEqual(policyFor(cfg, cwd), {
+    slurmSubmit: 'ask', gitPublish: 'never', hpcAccess: 'full', writeOutsideProject: 'ask', requirePlan: 'on'
+  });
+  assert.strictEqual(policyFor(cfg, '/other').slurmSubmit, 'never');
+  assert.strictEqual(policyFor({}, cwd).slurmSubmit, 'ask');
+  cfg.projectPolicy[cwd].slurmSubmit = 'bogus';
+  assert.strictEqual(policyFor(cfg, cwd).slurmSubmit, 'never');
+});
+
+test('a project pinning the built-in ask value cancels app-wide never rules', () => {
+  const cfg = { policyDefaults: { slurmSubmit: 'never', gitPublish: 'never' },
+    projectPolicy: { [cwd]: { slurmSubmit: 'ask', gitPublish: 'ask' } } };
+  const merged = policyFor(cfg, cwd);
+  assert.strictEqual(merged.slurmSubmit, 'ask');
+  assert.strictEqual(policyPrompt(merged), '');
+  assert.deepStrictEqual(policySettings(merged), {});
+  assert.strictEqual(decide(merged, bash('sbatch job.sh')), undefined);
+  assert.strictEqual(decide(merged, bash('git push')), undefined);
 });
 
 test('Slurm submission detection finds commands and shell wrappers without matching mentions', () => {

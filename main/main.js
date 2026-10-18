@@ -17,6 +17,7 @@ const scratch = require('./scratch');
 const stats = require('./stats');
 const { CodexSession } = require('./codexchat');
 const chat = require('./chat');
+const projectChat = require('./projectchat');
 const policy = require('./policy');
 const forumstore = require('./forumstore');
 const { createHost } = require('./forumhost');
@@ -933,14 +934,14 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   const livePolicy = () => policy.policyFor(cfg, project);
   // Prompts and CLI settings are fixed at spawn; permission decisions read cfg on every request.
   const policyAtSpawn = livePolicy();
+  const chatDefaults = projectChat(cfg, project);
   let s;
   if (engine === 'codex') {
-    const c = cfg.chat || {};
     s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked, policy: livePolicy,
-      instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, persona, cwd: project, policyAtSpawn }), model: c.codexModel || '', effort: c.codexEffort || '' });
+      instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, persona, cwd: project, policyAtSpawn }), model: chatDefaults.codexModel, effort: chatDefaults.codexEffort });
   } else {
     if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: (cfg.chat || {}).model, effort: (cfg.chat || {}).effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy });
+    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
   return { s, acct, dir };

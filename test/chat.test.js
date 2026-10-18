@@ -6,6 +6,7 @@ const path = require('path');
 
 process.env.CODEOME_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-home-'));
 const chat = require('../main/chat');
+const projectChat = require('../main/projectchat');
 const policy = require('../main/policy');
 const usage = require('../main/usage');
 const scratch = require('../main/scratch');
@@ -113,6 +114,40 @@ test('the model chosen in Settings replaces a --model in the command', () => {
   assert.deepStrictEqual(chat.withModel(['--model=opus'], 'sonnet'), ['--model', 'sonnet']);
   const a = chat.buildArgs({ id: ID, extra: ['--model', 'opus'], model: 'haiku' });
   assert.deepStrictEqual(a.slice(0, 3), ['--model', 'haiku', '-p']);
+});
+
+test('project chat values overlay app defaults only when non-empty and valid', () => {
+  const project = '/work/project';
+  const cfg = { chat: { model: 'sonnet', effort: 'high', codexModel: 'gpt-app', codexEffort: 'low', mode: 'auto', engine: 'claude' },
+    projectChat: { [project]: { model: 'opus', effort: '', codexModel: '', codexEffort: 'minimal', mode: 'plan', engine: 'codex' } } };
+  assert.deepStrictEqual(projectChat(cfg, project), {
+    model: 'opus', effort: 'high', codexModel: 'gpt-app', codexEffort: 'minimal', mode: 'plan', engine: 'codex'
+  });
+  cfg.projectChat[project] = { model: ' ', effort: 'minimal', codexEffort: 'max', mode: 'bogus', engine: 'other' };
+  assert.deepStrictEqual(projectChat(cfg, project), cfg.chat);
+  cfg.chat.mode = 'bogus';
+  cfg.chat.engine = 'other';
+  cfg.chat.effort = 'bogus';
+  assert.deepStrictEqual(projectChat(cfg, '/other'), {
+    model: 'sonnet', effort: '', codexModel: 'gpt-app', codexEffort: 'low', mode: '', engine: ''
+  });
+});
+
+test('invalid stored model names inherit the next valid layer', () => {
+  const project = '/work/project';
+  const cfg = { chat: { model: 'sonnet', codexModel: 'gpt-app' }, projectChat: { [project]: {} } };
+  for (const invalid of [' opus', 'opus ', '-model', 'name with spaces', 'x'.repeat(81)]) {
+    cfg.projectChat[project] = { model: invalid, codexModel: invalid };
+    assert.strictEqual(projectChat(cfg, project).model, 'sonnet', invalid);
+    assert.strictEqual(projectChat(cfg, project).codexModel, 'gpt-app', invalid);
+  }
+  cfg.chat.model = ' sonnet';
+  cfg.chat.codexModel = '-model';
+  assert.strictEqual(projectChat(cfg, project).model, '');
+  assert.strictEqual(projectChat(cfg, project).codexModel, '');
+  cfg.projectChat[project] = { model: 'claude-opus-5-5', codexModel: 'gpt-5.1/fast' };
+  assert.strictEqual(projectChat(cfg, project).model, 'claude-opus-5-5');
+  assert.strictEqual(projectChat(cfg, project).codexModel, 'gpt-5.1/fast');
 });
 
 test('the effort chosen in Settings is passed on, replacing one in the command', () => {

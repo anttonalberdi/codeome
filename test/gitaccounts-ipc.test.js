@@ -16,7 +16,7 @@ function section(start, end) {
   return source.slice(from, to);
 }
 
-test('config:set keeps main-process GitHub accounts and bindings', () => {
+test('config:set keeps main-process GitHub bindings and renderer policy and chat defaults', () => {
   const handlers = {};
   const current = { accounts: {}, gitAccounts: [{ id: 'real' }], projectAccounts: { '/project': 'real' } };
   const context = {
@@ -28,10 +28,13 @@ test('config:set keeps main-process GitHub accounts and bindings', () => {
   };
   vm.runInNewContext(section("ipcMain.handle('config:set'", "ipcMain.handle('secret:set'"), context);
   const saved = handlers['config:set'](null, {
-    accounts: {}, gitAccounts: [{ id: 'injected', token: 'secret' }], projectAccounts: { '/project': 'injected' }
+    accounts: {}, gitAccounts: [{ id: 'injected', token: 'secret' }], projectAccounts: { '/project': 'injected' },
+    policyDefaults: { slurmSubmit: 'never' }, projectChat: { '/project': { model: 'opus' } }
   });
   assert.deepStrictEqual(JSON.parse(JSON.stringify(saved.gitAccounts)), [{ id: 'real' }]);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(saved.projectAccounts)), { '/project': 'real' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(saved.policyDefaults)), { slurmSubmit: 'never' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(saved.projectChat)), { '/project': { model: 'opus' } });
 });
 
 function accountHandlers() {

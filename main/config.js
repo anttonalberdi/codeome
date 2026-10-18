@@ -59,7 +59,7 @@ const DEFAULTS = {
   // codexModel/codexEffort: the same for chats on Codex ('' leaves them to Codex).
   // suggest: show clickable replies (a small model call) under a question that offers none.
   // contextWarnAt: a chat suggests starting a new one once its context window is this full (%).
-  chat: { model: 'sonnet', modelPicked: false, effort: '', codexModel: '', codexEffort: '', quick: ['Commit, push and deploy'], contextWarnAt: 70, suggest: true },
+  chat: { model: 'sonnet', modelPicked: false, effort: '', codexModel: '', codexEffort: '', mode: '', engine: '', quick: ['Commit, push and deploy'], contextWarnAt: 70, suggest: true },
   forum: { defaultBudget: 0, summaryTokens: 6000, recentMessages: 8, checkModel: 'haiku', codexCheckModel: '', checkEffort: 'low', checkTimeoutMs: 30000 },
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
@@ -70,7 +70,9 @@ const DEFAULTS = {
   projectLinks: {},       // project → [projects connected to it]; both ways, kept when a project is closed
   gitAccounts: [],        // GitHub account metadata; tokens stay in the encrypted secret store
   projectAccounts: {},    // project → GitHub account id; kept when the project is closed
+  policyDefaults: {},     // app-wide agent policy switch values
   projectPolicy: {},      // project path → agent policy switch values
+  projectChat: {},        // project path → agent chat defaults
   showHidden: true,       // list dotfiles (.gitignore, .readthedocs.yaml…) in the file views
   activeProject: null,
   projectViews: {},       // project → { view, pane } it was left on; restored when switching back or reopening

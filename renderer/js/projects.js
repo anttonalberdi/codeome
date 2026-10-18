@@ -27,6 +27,7 @@
     delete App.cfg.projectGroup[ideas];
     delete App.cfg.projectLinks[ideas];
     if (App.cfg.projectPolicy && !P.list.includes(ideas)) delete App.cfg.projectPolicy[ideas];
+    if (App.cfg.projectChat && !P.list.includes(ideas)) delete App.cfg.projectChat[ideas];
     for (const dir of Object.keys(App.cfg.projectLinks)) App.cfg.projectLinks[dir] = App.cfg.projectLinks[dir].filter((d) => d !== ideas);
     P.list = shown();
     P.list.forEach(colorOf);
@@ -224,6 +225,7 @@
     const i = P.list.indexOf(dir);
     if (i >= 0) P.list.splice(i, 1);
     if (App.isIdeas(dir) && App.cfg.projectPolicy) delete App.cfg.projectPolicy[dir];
+    if (App.isIdeas(dir) && App.cfg.projectChat) delete App.cfg.projectChat[dir];
     delete P.state[dir];
     if (App.project === dir) await P.switchTo(P.list[Math.min(i, P.list.length - 1)] || null);
     else { App.cfg.openProjects = P.list.slice(); await App.saveConfig(); render(); }

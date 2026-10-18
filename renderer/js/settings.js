@@ -33,9 +33,9 @@
     { value: 'cross', label: 'The other engine' }
   ];
   const ENGINE_NAME = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
-  const MODEL_RE = /^[\w.:/[\]-]{1,80}$/;
+  const MODEL_RE = /^(?!-)[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
-    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
+    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['policy', 'Agent policy'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
     ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
   const ALIAS = { github: 'git', zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
@@ -83,6 +83,7 @@
     for (const ev of ['setup', 'hpc', 'vpn', 'login', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
     for (const ev of ['storage', 'login', 'config']) App.listen(ev, () => { if (S.isOpen) renderStorage(); });
     App.listen('config', () => { if (S.isOpen && current === 'transfer' && !favBusy) sections.transfer.replaceWith(transferSection()); });
+    App.listen('config', () => { if (S.isOpen && current === 'policy') renderPolicyRows(); });
     for (const ev of ['usage', 'config']) App.listen(ev, () => { if (S.isOpen) renderAccounts(); });
     App.listen('env', () => { if (S.isOpen && current === 'mac') sections.mac.replaceWith(macSection()); });
   }
@@ -177,7 +178,7 @@
   // ---------- render ----------
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
-    hpc: hpcSection, storage: storageSection, transfer: transferSection, agents: agentsSection, accounts: accountsSection, r: rSection,
+    hpc: hpcSection, storage: storageSection, transfer: transferSection, agents: agentsSection, policy: policySection, accounts: accountsSection, r: rSection,
     projects: projectsSection, python: pythonSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
   };
   let showSeq = 0;
@@ -187,6 +188,7 @@
     markNav(id);
     agentsHost = globalHost = setupHost = serverList = storageHost = accountsHost = null;
     sections = {};
+    if (id === 'policy' || id === 'agents') main.replaceChildren(h('div.sp-content', h('p.sp-intro', { role: 'status' }, id === 'policy' ? 'Loading agent policy…' : 'Loading agent settings…')));
     const el = await BUILD[id](App.cfg);
     if (seq !== showSeq || id !== current || !S.isOpen) return; // another section was picked while this one loaded
     if (id === 'git') { sections.git = el; gitRows = el.gitRows; }
@@ -442,24 +444,76 @@
           'R consoles started from here draw off-screen, so plots open in Codeome instead of a separate window. For R started some other way, right-click its terminal tab → Show R plots in Codeome.')));
   }
 
+  // ---------- agent policy ----------
+  let policyItems = [], policyRowsHost = null;
+  function renderPolicyRows() {
+    if (!policyRowsHost) return;
+    policyRowsHost.replaceChildren(...policyItems.map((item) => {
+      const stored = (App.cfg.policyDefaults || {})[item.key];
+      const value = item.options.some((option) => option.value === stored) ? stored : item.default;
+      return h('div.sp-row', { 'data-policy-key': item.key },
+        h('div.sp-label', h('label', item.label), h('div.hint', item.help)),
+        h('div.sp-ctl', App.policyControl(item, value, (picked) => {
+          App.cfg.policyDefaults = App.cfg.policyDefaults || {};
+          if (picked === item.default) delete App.cfg.policyDefaults[item.key];
+          else App.cfg.policyDefaults[item.key] = picked;
+          renderPolicyRows();
+          commit();
+        })));
+    }));
+  }
+
+  async function policySection() {
+    let items;
+    try {
+      items = await codeome.policy.defaults();
+      if (!Array.isArray(items)) throw new Error('Invalid policy definitions.');
+    } catch (error) {
+      policyRowsHost = null;
+      return section('policy', 'Agent policy', 'Defaults for all projects',
+        card(null, h('div.sp-empty', { role: 'alert' }, 'Could not load agent policy: ' + (error.message || String(error)),
+          h('br'), h('button.btn.small', { type: 'button', onclick: () => show('policy') }, 'Retry'))));
+    }
+    policyItems = items;
+    policyRowsHost = h('div');
+    renderPolicyRows();
+    return section('policy', 'Agent policy', 'Defaults for all projects. These apply to every project unless the project overrides them in Project settings.',
+      card('Defaults for all projects', policyRowsHost));
+  }
+
   // ---------- agents ----------
-  function agentsSection(c) {
+  async function agentsSection(c) {
+    let catalogError = '';
+    try {
+      const models = await codeome.agents.models();
+      codexCatalog = models.codex || { models: [] };
+    } catch (error) {
+      codexCatalog = { models: [] };
+      catalogError = error.message || String(error);
+    }
     const chatCmd = (c.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
-    const fromCmd = (chatCmd.match(/--model(?:=|\s+)(\S+)/) || [])[1];
+    const chatOptions = App.agentDefaultOptions((codexCatalog && codexCatalog.models) || []);
     return section('agents', 'Agents', 'The agent chat, the specialists it hands work to, the skills they follow, and the command-line agents offered as terminal sessions. Some are set once for all projects; the rest belong to the open project.',
       scopeHead('All projects', 'Kept on this Mac, outside any project.'),
       card('Agent chat (orchestrator)',
         row('AI', h('span.pill.ok', 'Claude Code'), `Runs "${chatCmd}" — the first Claude command below.`),
-        row('Model', modelSelect([{ value: '', label: fromCmd ? `From the command (${fromCmd})` : 'Claude Code default' }, ...CLAUDE_MODELS], (App.cfg.chat || {}).model || '',
+        row('Claude model', modelSelect(chatOptions.model, (App.cfg.chat || {}).model || '',
           (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), model: v, modelPicked: true }; commit(); }, 'Chat model'),
-          'For chats started from now on. Chats already open keep their model until they restart.'),
-        row('Effort', select(CLAUDE_EFFORTS, (App.cfg.chat || {}).effort || '', (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), effort: v }; commit(); }, 'Chat effort'),
-          'How much the model thinks before it answers. Higher is slower and uses more of the limits. Default leaves it to the model.'),
+          'Default for all projects. Projects can override this in Project settings. Chats already open keep their model until they restart.'),
+        row('Claude effort', select(chatOptions.effort, (App.cfg.chat || {}).effort || '', (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), effort: v }; commit(); }, 'Chat effort'),
+          'Default for all projects. Projects can override this in Project settings. Higher effort is slower and uses more of the limits.'),
         row('Codex chats', h('div.ag-two',
-          modelSelect([{ value: '', label: 'Codex default' }, ...((codexCatalog && codexCatalog.models) || []).map((m) => ({ value: m.id, label: m.label }))], (App.cfg.chat || {}).codexModel || '',
+          modelSelect(chatOptions.codexModel, (App.cfg.chat || {}).codexModel || '',
             (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), codexModel: v }; commit(); }, 'Codex chat model'),
-          select(CODEX_EFFORTS, (App.cfg.chat || {}).codexEffort || '', (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), codexEffort: v }; commit(); }, 'Codex chat effort')),
-          'Model and effort of chats started on Codex. Default leaves them to Codex.'),
+          select(chatOptions.codexEffort, (App.cfg.chat || {}).codexEffort || '', (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), codexEffort: v }; commit(); }, 'Codex chat effort')),
+          'Default for all projects. Projects can override this in Project settings.'),
+        row('Default permission mode', select(chatOptions.mode, (App.cfg.chat || {}).mode || '',
+          (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), mode: v }; commit(); }, 'Default permission mode'),
+          'As last used follows the permission mode selected in the chat. Projects can override this in Project settings.'),
+        row('Default engine', select(chatOptions.engine, (App.cfg.chat || {}).engine || '',
+          (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), engine: v }; commit(); }, 'Default engine'),
+          'Claude is used unless a project overrides this in Project settings.'),
+        catalogError ? h('div.sp-foot', { role: 'alert' }, 'Could not load Codex model choices: ' + catalogError) : null,
         row('Suggested replies', check('Offer clickable answers under a question', () => (App.cfg.chat || {}).suggest !== false,
           (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), suggest: v }; }),
           'When the agent ends a message with a question that lists no options, a small Haiku call reads that one message and proposes a few short answers. It costs a few hundred tokens per question.'),

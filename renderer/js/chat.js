@@ -18,6 +18,7 @@
   ];
   const EXAMPLES = ['How is this project organised?', 'Find out why the tests fail and fix it', 'Review my uncommitted changes'];
   const ENGINE = { claude: 'Claude', codex: 'Codex' };
+  const MODEL_RE = /^(?!-)[\w.:/[\]-]{1,80}$/;
   const DEFAULT_PLACEHOLDER = 'Ask, or describe a task…';
   let personas = [], personaPromise;
   const personaFor = (chat) => chat && personas.find((persona) => persona.id === chat.role);
@@ -36,6 +37,24 @@
   const engineOf = (chat) => (chat && chat.engine === 'codex' ? 'codex' : 'claude');
   const store = { get: (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
+  function resolveDefaults(cfg, project, savedMode, opts = {}) {
+    const app = (cfg && cfg.chat) || {}, projectValues = (cfg && cfg.projectChat && cfg.projectChat[project]) || {};
+    const values = {};
+    for (const key of ['model', 'effort', 'codexModel', 'codexEffort', 'mode', 'engine']) {
+      const valid = (value) => typeof value === 'string' && (
+        key === 'mode' ? (!value || MODES.some((m) => m.value === value)) :
+          key === 'engine' ? (!value || Object.hasOwn(ENGINE, value)) :
+            key === 'effort' ? (!value || ['low', 'medium', 'high', 'xhigh', 'max'].includes(value)) :
+              key === 'codexEffort' ? (!value || ['minimal', 'low', 'medium', 'high', 'xhigh'].includes(value)) :
+                !value || MODEL_RE.test(value));
+      values[key] = valid(projectValues[key]) && projectValues[key] ? projectValues[key] : valid(app[key]) ? app[key] : '';
+    }
+    values.mode = MODES.some((m) => m.value === opts.mode) ? opts.mode : values.mode || savedMode || 'default';
+    values.engine = Object.hasOwn(ENGINE, opts.engine) ? opts.engine : values.engine || 'claude';
+    return values;
+  }
+  C.resolveDefaults = resolveDefaults;
+
   function uuid() {
     if (crypto.randomUUID) return crypto.randomUUID();
     const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
@@ -45,9 +64,23 @@
 
   // ---------- conversations ----------
   function blank(project, opts = {}) {
-    const chat = { id: uuid(), project, title: '', engine: opts.engine === 'codex' ? 'codex' : 'claude', role: '', account: opts.account || 'auto', accountName: null, mode: store.get('codeome.chat.mode', 'default'),
+    const defaults = resolveDefaults(App.cfg, project, store.get('codeome.chat.mode', 'default'), opts);
+    const chat = { id: uuid(), project, title: '', engine: defaults.engine, role: '', account: opts.account || 'auto', accountName: null, mode: defaults.mode,
+      enginePicked: Object.hasOwn(ENGINE, opts.engine), modePicked: MODES.some((m) => m.value === opts.mode),
       started: false, items: [], createdAt: Date.now() };
     return live(chat);
+  }
+  function refreshBlank(chat, opts = {}) {
+    if (chat.started || chat.running || chat.items.length) return;
+    const defaults = resolveDefaults(App.cfg, chat.project, store.get('codeome.chat.mode', 'default'), opts);
+    const enginePicked = Object.hasOwn(ENGINE, opts.engine), modePicked = MODES.some((m) => m.value === opts.mode);
+    if (!chat.enginePicked || enginePicked) {
+      if (chat.engine !== defaults.engine) chat.account = 'auto';
+      chat.engine = defaults.engine;
+    }
+    if (!chat.modePicked || modePicked) chat.mode = defaults.mode;
+    if (enginePicked) chat.enginePicked = true;
+    if (modePicked) chat.modePicked = true;
   }
   // Runtime-only state, rebuilt for a saved conversation.
   function live(chat) {
@@ -126,7 +159,7 @@
     if (!project) return App.toast('Open a project folder first.');
     const t = C.byProject[project] || (C.byProject[project] = { tabs: [], active: null });
     let chat = t.tabs.find((c) => !c.started && !c.items.length && !c.running);
-    if (chat) { chat.role = ''; if (opts.engine) { chat.engine = opts.engine === 'codex' ? 'codex' : 'claude'; chat.account = 'auto'; } if (opts.account) chat.account = opts.account; }
+    if (chat) { chat.role = ''; chat.enginePicked = false; chat.modePicked = false; refreshBlank(chat, opts); if (opts.account) chat.account = opts.account; }
     else { chat = blank(project, opts); t.tabs.push(chat); }
     C.activate(chat);
     if (opts.send) C.send(opts.send); else focus();
@@ -149,6 +182,7 @@
   C.activate = (chat) => {
     const t = C.byProject[chat.project];
     if (!t) return;
+    refreshBlank(chat);
     const old = t.active;
     if (old && ta && chat.project === App.project && old !== chat) old.draft = ta.value;
     t.active = chat;
@@ -450,6 +484,7 @@
     store.set('codeome.chat.mode', v);
     if (!chat) return;
     chat.mode = v;
+    chat.modePicked = true;
     if (chat.running) codeome.chat.control(chat.id, { subtype: 'set_permission_mode', mode: v }).then((r) => { if (r.error && engineOf(chat) === 'claude') App.err(r.error); });
     save(chat);
   }
@@ -462,12 +497,12 @@
     const chat = cur();
     const engine = chat ? engineOf(chat) : 'claude';
     let cmd = (App.cfg.agents.find((a) => new RegExp('^' + engine + '(\\s|$)').test(a.cmd)) || { cmd: engine }).cmd;
-    const { model, effort } = App.cfg.chat || {};
+    const project = chat ? chat.project : App.project;
+    const { model, effort } = resolveDefaults(App.cfg, project, store.get('codeome.chat.mode', 'default'));
     if (engine === 'claude') {
       if (model) cmd = cmd.replace(/\s--model(=|\s+)\S+/, '') + ' --model ' + model;
       if (effort) cmd = cmd.replace(/\s--effort(=|\s+)\S+/, '') + ' --effort ' + effort;
     }
-    const project = chat ? chat.project : App.project;
     const dirs = engine === 'claude' ? App.views.projects.linksOf(project).map((d) => ' --add-dir ' + App.shq(d)).join('') : '';
     App.views.terminals.open({ kind: 'agent-local', title: 'New session', command: cmd + dirs + ' ' + App.shq(text), cwd: project, badge: 'Mac', engine, account: (chat && chat.accountName) || 'auto' });
   };
@@ -480,7 +515,7 @@
     if (chat.busy && !(await App.confirm('Move this chat to a terminal?', 'The agent is still working. It will be stopped here and the conversation reopened in a terminal.', 'Move', true))) return;
     if (chat.running) { chat.stopping = true; await codeome.chat.stop(chat.id); }
     let cmd = (App.cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
-    const { model, effort } = App.cfg.chat || {};
+    const { model, effort } = resolveDefaults(App.cfg, chat.project, store.get('codeome.chat.mode', 'default'));
     if (model) cmd = cmd.replace(/\s--model(=|\s+)\S+/, '') + ' --model ' + model;
     if (effort) cmd = cmd.replace(/\s--effort(=|\s+)\S+/, '') + ' --effort ' + effort;
     App.views.terminals.open({ kind: 'agent-local', title: 'Agent chat', command: cmd + ' --resume ' + chat.id + App.views.projects.linksOf(chat.project).map((d) => ' --add-dir ' + App.shq(d)).join(''), cwd: chat.project, badge: 'Mac', engine: 'claude', account: chat.accountName || 'auto' });
@@ -1217,7 +1252,10 @@
           'aria-pressed': String(chat.role === persona.id), onclick: () => {
             if (chat.started || chat.running || chat.items.length) return;
             chat.role = chat.role === persona.id ? '' : persona.id;
-            if (chat.role && persona.engine && chat.engine !== persona.engine) { chat.engine = persona.engine; chat.account = 'auto'; }
+            if (chat.role && persona.engine) {
+              chat.enginePicked = true;
+              if (chat.engine !== persona.engine) { chat.engine = persona.engine; chat.account = 'auto'; }
+            }
             paint();
             logEl.querySelectorAll('.chat-persona')[index]?.focus();
           }
@@ -1257,7 +1295,7 @@
     if (chat) {
       // The engine is chosen with the first message and stays.
       if (chat.started || chat.running || chat.items.length) acctEl.append(h('span.pill' + (eng === 'codex' ? '.codex' : '.ok'), { title: ENGINE[eng] + ' chat' }, ENGINE[eng]));
-      else acctEl.append(h('select', { 'aria-label': 'AI for this chat', disabled: !!(persona && persona.engine), onchange: (e) => { chat.engine = e.target.value; chat.account = 'auto'; paintState(); } },
+      else acctEl.append(h('select', { 'aria-label': 'AI for this chat', disabled: !!(persona && persona.engine), onchange: (e) => { chat.engine = e.target.value; chat.enginePicked = true; chat.account = 'auto'; paintState(); } },
         Object.entries(ENGINE).map(([k, v]) => h('option', { value: k, selected: eng === k }, v))));
       if (chat.role && (chat.started || chat.running || chat.items.length)) acctEl.append(h('span.pill.chat-persona-pill', { title: personaName(chat.role) }, personaName(chat.role)));
     }

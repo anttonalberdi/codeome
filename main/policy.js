@@ -35,8 +35,16 @@ function selected(policy, item) {
 }
 
 function policyFor(cfg, cwd) {
-  const stored = cfg && cfg.projectPolicy && cfg.projectPolicy[cwd];
-  return Object.fromEntries(POLICY_DEFAULTS.map((item) => [item.key, selected(stored, item)]));
+  return Object.fromEntries(POLICY_DEFAULTS.map((item) => [item.key, policyChoice(cfg, cwd, item)]));
+}
+
+function policyChoice(cfg, cwd, item) {
+  const project = cfg && cfg.projectPolicy && cfg.projectPolicy[cwd];
+  for (const values of [project, cfg && cfg.policyDefaults]) {
+    const value = values && values[item.key];
+    if (item.options.some((option) => option.value === value)) return value;
+  }
+  return item.default;
 }
 
 function shellTokens(command) {

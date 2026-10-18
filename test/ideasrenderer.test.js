@@ -23,7 +23,8 @@ test('Ideas restores as a chat workspace without becoming project metadata', asy
     openProjects: [scratch], activeProject: scratch, recentFolders: [scratch, '/project'],
     localRoot: scratch, projectColors: { [scratch]: 120 }, projectGroup: { [scratch]: 'g' },
     projectGroups: [{ id: 'g', name: 'Work', collapsed: false }],
-    projectLinks: { '/project': [scratch] }, projectPolicy: { [scratch]: { slurmSubmit: 'never' }, '/project': { requirePlan: 'on' } }, ui: {}
+    projectLinks: { '/project': [scratch] }, projectPolicy: { [scratch]: { slurmSubmit: 'never' }, '/project': { requirePlan: 'on' } },
+    projectChat: { [scratch]: { model: 'opus' }, '/project': { model: 'sonnet' } }, ui: {}
   };
   const App = {
     h: (_selector, _attrs, ...children) => { const el = element(); el.append(...children); return el; },
@@ -55,6 +56,7 @@ test('Ideas restores as a chat workspace without becoming project metadata', asy
   assert.equal(cfg.projectGroup[scratch], undefined);
   assert.deepEqual(cfg.projectLinks['/project'], []);
   assert.deepEqual(cfg.projectPolicy[scratch], { slurmSubmit: 'never' });
+  assert.deepEqual(cfg.projectChat[scratch], { model: 'opus' });
   assert.deepEqual(cfg.projectPolicy['/project'], { requirePlan: 'on' });
   assert.deepEqual(Array.from(cfg.openProjects), [scratch]);
   assert.equal(jobCalls, 0);
@@ -66,6 +68,8 @@ test('Ideas restores as a chat workspace without becoming project metadata', asy
   assert.deepEqual(cfg.recentFolders, ['/project']);
   await P.close(scratch);
   assert.equal(cfg.projectPolicy[scratch], undefined);
+  assert.equal(cfg.projectChat[scratch], undefined);
+  assert.deepEqual(cfg.projectChat['/project'], { model: 'sonnet' });
   assert.deepEqual(cfg.projectPolicy['/project'], { requirePlan: 'on' });
 });
 

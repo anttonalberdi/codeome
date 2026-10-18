@@ -264,15 +264,28 @@ svg { width: 18px; height: 18px; display: block; }
 .empty .btn { margin-top: 8px; }
 
 /* ---------- project settings ---------- */
+.view[data-view="projectSettings"] > * { flex: none; }
 .ps-intro { padding: 8px 12px 12px; border-bottom: 1px solid var(--line); }
 .ps-project { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
 .ps-path { color: var(--muted); font: 11px/1.4 var(--mono); overflow-wrap: anywhere; margin-top: 2px; }
 .ps-intro p { margin: 12px 0 0; color: var(--muted); font-size: 11.5px; }
 .ps-list { padding: 0 12px; }
+.ps-card { margin: 12px 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.ps-card-title { margin: 0; padding: 9px 11px; border-bottom: 1px solid var(--line); border-radius: 7px 7px 0 0; background: var(--surface-2); font-size: 12px; font-weight: 650; }
+.ps-card > .ps-list { padding: 0 11px; }
 .ps-row { padding: 12px 0 14px; border-bottom: 1px solid var(--line); }
+.ps-list .ps-row:last-child { border-bottom: 0; }
 .ps-label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .ps-tag { color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 4px; font-size: 10px; font-weight: 500; }
+.ps-overridden { color: var(--accent); border-color: var(--accent); }
 .ps-help { color: var(--muted); font-size: 11px; margin: 3px 0 9px; }
+.ps-inheritance { color: var(--muted); font-size: 11px; margin-top: 7px; }
+.ps-chat-control { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.ps-chat-control select { max-width: 100%; }
+.ps-field-error, .ps-catalog-error { color: var(--fail); font-size: 11px; }
+.ps-field-error:empty { display: none; }
+.ps-catalog-error { padding: 8px 12px; }
+.ps-catalog-error .btn { margin-left: 8px; }
 .ps-segments { display: flex; width: fit-content; max-width: 100%; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--surface-2); }
 .ps-segments button { border: 0; border-left: 1px solid var(--line-strong); background: transparent; color: var(--muted); font-size: 11px; padding: 5px 8px; cursor: pointer; white-space: nowrap; }
 .ps-segments button:first-child { border-left: 0; }
@@ -289,6 +302,7 @@ svg { width: 18px; height: 18px; display: block; }
 .ps-reset:disabled { color: var(--muted); cursor: default; text-decoration: none; }
 .ps-note, .ps-error { color: var(--muted); font-size: 11px; margin: 10px 0 0; }
 .ps-error { color: var(--fail); }
+.sp-ctl > .ps-segments { width: fit-content; }
 
 /* ---------- buttons & inputs ---------- */
 .btn { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
