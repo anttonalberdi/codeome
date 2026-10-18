@@ -9,8 +9,10 @@
   const DEFAULT_TITLE = { local: 'This Mac', remote: 'HPC', storage: 'ERDA' };
   const F = { panes: {} };
   for (const s of SIDES) F[s] = { dir: null, entries: [], sel: null };
+  F.worktrees = [];
   App.views.files = F;
   let root;
+  let worktreeRoot = null, worktreeProjectRoot = null, worktreeSig = '[]', worktreeSeq = 0, worktreePollAt = 0;
 
   const api = (side) => ({ local: codeome.local, remote: codeome.remote, storage: codeome.storage })[side];
   const host = (side) => (side === 'remote' ? App.cfg.hpc.host : side === 'storage' ? App.cfg.storage.host : 'this Mac');
@@ -42,7 +44,7 @@
     for (const [ev, side] of [['hpc', 'remote'], ['storage', 'storage']]) {
       App.listen(ev, (up) => { if (up) { paintDot(side); F.go(side, F[side].dir || F.startDir(side)); } else renderState(side); });
     }
-    App.listen('project', (dir) => { clearSearch(); if (!App.isIdeas(dir)) F.go('local', dir); });
+    App.listen('project', (dir) => { clearSearch(); void loadWorktrees(true).catch(() => {}); if (!App.isIdeas(dir)) F.go('local', dir); });
     App.listen('config', () => { F.stack.retitle(); renderState('remote'); renderState('storage'); });
     renderState('remote'); renderState('storage');
   };
@@ -52,11 +54,68 @@
     if (b && b.value) { b.value = ''; b.nextSibling.hidden = true; F.search(''); }
   }
 
+  function containingWorktree(dir, trees = F.worktrees) {
+    if (!dir) return null;
+    const project = App.project;
+    if (project && worktreeProjectRoot && (dir === project || dir.startsWith(project + '/')))
+      dir = worktreeProjectRoot + dir.slice(project.length);
+    return trees.reduce((best, tree) => {
+      const prefix = tree.path.endsWith('/') ? tree.path : tree.path + '/';
+      return (dir === tree.path || dir.startsWith(prefix)) && (!best || tree.path.length > best.path.length) ? tree : best;
+    }, null);
+  }
+
+  function syncWorktreeSelection() {
+    const select = F.panes.local?.worktreeSelect;
+    if (select) select.value = containingWorktree(F.local.dir)?.path || '';
+  }
+
+  async function loadWorktrees(force = false) {
+    const project = App.project;
+    if (project !== worktreeRoot) {
+      worktreeRoot = project;
+      worktreeProjectRoot = null;
+      worktreeSeq++;
+      setWorktrees([], false);
+    }
+    if (!project || (!force && Date.now() - worktreePollAt < 10000)) return;
+    worktreePollAt = Date.now();
+    const seq = ++worktreeSeq;
+    let result;
+    try {
+      result = await codeome.local.worktrees(project);
+    } catch { return; }
+    if (seq !== worktreeSeq || project !== App.project) return;
+    if (result?.error || !Array.isArray(result?.worktrees)) return;
+    await setWorktrees(result.worktrees, true, result.root || project);
+  }
+
+  async function setWorktrees(next, checkVanish, canonicalRoot = null) {
+    const previous = checkVanish && F.worktrees.length >= 2 ? containingWorktree(F.local.dir) : null;
+    worktreeProjectRoot = canonicalRoot;
+    const sig = JSON.stringify(next);
+    if (sig !== worktreeSig) {
+      F.worktrees = next;
+      worktreeSig = sig;
+      const { worktreeRow, worktreeSelect } = F.panes.local;
+      worktreeSelect.replaceChildren(
+        h('option', { value: '', disabled: true }, 'Other folder'),
+        ...next.map((tree) => h('option', { value: tree.path, title: tree.path },
+          (tree.branch || `detached @ ${(tree.head || '').slice(0, 7)}`) + (tree.isMain ? ' (main)' : ''))));
+      worktreeRow.hidden = next.length < 2;
+    }
+    syncWorktreeSelection();
+    if (previous && !next.some((tree) => tree.path === previous.path) && App.project) await F.go('local', App.project);
+  }
+
   function pane(side) {
     const pathInput = h('input', { type: 'text', spellcheck: 'false', 'aria-label': F.title(side) + ' folder',
       onkeydown: (e) => { if (e.key === 'Enter') { clearSearch(); F.go(side, pathInput.value.trim()); } } });
     let searchBox = null, searchClear = null;
+    let worktreeRow = null, worktreeSelect = null;
     if (side === 'local') {
+      worktreeSelect = h('select', { onchange: () => { if (worktreeSelect.value) { clearSearch(); F.go('local', worktreeSelect.value); } } });
+      worktreeRow = h('div.worktreebar', { hidden: true }, h('label', 'Worktree', worktreeSelect));
       let timer = 0;
       searchBox = h('input', { type: 'text', placeholder: 'Search files in project…', spellcheck: 'false', 'aria-label': 'Search files in the project',
         oninput: () => { clearTimeout(timer); searchClear.hidden = !searchBox.value; timer = setTimeout(() => F.search(searchBox.value), 250); },
@@ -74,9 +133,9 @@
         App.iconBtn('newfile', 'New file', () => newItem(side, false)),
         App.iconBtn('newfolder', 'New folder', () => newItem(side, true)),
         App.hiddenBtn(() => SIDES.forEach(F.refresh)),
-        App.iconBtn('refresh', 'Refresh', () => F.refresh(side))],
+        App.iconBtn('refresh', 'Refresh', () => F.refresh(side, true))],
       menu: () => folderMenu(side), items: () => sectionItems(side),
-      body: [h('div.pathbar', pathInput), searchBox ? h('div.pathbar.searchbar', searchBox, searchClear) : null, list].filter(Boolean),
+      body: [worktreeRow, h('div.pathbar', pathInput), searchBox ? h('div.pathbar.searchbar', searchBox, searchClear) : null, list].filter(Boolean),
       onExpand: () => { if (F.isUp(side) && !F[side].dir) F.go(side, F.startDir(side)); }
     };
 
@@ -105,7 +164,7 @@
         { label: 'New file…', run: () => newItem(side, false) },
         { label: 'New folder…', run: () => newItem(side, true) }]);
     });
-    return { section, list, pathInput, dot, searchBox };
+    return { section, list, pathInput, dot, searchBox, worktreeRow, worktreeSelect };
   }
 
   // ---------- sections ----------
@@ -144,11 +203,12 @@
     p.list.innerHTML = '';
     p.list.append(h('div.empty', h('span.spinner'), ' Loading…'));
     const r = await api(side).list(dir);
-    if (r.error) { p.list.innerHTML = ''; p.list.append(h('div.empty', r.error)); return; }
+    if (r.error) { p.list.innerHTML = ''; p.list.append(h('div.empty', r.error)); if (side === 'local') syncWorktreeSelection(); return; }
     F[side].dir = r.cwd; F[side].entries = r.entries.filter((x) => App.cfg.showHidden !== false || !x.name.startsWith('.'));
     F[side].sel = null;
     if (side === 'remote') { App.remoteDir = r.cwd; App.emit('remote-dir', r.cwd); }
     p.pathInput.value = r.cwd;
+    if (side === 'local') syncWorktreeSelection();
     render(side);
   };
   const polling = {};
@@ -165,14 +225,17 @@
       s.entries = next;
       if (s.sel && !next.some((x) => x.name === s.sel)) s.sel = null;
       render(side);
-    } catch {} finally { polling[side] = false; }
+    } catch {} finally {
+      polling[side] = false;
+      if (side === 'local') void loadWorktrees().catch(() => {});
+    }
   };
   // Search the project (local pane only): results replace the folder listing until cleared.
   let searchSeq = 0;
   F.search = async (query) => {
     const p = F.panes.local; const q = query.trim(); const seq = ++searchSeq;
     if (!q) { F.local.searching = false; render('local'); return; }
-    const root = App.project || F.local.dir;
+    const root = (F.worktrees.length >= 2 && containingWorktree(F.local.dir)?.path) || App.project || F.local.dir;
     if (!root) return;
     F.local.searching = true;
     p.list.innerHTML = '';
@@ -192,7 +255,10 @@
     }
     if (r.truncated) p.list.append(h('div.empty', 'Showing the first matches — refine the search.'));
   };
-  F.refresh = (side) => F[side].dir && F.go(side, F[side].dir);
+  F.refresh = async (side, forceWorktrees = false) => {
+    if (F[side].dir) await F.go(side, F[side].dir);
+    if (side === 'local') await loadWorktrees(forceWorktrees);
+  };
   // How to name a local path to the agent: relative to the project when inside it.
   F.relRef = (p) => (App.project && p === App.project ? 'the project root' : App.project && p.startsWith(App.project + '/') ? p.slice(App.project.length + 1) : App.tildify(p));
 

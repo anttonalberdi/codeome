@@ -12,6 +12,7 @@ const slurm = require('./slurm');
 const zenodo = require('./zenodo');
 const kit = require('./kit');
 const jobs = require('./jobs');
+const { parseWorktrees } = require('./worktrees');
 const usage = require('./usage');
 const scratch = require('./scratch');
 const stats = require('./stats');
@@ -357,6 +358,21 @@ ipcMain.handle('local:list', async (_e, dir) => {
     }
     entries.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));
     return { cwd: dir, entries };
+  } catch (e) { return { error: String(e.message || e) }; }
+});
+ipcMain.handle('local:worktrees', async (_e, root) => {
+  if (typeof root !== 'string' || !root) return { worktrees: [] };
+  try {
+    const project = expandHome(root);
+    const realpath = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
+    const r = await git(project, ['worktree', 'list', '--porcelain'], { timeout: 5000 });
+    if (r.code !== 0) {
+      if (/not a git repository|spawn git ENOENT/i.test(r.stderr)) return { worktrees: [] };
+      return { error: (r.stderr || r.stdout || 'Could not list worktrees.').trim() };
+    }
+    return { root: realpath(project), worktrees: parseWorktrees(r.stdout)
+      .filter((tree) => fs.existsSync(tree.path))
+      .map((tree) => ({ ...tree, path: realpath(tree.path) })) };
   } catch (e) { return { error: String(e.message || e) }; }
 });
 // Find files under a project whose path ends with `rel`; newest first.

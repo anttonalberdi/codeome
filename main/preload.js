@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('codeome', {
     onData: on('pty:data'), onExit: on('pty:exit')
   },
   local: {
-    list: invoke('local:list'), find: (root, rel) => ipcRenderer.invoke('local:find', { root, rel }),
+    list: invoke('local:list'), worktrees: invoke('local:worktrees'), find: (root, rel) => ipcRenderer.invoke('local:find', { root, rel }),
     search: (root, query) => ipcRenderer.invoke('local:search', { root, query }), read: invoke('local:read'),
     write: (path, content) => ipcRenderer.invoke('local:write', { path, content }),
     mkdir: invoke('local:mkdir'), rename: (from, to) => ipcRenderer.invoke('local:rename', { from, to }),

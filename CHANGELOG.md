@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Worktree selector in Files**: when a project has two or more linked git worktrees (for example the ones agents create), This Mac shows a dropdown above the path bar, labelled with branch names and "(main)" for the main worktree. Picking one browses that worktree's files and search follows it; the *Project folder* button returns to the project. Chat and agents are unaffected, and projects without linked worktrees look the same as before.
+
 ## 1.1.0
 
 ### Changed
