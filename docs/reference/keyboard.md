@@ -13,3 +13,4 @@
 | `⌘J` | Show or hide terminal panel |
 | `⌘1`–`⌘7` | Agent chat, Files, Slurm, Git, Publish, Packages, Plots |
 | `⌘8` | Transfer view: two file panes and the queue |
+| `⌘9` | Project settings: rules for the agents in the project |

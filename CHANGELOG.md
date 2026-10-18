@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Project settings**: a new view, the last item in the rail (`⌘9`), with per-project rules for agents: Slurm job submission (ask, allow, never), Git publishing (ask, never), HPC access (full, read-only), writes outside the project (ask, never) and require a plan. They are saved in Codeome's config, not in the repository. Permission checks apply to running chats at once; the rule text and CLI rules apply to new chats. Matching is heuristic and not a security boundary, and HPC access and require a plan are advisory.
+
 ## 1.0.2
 
 ### Added

@@ -43,7 +43,8 @@ export default defineConfig({
           { text: 'Reports', link: '/guide/reports' },
           { text: 'Git & GitHub', link: '/guide/git-github' },
           { text: 'Publishing', link: '/guide/publishing' },
-          { text: 'Secrets', link: '/guide/secrets' }
+          { text: 'Secrets', link: '/guide/secrets' },
+          { text: 'Project settings', link: '/guide/project-settings' }
         ]
       },
       { text: 'Settings', items: [{ text: 'Settings', link: '/settings' }] },
