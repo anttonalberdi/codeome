@@ -56,14 +56,47 @@
 
   function pump() {
     // Starting one can fail at once and start the next, so check each is still waiting.
+    if (!X.queue.some((t) => ['queued', 'running'].includes(t.status))) X.policy = null;
     for (const t of X.pick(X.queue, X.parallel(), X.paused)) if (t.status === 'queued') start(t);
     X.changed();
   }
+
+  // ---------- name clashes ----------
+  // When the destination already has an item of the same name, ask: replace or skip. The answer
+  // can be kept for the rest of the queue (X.policy), until the queue has drained.
+  X.policy = null;
+  let asking = Promise.resolve();
+  const exists = async (t) => {
+    const r = await api(t.to).list(t.destDir);
+    return !r.error && (r.entries || []).some((e) => e.name === t.name);
+  };
+  // 'replace' or 'skip'. One question at a time; the ones waiting behind it reuse a kept answer.
+  const decide = (t) => {
+    const run = asking.then(async () => {
+      if (X.policy) return X.policy;
+      const all = h('input', { type: 'checkbox' });
+      const ok = await App.modal({ title: `${t.name} already exists`, ok: 'Replace', cancel: 'Skip',
+        text: `${t.dir ? 'A folder' : 'A file'} with this name is already in ${t.destDir} on ${title(t.to)}.`,
+        body: h('label.check', all, 'Do this for every other file in the queue') });
+      const answer = ok ? 'replace' : 'skip';
+      if (all.checked) X.policy = answer;
+      return answer;
+    });
+    asking = run.catch(() => {});
+    return run;
+  };
 
   async function start(t) {
     t.status = 'running'; t.pct = 0; t.rate = ''; t.error = ''; t.term = null;
     const down = [t.from, t.to].find((s) => !isUp(s));
     if (down) return finish(t, 'failed', 'Not connected to ' + title(down));
+    const id0 = t.id;
+    if (X.policy !== 'replace' && await exists(t)) {
+      const answer = X.policy || await decide(t);
+      if (t.id !== id0 || t.status !== 'running') return;
+      if (answer === 'skip') return finish(t, 'skipped', 'Already exists');
+    }
+    if (t.id !== id0 || t.status !== 'running') return;
     if (X.route(t.from, t.to).via === 'terminal') {
       const id = t.id;
       const r = await codeome.storage.hpcCommand(t.from === 'remote' ? 'up' : 'down', t.src, t.destDir);
@@ -133,6 +166,8 @@
   X.retry = (t) => { t.id = newId(); t.status = 'queued'; t.pct = 0; t.error = ''; pump(); };
   X.remove = (t) => { if (['queued', 'running'].includes(t.status)) X.cancel(t); X.queue.splice(X.queue.indexOf(t), 1); X.changed(); };
   X.clearFinished = () => { X.queue = X.queue.filter((t) => ['queued', 'running'].includes(t.status)); X.changed(); };
+  // Drop every transfer still waiting; the running ones carry on.
+  X.clearQueued = () => { X.queue = X.queue.filter((t) => t.status !== 'queued'); X.changed(); };
   X.setPaused = (on) => { X.paused = !!on; pump(); };
   X.changed = () => { for (const l of X.lists) l.sync(); App.emit('transfers', X.queue); };
 
@@ -198,7 +233,7 @@
       el.className = 'xq-row ' + t.status;
       bar.style.width = (t.status === 'running' ? t.pct : t.status === 'done' ? 100 : 0) + '%';
       status.textContent = {
-        queued: X.paused ? 'Paused' : 'Waiting', done: 'Done', cancelled: 'Cancelled', failed: 'Failed: ' + t.error,
+        queued: X.paused ? 'Paused' : 'Waiting', done: 'Done', cancelled: 'Cancelled', skipped: 'Skipped (already exists)', failed: 'Failed: ' + t.error,
         running: t.term ? 'In an HPC terminal' : t.pct || t.rate ? `${t.pct}%${t.rate ? ' · ' + t.rate : ''}` : 'Starting…'
       }[t.status];
       status.title = t.error;
@@ -208,7 +243,7 @@
       const live = ['queued', 'running'].includes(t.status);
       acts.append(...[
         t.status === 'running' && t.term ? App.iconBtn('terminal', 'Show its terminal', () => { App.views.terminals.showPanel(); App.views.terminals.activate(t.term); }) : null,
-        ['failed', 'cancelled'].includes(t.status) ? App.iconBtn('refresh', 'Try again', () => X.retry(t)) : null,
+        ['failed', 'cancelled', 'skipped'].includes(t.status) ? App.iconBtn('refresh', 'Try again', () => X.retry(t)) : null,
         App.iconBtn('close', live ? 'Cancel' : 'Remove from the list', () => (live ? X.cancel(t) : X.remove(t)))
       ].filter(Boolean));
     };
@@ -538,6 +573,7 @@
     qhead.pause.textContent = X.paused ? 'Resume' : 'Pause';
     qhead.pause.title = X.paused ? 'Start the waiting transfers again' : 'Start no more transfers; the running ones finish';
     qhead.pause.disabled = !X.paused && !live;
+    qhead.clearQueued.disabled = !X.queue.some((t) => t.status === 'queued');
     qhead.clear.disabled = !X.queue.some((t) => !['queued', 'running'].includes(t.status));
     qhead.empty.hidden = X.queue.length > 0;
   }
@@ -565,6 +601,7 @@
     qhead = {
       sum: h('span.hint.grow'),
       pause: h('button.btn.small', { onclick: () => X.setPaused(!X.paused) }),
+      clearQueued: h('button.btn.small', { title: 'Cancel and remove the transfers that are waiting; the running ones carry on', onclick: () => X.clearQueued() }, 'Clear queued'),
       clear: h('button.btn.small', { title: 'Remove the transfers that are done, failed or cancelled', onclick: () => X.clearFinished() }, 'Clear finished'),
       empty: h('div.empty', 'Nothing queued. Drag files from one side to the other, or select them and use the arrows between the panes.')
     };
@@ -572,7 +609,7 @@
       onchange: () => { ui().parallel = Number(parallel.value); App.saveConfig(); pump(); } },
       [1, 2, 3, 4].map((n) => h('option', { value: n, selected: n === X.parallel() }, n + ' at a time')));
     const queue = h('section.xf-queue', { 'aria-label': 'Transfer queue', style: { height: (u.queueH || 200) + 'px' } },
-      h('div.xf-qhead', h('b', 'Queue'), qhead.sum, parallel, qhead.pause, qhead.clear),
+      h('div.xf-qhead', h('b', 'Queue'), qhead.sum, parallel, qhead.pause, qhead.clearQueued, qhead.clear),
       h('div.xf-qbody', qhead.empty, list.el));
 
     // Drag the line above the queue to give it more or less room.

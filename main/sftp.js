@@ -143,12 +143,14 @@ function transferBatch(direction, src, destDir) {
 }
 const transferArgs = (host, batchFile) => [...muxOpts(), '-b', batchFile, host];
 
-// A shell command for the HPC that runs sftp to the storage in a terminal there,
-// so password prompts and the progress meter show.
+// A shell command for the HPC that runs sftp to the storage in a terminal there, so password
+// prompts and the progress meter show. Every copy shares one connection to the storage (the
+// first opens it, the rest reuse it for 30 minutes): the storage blocks hosts that open many
+// connections at once, and this also asks for the password only once.
 function hpcCommand(host, direction, src, destDir) {
   const dest = destDir.replace(/\/?$/, '/');
   const line = direction === 'up' ? `put -R ${sq(src)} ${sq(dest)}` : `get -R ${sq(src)} ${sq(dest)}`;
-  return `printf '%s\\n' ${q(line)} | sftp ${q(host)}`;
+  return `printf '%s\\n' ${q(line)} | sftp -o ControlMaster=auto -o ControlPersist=30m -o ControlPath=/tmp/cm-storage-%C ${q(host)}`;
 }
 
 module.exports = { target, sq, isHome, parseSftpListing, list, fetch, readFile, writeFile, mkdir, rename, remove, transferBatch, transferArgs, hpcCommand, errorOf };

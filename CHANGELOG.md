@@ -2,6 +2,15 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Name clashes in transfers**: when a file or folder being copied already exists at the destination, a window asks whether to replace or skip it, with a tick box to give the same answer to the rest of the queue. Skipped transfers show as "Skipped (already exists)".
+- **Clear queued** button in the transfer queue: cancels and removes every transfer that is still waiting, leaving the running ones alone.
+
+### Fixed
+- **HPC ↔ storage copies reuse one connection**: each copy used to open its own `sftp` login to the storage, so a long queue made many connections and got the HPC blocked. Copies now share one connection (kept for 30 minutes), which also asks for the password only once.
+
 ## 1.1.1
 
 ### Changed
