@@ -14,9 +14,10 @@ fs.writeFileSync(FAKE, `#!/usr/bin/env node
 const fs = require('fs');
 const args = process.argv.slice(2);
 const prompt = args[0] === '-p' ? args[1] : args.at(-1);
+// The handler goes first: the record file is what the tests wait for before they send SIGTERM.
+process.on('SIGTERM', () => { fs.writeFileSync(process.env.FAKE_SIGNAL, 'SIGTERM'); if (prompt !== 'resist' && prompt !== 'pipe-resist') process.exit(0); });
 fs.writeFileSync(process.env.FAKE_RECORD, JSON.stringify({ args, cwd: process.cwd(), pid: process.pid,
   claude: process.env.CLAUDE_CONFIG_DIR || null, codex: process.env.CODEX_HOME || null }));
-process.on('SIGTERM', () => { fs.writeFileSync(process.env.FAKE_SIGNAL, 'SIGTERM'); if (prompt !== 'resist' && prompt !== 'pipe-resist') process.exit(0); });
 if (prompt === 'pipe-resist' || prompt === 'pipe-exit') {
   const child = require('child_process').spawn(process.execPath, ['-e', 'process.on("SIGTERM",()=>{}); setInterval(()=>{},1000)'],
     { stdio: ['ignore', 'inherit', 'inherit'] });
