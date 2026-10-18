@@ -154,8 +154,7 @@ function ptySpec(spec) {
     case 'storage-login': ssh.clearStaleSockets(); return { file: 'ssh', args: ssh.masterArgs(sto()), cwd: os.homedir() };
     case 'hpc-console': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '~'} 2>/dev/null; ${spec.command}`)}`), cwd: os.homedir() };
     case 'hpc-shell': {
-      const dir = spec.cwd && spec.cwd !== '~' ? `cd ${q(spec.cwd)} && exec $SHELL -l` : '';
-      return { file: 'ssh', args: ssh.shellArgs(host, dir || undefined), cwd: os.homedir() };
+      return { file: 'ssh', args: ssh.shellArgs(host, ssh.colorShell(spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '')), cwd: os.homedir() };
     }
     case 'agent-hpc': {
       const dir = spec.cwd || '~';

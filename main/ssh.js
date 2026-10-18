@@ -34,6 +34,23 @@ function shellArgs(host, remoteCmd) {
   return a;
 }
 
+// An interactive bash for HPC terminals: the usual login files, then colour for what they leave plain
+// (ls and grep colours, LS_COLORS, a prompt without escapes). Anything the user set up themselves wins.
+const COLOR_RC = String.raw`{
+[ -f /etc/profile ] && . /etc/profile
+_f=; for _p in ~/.bash_profile ~/.bash_login ~/.profile; do [ -f "$_p" ] && { _f=$_p; break; }; done
+if [ -n "$_f" ]; then . "$_f"; elif [ -f ~/.bashrc ]; then . ~/.bashrc; fi
+unset _f _p
+} 2>/dev/null
+[ -n "$CODEOME_CWD" ] && cd "$CODEOME_CWD" 2>/dev/null; unset CODEOME_CWD
+[ -z "$LS_COLORS" ] && eval "$(dircolors -b 2>/dev/null)"
+alias ls >/dev/null 2>&1 || alias ls='ls --color=auto'
+alias grep >/dev/null 2>&1 || alias grep='grep --color=auto'
+case "$PS1" in *'\e['*|*'\033['*|*'\[\e'*) ;; *) PS1='\[\e[1;32m\]\u@\h\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ ' ;; esac
+`;
+// `dir` is a shell-quoted path to start in, applied after the login files (which may cd elsewhere).
+const colorShell = (dir) => `${dir ? 'export CODEOME_CWD=' + dir + '; ' : ''}export COLORTERM=truecolor CLICOLOR=1; exec bash --rcfile <(echo ${Buffer.from(COLOR_RC).toString('base64')} | base64 -d) -i`;
+
 async function check(host) {
   if (!host) return { connected: false, reason: 'No HPC host configured' };
   const r = await run('ssh', ['-o', `ControlPath=${CONTROL_PATH}`, '-O', 'check', host], { timeout: 5000 });
@@ -133,4 +150,4 @@ function passwordFiller(password, write) {
   };
 }
 
-module.exports = { CONTROL_PATH, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, clearStaleSockets, disconnect, exec, execArgs, list, parseListing, readFile, writeFile, rsyncSshCommand };
+module.exports = { colorShell, CONTROL_PATH, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, clearStaleSockets, disconnect, exec, execArgs, list, parseListing, readFile, writeFile, rsyncSshCommand };
