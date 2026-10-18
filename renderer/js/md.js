@@ -107,7 +107,7 @@
   if (typeof document !== 'undefined') document.addEventListener('click', (e) => {
     const btn = e.target.closest && e.target.closest('.code-copy');
     if (!btn) return;
-    const code = btn.parentElement.querySelector('pre');
+    const code = btn.closest('.code-block').querySelector('pre');
     navigator.clipboard.writeText(code ? code.textContent : '').then(() => {
       btn.innerHTML = CHECK_IC; btn.title = 'Copied';
       setTimeout(() => { btn.innerHTML = COPY_IC; btn.title = 'Copy to clipboard'; }, 1500);
