@@ -19,6 +19,6 @@ A Codex seat cannot edit an attached Google Doc.
 
 ## Ideas
 
-A chat and a forum that are not tied to any project, for discussing a new project or an idea that fits none of the existing ones. Open it from the welcome screen or the project bar. Chats and forums are saved under `~/.codeome` (its working folder is `~/.codeome/scratch`). The agent kit is not installed there (no jobs or specialists), the Files, Git and Slurm views are hidden, and Ideas is left out of the project lists and the usage statistics.
+A chat and a forum that are not tied to any project, for discussing a new project or an idea that fits none of the existing ones. Open it from the welcome screen or the project bar. Chats and forums are saved under `~/.codeome` (its working folder is `~/.codeome/scratch`). The agent kit is not installed there (no jobs or specialists), the Files, Git and Slurm views are hidden, and Ideas is left out of the project lists (it has no card in the project column) and the usage statistics. While no project exists, its chat says it is the general chat and suggests creating projects for project-specific sessions.
 
-<Shot src="/screens/ideas.webp" alt="The Ideas workspace with an empty agent chat and the text Chat and forum with no project" caption="Ideas has its own card in the project column and an empty chat and forum, with only the Agent view in the rail." width="1500" height="940" />
+<Shot src="/screens/ideas.webp" alt="The Ideas workspace with an empty agent chat and the text Chat and forum with no project" caption="Ideas has an empty chat and forum, with only the Agent view in the rail." width="1500" height="940" />

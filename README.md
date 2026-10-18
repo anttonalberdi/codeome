@@ -1,6 +1,22 @@
 # Codeome
 
+[![Release](https://img.shields.io/github/v/release/anttonalberdi/codeome)](https://github.com/anttonalberdi/codeome/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/anttonalberdi/codeome/total)](https://github.com/anttonalberdi/codeome/releases)
+[![CI](https://github.com/anttonalberdi/codeome/actions/workflows/ci.yml/badge.svg)](https://github.com/anttonalberdi/codeome/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-anttonalberdi.github.io-blue)](https://anttonalberdi.github.io/codeome/)
+[![License: MIT](https://img.shields.io/github/license/anttonalberdi/codeome)](LICENSE)
+![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
+
 One Mac app for research computing that spans your laptop and the HPC: a code editor, terminals, one agent chat that coordinates Claude Code and Codex, Slurm jobs, file transfer, report previews, Git/GitHub, Zenodo and PyPI — in a single window, without the parts of VS Code you never use.
+
+## Download
+
+**[Download the latest release](https://github.com/anttonalberdi/codeome/releases/latest)** and pick the `.dmg` under *Assets*:
+
+- **Apple silicon** (M1 and later): `Codeome-<version>-arm64.dmg`
+- **Intel**: `Codeome-<version>.dmg` (x64)
+
+Open the `.dmg` and drag Codeome to Applications. The app is not signed with an Apple Developer certificate, so the first time: right-click Codeome in Applications → **Open** → **Open**. More in [Getting started](https://anttonalberdi.github.io/codeome/guide/getting-started).
 
 **Documentation: https://anttonalberdi.github.io/codeome/**
 
@@ -14,9 +30,9 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 See the [guide](https://anttonalberdi.github.io/codeome/guide/getting-started) for each area, the [settings](https://anttonalberdi.github.io/codeome/settings) for first-time set-up, and the [keyboard shortcuts](https://anttonalberdi.github.io/codeome/reference/keyboard).
 
-## Install
+## Advanced: run from source
 
-Download the built app from the latest *Build macOS app* run in the [Actions tab](https://github.com/anttonalberdi/codeome/actions) (the *Codeome-mac* artifact), or build it yourself (Node.js 20+ and the Xcode command-line tools):
+Needs Node.js 20+ and the Xcode command-line tools.
 
 ```bash
 git clone https://github.com/anttonalberdi/codeome.git
@@ -26,7 +42,7 @@ npm start            # run in development
 npm run dist         # build dist/Codeome-<version>-arm64.dmg
 ```
 
-The app is not signed with an Apple Developer certificate, so the first time: right-click Codeome in Applications → **Open** → **Open**. More in [Getting started](https://anttonalberdi.github.io/codeome/guide/getting-started).
+Every push to `main` also builds the app: see the *Codeome-mac* artifact of the latest *Build macOS app* run in the [Actions tab](https://github.com/anttonalberdi/codeome/actions).
 
 ## Contributing
 

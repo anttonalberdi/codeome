@@ -2,7 +2,13 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.1.0
+
+### Changed
+- **Hidden files** are listed by default in the Files and Transfer panes; an eye button in the header hides or shows them.
+- **Slurm scope** is a sliding *This project / All jobs* switch instead of a text link.
+- **Ideas** no longer has a card in the project list. When no project exists, its chat says it is the general chat.
+- **Documentation and README**: the README opens with the download link and badges, and building from source is described as the advanced route.
 
 ### Added
 - **Project settings**: a new view, the last item in the rail (`⌘9`), with per-project rules for agents: Slurm job submission (ask, allow, never), Git publishing (ask, never), HPC access (full, read-only), writes outside the project (ask, never) and require a plan. They are saved in Codeome's config, not in the repository. Permission checks apply to running chats at once; the rule text and CLI rules apply to new chats. Matching is heuristic and not a security boundary, and HPC access and require a plan are advisory.

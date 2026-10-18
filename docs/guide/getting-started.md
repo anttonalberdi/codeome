@@ -4,15 +4,19 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 ## Install
 
-### Option A — download the built app
+### Download the app (easiest)
 
-Download the `.dmg` for your Mac (Apple silicon `arm64` or Intel `x64`) from the [latest release](https://github.com/anttonalberdi/codeome/releases/latest). Every push to `main` builds the app on GitHub (Actions tab → latest *Build macOS app* run → *Codeome-mac* artifact). Pushing a tag like `v0.2.0` (it must match the version in `package.json`) attaches the `.dmg` files to a release. The tests also run on every push and pull request (*CI* workflow).
+1. Open the [latest release](https://github.com/anttonalberdi/codeome/releases/latest).
+2. Under *Assets*, download the `.dmg` for your Mac: `arm64` for Apple silicon (M1 and later), `x64` for Intel.
+3. Open the `.dmg` and drag Codeome to Applications.
 
 ::: tip The app is not signed
 The app is not signed with an Apple Developer certificate, so the first time: right-click Codeome in Applications → **Open** → **Open**. (Or run `xattr -dr com.apple.quarantine /Applications/Codeome.app`.)
 :::
 
-### Option B — build it yourself
+Releases are made by pushing a tag like `v1.1.0` (it must match the version in `package.json`); the build attaches the `.dmg` files to the release. Every push to `main` also builds the app on GitHub (Actions tab → latest *Build macOS app* run → *Codeome-mac* artifact), and the tests run on every push and pull request (*CI* workflow).
+
+### Advanced — run or build from source
 
 Requires Node.js 20+ and the Xcode command-line tools (`xcode-select --install`).
 
