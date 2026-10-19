@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.2.0
 
 ### Changed
 - **HPC terminal colours**: the HPC terminal starts bash with `ls` and `grep` colours, `LS_COLORS` and a coloured prompt, unless your own config already sets them.
