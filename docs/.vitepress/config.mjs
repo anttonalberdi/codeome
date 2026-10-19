@@ -21,11 +21,25 @@ export default defineConfig({
   themeConfig: {
     logo: { light: '/logo.svg', dark: '/logo-dark.svg', alt: 'Codeome' },
     nav: [
+      {
+        text: 'Quick tours',
+        items: [
+          { text: 'For beginners', link: '/slides/beginners' },
+          { text: 'For advanced bioinformaticians', link: '/slides/advanced' }
+        ]
+      },
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Settings', link: '/settings' },
       { text: 'Reference', link: '/reference/keyboard' }
     ],
     sidebar: [
+      {
+        text: 'Quick tours',
+        items: [
+          { text: 'For beginners', link: '/slides/beginners' },
+          { text: 'For advanced bioinformaticians', link: '/slides/advanced' }
+        ]
+      },
       {
         text: 'Guide',
         items: [

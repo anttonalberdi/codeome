@@ -4,12 +4,19 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+### Changed
+- **HPC terminal colours**: the HPC terminal starts bash with `ls` and `grep` colours, `LS_COLORS` and a coloured prompt, unless your own config already sets them.
+
 ### Added
+- **Docs: two slideshow tours** (beginners and advanced bioinformaticians) that cover the basics as slides and link to the detailed guide pages, which stay as the deepest level.
 - **Name clashes in transfers**: when a file or folder being copied already exists at the destination, a window asks whether to replace or skip it, with a tick box to give the same answer to the rest of the queue. Skipped transfers show as "Skipped (already exists)".
 - **Clear queued** button in the transfer queue: cancels and removes every transfer that is still waiting, leaving the running ones alone.
+- **Secrets on the HPC (opt-in)**: each secret has a third switch, *HPC*, and Settings → Secrets has a *Sync to HPC* button. Syncing writes the project's enabled secrets to a private file (mode `0600`, in a `0700` folder) in your HPC home, which Codeome HPC terminals source automatically. Values are stored in plaintext there, and the per-project scope limits what is synced. Agents get guidance on using secrets without printing them.
+- **Agent kit 0.6.4**: agents ask before deleting intermediate files, with clean-up guidance in the chat prompts and the specialist report rules.
 
 ### Fixed
 - **HPC ↔ storage copies reuse one connection**: each copy used to open its own `sftp` login to the storage, so a long queue made many connections and got the HPC blocked. Copies now share one connection (kept for 30 minutes), which also asks for the password only once.
+- **Code-block copy button** in chat finds the code through the block again, so copying works.
 
 ## 1.1.1
 

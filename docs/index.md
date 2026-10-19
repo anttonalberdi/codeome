@@ -8,6 +8,16 @@ hero:
     light: /logo.svg
     dark: /logo-dark.svg
     alt: Codeome
+  actions:
+    - theme: brand
+      text: Beginner tour
+      link: /slides/beginners
+    - theme: alt
+      text: Advanced tour
+      link: /slides/advanced
+    - theme: alt
+      text: Full guide
+      link: /guide/getting-started
 
 features:
   - icon:

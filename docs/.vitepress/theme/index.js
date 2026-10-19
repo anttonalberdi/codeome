@@ -4,6 +4,8 @@ import Shot from './components/Shot.vue'
 import ShotRow from './components/ShotRow.vue'
 import HeroShot from './components/HeroShot.vue'
 import DownloadButtons from './components/DownloadButtons.vue'
+import SlideDeck from './components/SlideDeck.vue'
+import Slide from './components/Slide.vue'
 import SiteFooter from './components/SiteFooter.vue'
 import './custom.css'
 
@@ -20,5 +22,7 @@ export default {
   enhanceApp({ app }) {
     app.component('Shot', Shot)
     app.component('ShotRow', ShotRow)
+    app.component('SlideDeck', SlideDeck)
+    app.component('Slide', Slide)
   }
 }
