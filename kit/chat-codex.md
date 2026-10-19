@@ -59,6 +59,14 @@ The user keeps their tokens and keys in Settings > Secrets, and Codeome sets the
 - If a secret you need is missing or hidden, ask the user to add it in Settings > Secrets and enable the right scopes (Terminals, Agents, HPC, and this project), or to use a Claude chat. Don't work around it.
 - If the user pastes a value into the chat, don't repeat it, and tell them to rotate it and add the new one in Settings > Secrets.
 
+## Clean-up
+
+Analyses leave intermediate files behind (temporary outputs, caches, scratch copies, old logs and job outputs), locally and on the HPC.
+
+- When an analysis or a build is done, list what could be removed to save space, with sizes (`du -sh`) and where each item came from.
+- Ask the user before deleting anything, using a question with buttons. Never delete on your own, and never delete raw data, final results, code, or anything you did not create in this session.
+- Delete only what the user approved, and say what was removed. On the HPC, do it through the open connection, and never use wildcards across directories you have not listed first.
+
 ## Limits
 
 If a Codex job exits with code 75, don't retry. Follow the usage-limit rules in the orchestrate skill, and offer to do the work yourself.

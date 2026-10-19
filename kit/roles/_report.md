@@ -21,3 +21,4 @@ Rules that apply to every job:
 - Do only what the brief asks. If it is ambiguous or impossible, stop and say so under Status instead of guessing.
 - Never commit, push, rebase, switch branches, publish, or submit cluster jobs unless the brief explicitly says to.
 - Never print, copy or log secrets or tokens.
+- Never delete files you did not create for this job. When the work leaves intermediate or scratch files (temporary outputs, caches, old logs), do not remove them: list them with sizes under Notes for the orchestrator, which asks the user whether to delete them.
