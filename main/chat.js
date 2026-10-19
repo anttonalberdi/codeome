@@ -134,11 +134,27 @@ function hpcPrompt(hpc, engine = 'claude') {
   return out.join('\n') + '\n';
 }
 
+// What the orchestrator is told about the user's secrets enabled for this project's agents
+// (Settings → Secrets): names only, never values or notes (a note may hold a credential). secrets:
+// { list: [{ name, local, hpc }], hpcPath } with local false for one that is on the HPC only; with hpcPath the project's env file on the HPC (shown when any secret is on it). '' when none.
+function secretsPrompt(secrets, engine = 'claude') {
+  const list = ((secrets && secrets.list) || []).filter((s) => s && typeof s.name === 'string' && s.name);
+  if (!list.length) return '';
+  const onHpc = list.filter((s) => s.hpc);
+  const hpcPath = String((secrets && secrets.hpcPath) || '').trim();
+  const out = ['', '## Secrets set for this project', '',
+    `These variables are set${engine === 'codex' ? ' (Codex may hide those with KEY, SECRET or TOKEN in the name)' : ''}; their values are never shown to you. Use them by name.`, '',
+    ...list.map((s) => `- \`${s.name}\`${s.local === false ? ' (HPC only: not in your local environment)' : s.hpc ? ' (also on the HPC)' : ''}`)];
+  if (onHpc.length && hpcPath) out.push('',
+    `On the HPC they are in \`${hpcPath}\` (private, in the home folder). Run \`source ${hpcPath}\` in any script or command there that needs them; Codeome's HPC terminals do it already, and \`sbatch\` jobs inherit them.`);
+  return out.join('\n') + '\n';
+}
+
 // The Codex orchestrator's instructions in full: its own prompt, then the same notes on
 // connected projects and the HPC. Codex has no command line to put them on; this is the
 // text CodexSession gets as `instructions`.
-function codexPrompt({ kitInstalled, linked = [], hpc = null, persona, cwd, policyAtSpawn } = {}) {
-  return (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'), cwd)) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex') + projectPolicy.policyPrompt(policyAtSpawn);
+function codexPrompt({ kitInstalled, linked = [], hpc = null, secrets = null, persona, cwd, policyAtSpawn } = {}) {
+  return (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'), cwd)) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex') + secretsPrompt(secrets, 'codex') + projectPolicy.policyPrompt(policyAtSpawn);
 }
 
 function forumPrompt(cwd) {
@@ -162,9 +178,10 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // extra: words after the CLI name in the configured command (e.g. --model opus).
 // linked: folders of the projects connected to this one. hpc: the HPC settings (host, agentRoot).
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, settings = '', persona, prompt, cwd, policyAtSpawn }) {
+// secrets: see secretsPrompt.
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, secrets = null, settings = '', persona, prompt, cwd, policyAtSpawn }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', (prompt === undefined ? (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, undefined, cwd)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) : prompt) + projectPolicy.policyPrompt(policyAtSpawn)];
+    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', (prompt === undefined ? (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, undefined, cwd)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) + secretsPrompt(secrets) : prompt) + projectPolicy.policyPrompt(policyAtSpawn)];
   for (const d of linked) args.push('--add-dir', d);
   const rules = projectPolicy.policySettings(policyAtSpawn);
   if (Object.keys(rules).length) {
@@ -425,4 +442,4 @@ function copyProjectSession(accountDir, id, from, to) {
   return { missing: false, created };
 }
 
-module.exports = { Session, ENGINES, engineOf, systemPrompt, listPersonas, personaPrompt, codexPrompt, forumPrompt, linkedPrompt, hpcPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveChat, moveSession, copyProjectSession, MODES };
+module.exports = { Session, ENGINES, engineOf, systemPrompt, listPersonas, personaPrompt, codexPrompt, forumPrompt, linkedPrompt, hpcPrompt, secretsPrompt, buildArgs, withModel, withFlag, rateLimits, recordUsage, slim, isJobRunner, saveChat, listChats, loadChat, deleteChat, moveChat, moveSession, copyProjectSession, MODES };

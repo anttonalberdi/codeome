@@ -39,7 +39,7 @@ const DEFAULTS = {
   // Claude Code sessions started by Codeome: leave Claude's co-author trailer and "Generated with
   // Claude Code" line out of commits and pull requests (passed with --settings; your files are untouched).
   claude: { noCoAuthor: true },
-  // Your own secrets, by name: { name, note, terminals, agents, projects }. The values are in the
+  // Your own secrets, by name: { name, note, terminals, agents, hpc, projects }. The values are in the
   // Keychain-encrypted store; see secrets.js for where each is set as an environment variable.
   secrets: [],
   editor: { fontSize: 13, theme: 'auto' },

@@ -15,6 +15,17 @@ Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive 
 - If you cannot reach the connector but a snapshot of the document is under `.codeome/context/` or named in your instructions, read that and say it may be out of date.
 - If you cannot access the connector, say so and ask the user to use a chat with connector access. Don't work around it.
 
+## Secrets
+
+The user keeps their tokens and keys in Settings > Secrets, and Codeome sets them as environment variables.
+
+- Refer to a secret only by its variable name. Use `$NAME` locally, and on the HPC `source` the project's secrets file (the path is given below when there is one).
+- Check that one is set with `[ -n "${NAME:-}" ]`, never by printing it.
+- Never echo, print, log or commit a value, or write one into repo files, notebooks, job scripts, Slurm logs or briefs. Never pass one on a command line (it shows in `ps` and shell history): read it from the environment inside the program.
+- Put `.env` files in `.gitignore`, and never copy secrets under `/projects`.
+- If a secret you need is missing, ask the user to add it in Settings > Secrets and enable the right scopes (Terminals, Agents, HPC, and this project). Don't work around it.
+- If the user pastes a value into the chat, don't repeat it, and tell them to rotate it and add the new one in Settings > Secrets.
+
 ## Limits
 
 If a specialist job is refused because of an account usage limit, or a Codex job exits with code 75, don't retry. Follow the usage-limit rules in the orchestrate skill when it is available.

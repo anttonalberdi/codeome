@@ -1,11 +1,12 @@
 // Your own secrets (Settings → Secrets): access tokens and the like, each named as the
 // environment variable it becomes. Plain Node, no Electron: the values live in the
 // Keychain-encrypted store (config.js) under key(name), and the settings keep only
-// { name, note, terminals, agents, projects } for each.
+// { name, note, terminals, agents, hpc, projects } for each.
 //   terminals — set in terminals, tasks and consoles started on this Mac
 //   agents    — set in the agent chat and in agent sessions on this Mac
 //   projects  — the project folders whose processes get it; left out, every project does
-// Nothing is sent to the HPC.
+//   hpc       — written to the project's private env file on the HPC (secrets-sync.js); off unless set
+// Only secrets with hpc on are sent to the HPC, and only as that file.
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 // Variables the shell, the loader or Codeome's own account switching depend on.
@@ -36,4 +37,4 @@ function envFor(list, scope, get, project) {
   return env;
 }
 
-module.exports = { key, nameError, envFor };
+module.exports = { key, nameError, allows, envFor };

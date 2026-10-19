@@ -78,9 +78,10 @@
     });
     // Navigating elsewhere closes the page; switching projects refreshes the agents.
     App.listen('view', () => S.close());
-    App.listen('project', () => { if (S.isOpen) { renderGlobal(); renderAgents(); } });
+    App.listen('project', () => { if (S.isOpen) { renderGlobal(); renderAgents(); if (current === 'secrets') show('secrets'); } });
     // The HPC checklist follows the connection, the tunnel and setup steps as they happen.
     for (const ev of ['setup', 'hpc', 'vpn', 'login', 'login-test', 'vpn-test']) App.listen(ev, () => { if (S.isOpen) renderSetup(); });
+    App.listen('hpc', () => { if (S.isOpen && current === 'secrets') show('secrets'); });
     for (const ev of ['storage', 'login', 'config']) App.listen(ev, () => { if (S.isOpen) renderStorage(); });
     App.listen('config', () => { if (S.isOpen && current === 'transfer' && !favBusy) sections.transfer.replaceWith(transferSection()); });
     App.listen('config', () => { if (S.isOpen && current === 'policy') renderPolicyRows(); });
@@ -131,9 +132,9 @@
     return h('input', { type: opts.type || 'text', value: get() ?? '', placeholder: opts.placeholder || '', spellcheck: 'false', autocomplete: 'off', 'aria-label': opts.label || '',
       onchange: (e) => { set(e.target.value); commit(opts.apply); } });
   }
-  function check(label, get, set, apply) {
+  function check(label, get, set, apply, title) {
     const i = h('input', { type: 'checkbox', checked: !!get(), onchange: (e) => { set(e.target.checked); commit(apply); } });
-    return h('label.check', i, label);
+    return h('label.check', title ? { title } : {}, i, label);
   }
   function select(options, value, onchange, label) {
     const has = options.some((o) => o.value === value);
@@ -188,7 +189,8 @@
     markNav(id);
     agentsHost = globalHost = setupHost = serverList = storageHost = accountsHost = null;
     sections = {};
-    if (id === 'policy' || id === 'agents') main.replaceChildren(h('div.sp-content', h('p.sp-intro', { role: 'status' }, id === 'policy' ? 'Loading agent policy…' : 'Loading agent settings…')));
+    if (id === 'policy' || id === 'agents' || id === 'secrets') main.replaceChildren(h('div.sp-content', h('p.sp-intro', { role: 'status' },
+      id === 'policy' ? 'Loading agent policy…' : id === 'agents' ? 'Loading agent settings…' : 'Loading secrets…')));
     const el = await BUILD[id](App.cfg);
     if (seq !== showSeq || id !== current || !S.isOpen) return; // another section was picked while this one loaded
     if (id === 'git') { sections.git = el; gitRows = el.gitRows; }
@@ -1070,14 +1072,23 @@
   async function secretsSection() {
     const list = () => (App.cfg.secrets = App.cfg.secrets || []);
     const redraw = async () => { if (current === 'secrets') sections.secrets.replaceWith(await secretsSection()); };
-    const has = await codeome.secrets.has(list().map((s) => s.name));
+    const project = App.project;
+    const [has, hpc] = await Promise.all([
+      codeome.secrets.has(list().map((s) => s.name)).catch((e) => ({ error: e.message || String(e) })),
+      project ? codeome.secrets.hpcStatus(project).catch((e) => ({ error: e.message || String(e) })) : Promise.resolve(null)
+    ]);
+    if (has.error) {
+      App.err(has.error);
+      return section('secrets', 'Secrets', null, card(null, h('div.sp-empty', has.error)));
+    }
+    if (hpc?.error) App.err(hpc.error);
 
     // Which projects a secret is open to: every one, or the ones ticked.
     const scopeLabel = (s) => (!Array.isArray(s.projects) ? 'All projects' : !s.projects.length ? 'No projects' : s.projects.length === 1 ? App.basename(s.projects[0]) : `${s.projects.length} projects`);
     async function pickProjects(s) {
       const dirs = [...new Set([...App.views.projects.list, ...(App.cfg.openProjects || []), ...(App.cfg.recentFolders || []), ...(s.projects || [])])].filter((d) => !App.isIdeas(d));
       const r = await App.modal({ title: `Projects for ${s.name}`, ok: 'Save',
-        text: 'Terminals and agent sessions of the ticked projects get this secret. With "All projects" ticked, every project does, as do terminals outside any project.',
+        text: 'Ticked projects can use this secret in the enabled Terminals and Agents scopes and can sync it to the HPC when HPC is enabled. "All projects" also allows local terminals outside a project.',
         fields: [{ key: 'all', type: 'check', label: 'All projects', value: !Array.isArray(s.projects) },
           { legend: 'Only these' },
           ...dirs.map((d, j) => ({ key: 'p' + j, type: 'check', label: `${App.basename(d)}  ·  ${App.tildify(d)}`, value: (s.projects || []).includes(d) }))] });
@@ -1094,6 +1105,7 @@
       h('div.sec-use',
         check('Terminals', () => s.terminals, (v) => { s.terminals = v; }),
         check('Agents', () => s.agents, (v) => { s.agents = v; }),
+        check('HPC', () => s.hpc, (v) => { s.hpc = v; if (hpc?.connected) hpcStatus.textContent = `HPC selection changed. Sync to update ${hpc.path}.`; }, undefined, 'The value is stored in plaintext (mode 0600) in the HPC home when synced.'),
         h('button.btn.small.sec-scope', { title: Array.isArray(s.projects) ? s.projects.map((d) => App.tildify(d)).join('\n') || 'Set in no project' : 'Set in every project', 'aria-label': `Projects for ${s.name}: ${scopeLabel(s)}`, onclick: () => pickProjects(s) }, scopeLabel(s))),
       h('div.sec-acts',
         h('button.btn.small', { disabled: !has[i], onclick: async () => {
@@ -1130,11 +1142,37 @@
     name.onkeydown = (e) => { if (e.key === 'Enter') value.focus(); };
     value.onkeydown = (e) => { if (e.key === 'Enter') add.click(); };
 
+    const skipped = hpc?.skipped?.length ? ` Skipped: ${hpc.skipped.join(', ')}.` : '';
+    const hpcMessage = !project ? 'Open a project to sync its HPC secrets.'
+      : hpc?.error ? 'Could not check HPC status.'
+      : !hpc?.connected ? 'HPC not connected'
+      : hpc.names.length ? `Ready to sync ${hpc.names.join(', ')} to ${hpc.path}.${skipped}`
+      : `No HPC secrets ready for this project. Sync removes ${hpc.path} if it exists.${skipped}`;
+    const hpcStatus = h('span.hint.sec-hpc-status', { role: 'status', 'aria-live': 'polite' }, hpcMessage);
+    const sync = h('button.btn.small', { disabled: !project || !hpc?.connected, onclick: async () => {
+      sync.disabled = true;
+      hpcStatus.textContent = 'Syncing to HPC…';
+      try {
+        await App.saveConfig();
+        const result = await codeome.secrets.sync(project);
+        if (result.error) { hpcStatus.textContent = result.error; return App.err(result.error); }
+        hpcStatus.textContent = result.removed ? `Removed ${hpc.path} from the HPC.`
+          : `Synced ${result.names.join(', ')} to ${hpc.path}.`;
+        if (result.skipped.length) hpcStatus.textContent += ` Skipped: ${result.skipped.join(', ')}.`;
+        flash(result.removed ? 'HPC secrets removed' : 'HPC secrets synced');
+      } catch (e) {
+        const message = e.message || String(e);
+        hpcStatus.textContent = message;
+        App.err(message);
+      } finally { sync.disabled = false; }
+    } }, 'Sync to HPC');
+
     return section('secrets', 'Secrets', 'Access tokens, API keys and passwords of your own, encrypted with the macOS Keychain. A value is never shown again: copy it, or have Codeome set it as an environment variable.',
       card('Saved secrets',
         rows.length ? h('div', { role: 'list', 'aria-label': 'Saved secrets' }, rows) : h('div.sp-empty', 'None yet. Add one below.'),
         h('div.sec-add', name, value, add),
-        h('div.sp-foot.hint', 'The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. Both are off for a new secret, apply to what starts from then on, and never reach the HPC. The button beside them limits the secret to the projects you pick. Copy puts the value on the clipboard for 30 seconds.')));
+        h('div.sp-foot.row.wrap', sync, hpcStatus),
+        h('div.sp-foot.hint', 'The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. HPC: syncs selected secrets to a private file in the HPC home, where they are stored in plaintext (mode 0600). All three are off for a new secret. The project button limits where each enabled scope applies. Copy puts the value on the clipboard for 30 seconds.')));
   }
 
   function appearanceSection(c) {

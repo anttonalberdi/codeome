@@ -52,6 +52,17 @@ Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive 
 - **Codex can read a snapshot, not the live document.** When a Codex job needs a document's content, read it through the connector and write it as Markdown (CSV for a Sheet) to `.codeome/context/<name>.md`, which is git-ignored. Name that path in the brief, and say in the brief that it is a snapshot taken now. For a short document, put the text in the brief instead. Re-export before a `--resume` if the document may have changed, and delete the file when the job is done if the content is sensitive.
 - Codex can draft replacement text, but only you write it back to the document.
 
+## Secrets
+
+The user keeps their tokens and keys in Settings > Secrets, and Codeome sets them as environment variables.
+
+- Refer to a secret only by its variable name. Use `$NAME` locally, and on the HPC `source` the project's secrets file (the path is given below when there is one).
+- Check that one is set with `[ -n "${NAME:-}" ]`, never by printing it.
+- Never echo, print, log or commit a value, or write one into repo files, notebooks, job scripts, Slurm logs or briefs. Never pass one on a command line (it shows in `ps` and shell history): read it from the environment inside the program.
+- Put `.env` files in `.gitignore`, and never copy secrets under `/projects`.
+- If a secret you need is missing, ask the user to add it in Settings > Secrets and enable the right scopes (Terminals, Agents, HPC, and this project). Don't work around it.
+- If the user pastes a value into the chat, don't repeat it, and tell them to rotate it and add the new one in Settings > Secrets.
+
 ## Limits
 
 If a Claude subagent is refused with a reason starting `Codeome: Claude account`, or a Codex job exits with code 75, don't retry. Follow the usage-limit rules in the orchestrate skill.

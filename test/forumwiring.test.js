@@ -17,7 +17,7 @@ test('forum sessions cannot inherit chat job auto-approval on either engine', ()
   const context = { fs, path, cfg, policy: require('../main/policy'), statusline: null, Session, CodexSession: Session, scratch: { isScratch: () => false },
     kit: { status: () => ({ installed: true }) }, claudeCmd: () => 'claude', codexCmd: () => 'codex',
     launchOn: () => ({ info: { name: 'account' }, env: {}, unset: [] }),
-    augmentedEnv: (env) => env, userSecretEnv: () => ({}), loginShell: () => '/bin/sh',
+    augmentedEnv: (env) => env, userSecretEnv: () => ({}), secretsSync: { plan: () => ({ names: [], path: '' }) }, config: { getSecret: () => '' }, loginShell: () => '/bin/sh',
     projectChat, chat: { Session, isJobRunner: () => true, buildArgs: () => [], forumPrompt: () => 'forum', codexPrompt: () => 'chat', recordUsage: () => {} },
     console };
   const create = vm.runInNewContext(source.slice(start, end) + '\ncreateAgentSession;', context);
@@ -46,7 +46,7 @@ test('chat and forum sessions receive the project model and effort', () => {
     scratch: { isScratch: () => false }, kit: { status: () => ({ installed: false }) },
     claudeCmd: () => 'claude', codexCmd: () => 'codex',
     launchOn: () => ({ info: { name: 'account' }, env: {}, unset: [] }),
-    augmentedEnv: (env) => env, userSecretEnv: () => ({}), loginShell: () => '/bin/sh',
+    augmentedEnv: (env) => env, userSecretEnv: () => ({}), secretsSync: { plan: () => ({ names: [], path: '' }) }, config: { getSecret: () => '' }, loginShell: () => '/bin/sh',
     projectChat, chat: { Session, isJobRunner: () => false,
       buildArgs: (options) => { built.push(options); return []; }, forumPrompt: () => 'forum', codexPrompt: () => 'chat', recordUsage: () => {} } };
   const create = vm.runInNewContext(source.slice(start, end) + '\ncreateAgentSession;', context);

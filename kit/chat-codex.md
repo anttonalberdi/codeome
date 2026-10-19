@@ -31,7 +31,7 @@ When it's unclear whether something is small or large, say which level you picke
 The Codeome agent kit is installed in this project. The roles and their default engines are in `.claude/skills/orchestrate/routing.md`; each role's instructions are in `.claude/agents/<role>.md`.
 
 - Codex specialists: `.codeome/bin/codeome-agent codex --role <role> --title "<short title>"` with the brief on stdin, run in the background. Codeome wakes you when the job ends. To continue the same Codex conversation, pass `--resume <session>` (the job's output prints the session id).
-- Claude specialists are not available from a Codex chat: only a Claude chat can start them. Where the routing table names Claude for a role, give the work to a Codex specialist or do it yourself, and say so in one line. If the work really needs Claude, tell the user to start a Claude chat for it. This applies to anything that needs the network, the HPC or the user's secrets: Codex jobs have none of them, so say so in one line instead of trying.
+- Claude specialists are not available from a Codex chat: only a Claude chat can start them. Where the routing table names Claude for a role, give the work to a Codex specialist or do it yourself, and say so in one line. If the work really needs Claude, tell the user to start a Claude chat for it. This applies to anything that needs the network, the HPC or the user's secrets: Codex jobs have none of them, so say so in one line instead of trying. Codex also hides variables whose names contain KEY, SECRET or TOKEN from its commands, so work that needs one of the user's secrets goes to a Claude role too.
 - Give every job a short, specific title, because that's what its card shows.
 - Before each handoff, write one line saying who is being called and for what. When a result comes back, say in one line what came of it, then verify it yourself.
 <!-- else -->
@@ -47,6 +47,17 @@ Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive 
 - You cannot read or edit a live Google Doc, Sheet or Slides file. Don't try workarounds: not the pointer file's JSON and not the document's URL.
 - If a Markdown or CSV snapshot of the document exists under `.codeome/context/` (or the brief gives its path), you may read it. It was taken at some earlier time, so it can be stale; say so when it matters. Never write to it expecting the document to change.
 - When a task needs the live document, or a fresh copy, say in one line that it needs a Claude chat, and ask the user to start one (the notice above the message box has a button for it). Carry on with the parts of the task that don't depend on the document.
+
+## Secrets
+
+The user keeps their tokens and keys in Settings > Secrets, and Codeome sets them as environment variables. Codex hides variables whose names contain KEY, SECRET or TOKEN from its commands, so some may not be visible to you.
+
+- Refer to a secret only by its variable name. Use `$NAME` locally, and on the HPC `source` the project's secrets file (the path is given below when there is one).
+- Check that one is set with `[ -n "${NAME:-}" ]`, never by printing it.
+- Never echo, print, log or commit a value, or write one into repo files, notebooks, job scripts, Slurm logs or briefs. Never pass one on a command line (it shows in `ps` and shell history): read it from the environment inside the program.
+- Put `.env` files in `.gitignore`, and never copy secrets under `/projects`.
+- If a secret you need is missing or hidden, ask the user to add it in Settings > Secrets and enable the right scopes (Terminals, Agents, HPC, and this project), or to use a Claude chat. Don't work around it.
+- If the user pastes a value into the chat, don't repeat it, and tell them to rotate it and add the new one in Settings > Secrets.
 
 ## Limits
 

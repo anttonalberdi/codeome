@@ -76,6 +76,26 @@ test('an explicit prompt replaces the chat, connected project and HPC instructio
   assert.strictEqual(appended(chat.buildArgs({ ...options, prompt: 'Forum instructions' })), 'Forum instructions');
   assert.strictEqual(appended(chat.buildArgs({ ...options, prompt: '' })), '');
   assert.strictEqual(appended(chat.buildArgs(options)), chat.systemPrompt(true) + chat.linkedPrompt(['/w/api'], true) + chat.hpcPrompt({ host: 'myhpc' }));
+  const secrets = { list: [{ name: 'GH_TOKEN', hpc: false }] };
+  assert.strictEqual(appended(chat.buildArgs({ ...options, secrets })), chat.systemPrompt(true) + chat.linkedPrompt(['/w/api'], true) + chat.hpcPrompt({ host: 'myhpc' }) + chat.secretsPrompt(secrets));
+  assert.strictEqual(appended(chat.buildArgs({ ...options, secrets, prompt: 'F' })), 'F');
+});
+
+test('secretsPrompt lists names only, flags the HPC ones and never needs values', () => {
+  assert.strictEqual(chat.secretsPrompt(null), '');
+  assert.strictEqual(chat.secretsPrompt({ list: [] }), '');
+  const s = { list: [{ name: 'GH_TOKEN', note: 'ghp_secretnote', hpc: true }, { name: 'API_KEY' }, { name: 'CLUSTER_KEY', local: false, hpc: true }], hpcPath: '~/.codeome/secrets/p-1234abcd.env' };
+  const p = chat.secretsPrompt(s);
+  assert.ok(p.includes('- `GH_TOKEN` (also on the HPC)') && !p.includes('ghp_secretnote') && p.includes('- `CLUSTER_KEY` (HPC only') && p.includes('- `API_KEY`\n'));
+  assert.ok(p.includes('values are never shown') && p.includes('source ~/.codeome/secrets/p-1234abcd.env'));
+  assert.ok(!chat.secretsPrompt({ list: [{ name: 'A' }], hpcPath: '~/x.env' }).includes('source'));
+  assert.ok(chat.secretsPrompt(s, 'codex').includes('Codex may hide'));
+  assert.ok(!chat.secretsPrompt(s).includes('Codex may hide'));
+  assert.ok(chat.codexPrompt({ kitInstalled: true, secrets: s }).endsWith(chat.secretsPrompt(s, 'codex')));
+});
+
+test('the static prompts carry the secrets rules', () => {
+  for (const p of [chat.systemPrompt(true), chat.codexPrompt({ kitInstalled: true })]) assert.ok(p.includes('## Secrets') && p.includes('Settings > Secrets') && p.includes('rotate'));
 });
 
 test('connected projects are added as folders and named in the prompt', () => {

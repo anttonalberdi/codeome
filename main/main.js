@@ -29,6 +29,7 @@ const vpn = require('./vpn');
 const login = require('./login');
 const gdoc = require('./gdoc');
 const secrets = require('./secrets');
+const secretsSync = require('./secrets-sync');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -139,6 +140,10 @@ function zshEnv() {
   return { ZDOTDIR: dir, CODEOME_USER_ZDOTDIR: process.env.ZDOTDIR || os.homedir() };
 }
 
+// Loads the project's secrets file on the HPC, when it has one, at the start of a session.
+// The shared transfer lane belongs to no project and gets none.
+const hpcSecrets = (spec) => (spec.project && !spec.global && !spec.noSecrets ? secretsSync.sourceCmd(spec.project) + '; ' : '');
+
 function ptySpec(spec) {
   const sh = loginShell();
   const cwd = expandHome(spec.cwd) || os.homedir();
@@ -152,24 +157,27 @@ function ptySpec(spec) {
     // The logins in a terminal, offered when the background one (login.js) fails.
     case 'hpc-login': ssh.clearStaleSockets(); return { file: 'ssh', args: ssh.masterArgs(host), cwd: os.homedir() };
     case 'storage-login': ssh.clearStaleSockets(); return { file: 'ssh', args: ssh.masterArgs(sto()), cwd: os.homedir() };
-    case 'hpc-console': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '~'} 2>/dev/null; ${spec.command}`)}`), cwd: os.homedir() };
+    case 'hpc-console': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`${hpcSecrets(spec)}cd ${spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '~'} 2>/dev/null; ${spec.command}`)}`), cwd: os.homedir() };
     case 'hpc-shell': {
-      return { file: 'ssh', args: ssh.shellArgs(host, ssh.colorShell(spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '')), cwd: os.homedir() };
+      return { file: 'ssh', args: ssh.shellArgs(host, hpcSecrets(spec) + ssh.colorShell(spec.cwd && spec.cwd !== '~' ? q(spec.cwd) : '')), cwd: os.homedir() };
     }
     case 'agent-hpc': {
       const dir = spec.cwd || '~';
-      const inner = `cd ${dir === '~' ? '~' : q(dir)} && ${spec.command}; exec $SHELL -l`;
+      const inner = `${hpcSecrets(spec)}cd ${dir === '~' ? '~' : q(dir)} && ${spec.command}; exec $SHELL -l`;
       let remote;
-      if (cfg.hpc.useTmux && spec.session) {
-        // Persistent session: reattach if it already exists.
-        remote = `command -v tmux >/dev/null && tmux new-session -A -s ${q(spec.session)} ${q(inner)} || bash -lc ${q(inner)}`;
+      if (cfg.hpc.useTmux && spec.session && !spec.noSecrets) {
+        // Persistent session: reattach if it already exists. The name carries the project's hash (a
+        // same-named folder elsewhere) and a keyed hash of its secrets, so changed secrets start a new
+        // session. Without secrets loaded (spec.noSecrets) there is no reattaching.
+        const name = spec.session + (spec.project ? '-' + secretsSync.hash8(spec.project) + '-' + secretsSync.tag(cfg.secrets, spec.project, config.getSecret, installSalt()) : '');
+        remote = `command -v tmux >/dev/null && tmux new-session -A -s ${q(name)} ${q(inner)} || bash -lc ${q(inner)}`;
       } else remote = `bash -lc ${q(inner)}`;
       return { file: 'ssh', args: ssh.shellArgs(host, remote), cwd: os.homedir() };
     }
-    case 'hpc-task': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`cd ${q(spec.cwd || '~')} 2>/dev/null; ${spec.command}; echo; echo "[process exited with $?]"; exec $SHELL -l`)}`), cwd: os.homedir() };
+    case 'hpc-task': return { file: 'ssh', args: ssh.shellArgs(host, `bash -lc ${q(`${hpcSecrets(spec)}cd ${q(spec.cwd || '~')} 2>/dev/null; ${spec.command}; echo; echo "[process exited with $?]"; exec $SHELL -l`)}`), cwd: os.homedir() };
     // A lane of queued HPC <-> storage copies: a plain HPC shell that the transfer queue types
     // one copy at a time into, so it reuses the terminal instead of opening one per copy.
-    case 'hpc-lane': return { file: 'ssh', args: ssh.shellArgs(host), cwd: os.homedir() };
+    case 'hpc-lane': return { file: 'ssh', args: ssh.shellArgs(host, hpcSecrets(spec) ? `${hpcSecrets(spec)}exec $SHELL -l` : undefined), cwd: os.homedir() };
     // HPC setup steps report how they finished.
     case 'install': {
       const ic = spec.brew ? { command: setup.BREW_INSTALL } : setup.installCommand(spec.tools || []);
@@ -224,7 +232,19 @@ function secretEnv(name) {
 const SECRET_SCOPE = { shell: 'terminals', task: 'terminals', console: 'terminals', 'agent-local': 'agents' };
 const userSecretEnv = (scope, project) => secrets.envFor(cfg.secrets, scope, config.getSecret, project);
 
-ipcMain.handle('pty:spawn', (_e, spec) => {
+const HPC_SOURCING = ['hpc-console', 'hpc-task', 'hpc-lane', 'hpc-shell', 'agent-hpc'];
+const spawning = new Set();
+ipcMain.handle('pty:spawn', async (_e, spec) => {
+  let notice = false;
+  // Bring the project's secrets file up to date first, so the new session loads it. If that fails
+  // the session starts without it rather than load a file that may hold revoked values.
+  if (spec && HPC_SOURCING.includes(spec.kind) && spec.project && !spec.global) {
+    spawning.add(spec.id);
+    const r = await syncSecretsQuietly(spec.project);
+    // The tab may have been closed while the sync ran.
+    if (!spawning.delete(spec.id)) return { error: 'Closed before it started.' };
+    if (!r || !r.ok) { spec = { ...spec, noSecrets: true }; notice = hpcSecretsOn() || loadSynced().some((e) => e.project === spec.project); }
+  }
   if (!pty) return { error: 'Terminal backend failed to load: ' + ptyError + '\nRun "npm run rebuild" in the project folder.' };
   try {
     // Claude Code / Codex sessions on this Mac run on a chosen account.
@@ -235,6 +255,7 @@ ipcMain.handle('pty:spawn', (_e, spec) => {
     if (acct) for (const k of acct.unset) delete env[k];
     const p = pty.spawn(s.file, s.args, { name: 'xterm-256color', cols: spec.cols || 100, rows: spec.rows || 30, cwd: fs.existsSync(s.cwd) ? s.cwd : os.homedir(), env });
     ptys.set(spec.id, p);
+    if (notice) send('pty:data', { id: spec.id, data: '\r\n[Codeome: your HPC secrets could not be updated, so this session did not load them.]\r\n' });
     p.onData((d) => send('pty:data', { id: spec.id, data: d }));
     // The saved password goes from the Keychain into ssh's prompt; the UI never sees it.
     if (spec.kind === 'hpc-login' || spec.kind === 'hpc-copy-key') p.onData(ssh.passwordFiller(config.getSecret('hpc:password'), (s) => p.write(s)));
@@ -245,7 +266,7 @@ ipcMain.handle('pty:spawn', (_e, spec) => {
 });
 ipcMain.on('pty:write', (_e, { id, data }) => { const p = ptys.get(id); if (p) p.write(data); });
 ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const p = ptys.get(id); if (p && cols > 0 && rows > 0) { try { p.resize(cols, rows); } catch {} } });
-ipcMain.on('pty:kill', (_e, { id }) => { const p = ptys.get(id); if (p) { try { p.kill(); } catch {} ptys.delete(id); } });
+ipcMain.on('pty:kill', (_e, { id }) => { spawning.delete(id); const p = ptys.get(id); if (p) { try { p.kill(); } catch {} ptys.delete(id); } });
 
 // ---------- config & secrets ----------
 ipcMain.handle('config:get', () => cfg);
@@ -256,8 +277,10 @@ ipcMain.handle('app:version', () => require('../package.json').version);
 ipcMain.handle('config:set', (_e, c) => {
   for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = a.dir == null ? usage.folderFor(e, a.name) : usage.normDir(e, a.dir); // a new account gets its folder here
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
+  const secretsChanged = JSON.stringify(c.secrets) !== JSON.stringify(cfg.secrets);
   cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts });
   applyProxy();
+  if (secretsChanged) syncAllSecretsQuietly();
   if (accountsChanged) mirrorGeneralQuietly();
   // The new list shows at once; who is signed in and the Codex limits follow.
   publishUsage();
@@ -276,14 +299,60 @@ function clearCopied() {
   if (clipboard.readText() === copied.value) clipboard.clear();
   copied = null;
 }
+// Your own secrets on the HPC (secrets-sync.js): sent over the open connection when it is up, and
+// never reported beyond names and counts. Failures are silent, as the connection may simply be down.
+const hpcSecretsOn = () => (cfg.secrets || []).some((s) => s && s.hpc);
+// Host and project pairs whose file may exist on the HPC, kept across restarts so that taking a secret
+// away reaches them even when closed or after the host changed. Paths and host names only.
+const syncedFile = () => path.join(app.getPath('userData'), 'secrets-synced.json');
+function loadSynced() {
+  try { return JSON.parse(fs.readFileSync(syncedFile(), 'utf8')).filter((e) => e && typeof e.host === 'string' && typeof e.project === 'string'); } catch { return []; }
+}
+function markSynced(host, project, on) {
+  try {
+    const rest = loadSynced().filter((e) => !(e.host === host && e.project === project));
+    fs.writeFileSync(syncedFile(), JSON.stringify(on ? [...rest, { host, project }] : rest));
+  } catch {}
+}
+// A random per-install key for naming sessions by their secrets without exposing values.
+function installSalt() {
+  const f = path.join(app.getPath('userData'), 'secrets-salt');
+  try { return fs.readFileSync(f); } catch {}
+  const salt = require('crypto').randomBytes(32);
+  try { fs.mkdirSync(app.getPath('userData'), { recursive: true }); fs.writeFileSync(f, salt, { mode: 0o600 }); } catch {}
+  return salt;
+}
+// The sync of one project to one host. An old host (no longer the configured one) gets an empty set,
+// which deletes the file there. Resolves null when it could not run, leaving the pair recorded.
+async function syncPair(host, project) {
+  if (!host || !project || !(await ssh.check(host)).connected) return null;
+  const old = host !== cfg.hpc.host;
+  return secretsSync.sync(project, () => ({ host, list: old ? [] : cfg.secrets, get: config.getSecret, exec: ssh.exec, track: markSynced }));
+}
+async function syncSecretsQuietly(project) {
+  try { return await syncPair(cfg.hpc.host, project); } catch { return null; }
+}
+const syncAllSecretsQuietly = async () => {
+  const pairs = new Map(loadSynced().map((e) => [e.host + '\0' + e.project, e]));
+  if (hpcSecretsOn() && cfg.hpc.host) for (const p of [...(cfg.openProjects || []), cfg.activeProject]) if (p) pairs.set(cfg.hpc.host + '\0' + p, { host: cfg.hpc.host, project: p });
+  for (const e of pairs.values()) { try { await syncPair(e.host, e.project); } catch {} }
+};
+ipcMain.handle('secrets:sync', async (_e, project) => {
+  if (!project) return { error: 'No project.' };
+  if (!cfg.hpc.host) return { error: 'No HPC host is set in Settings.' };
+  if (!(await ssh.check(cfg.hpc.host)).connected) return { error: 'Not connected to the HPC.' };
+  return syncPair(cfg.hpc.host, project);
+});
+ipcMain.handle('secrets:hpcStatus', async (_e, project) => ({ connected: !!cfg.hpc.host && (await ssh.check(cfg.hpc.host)).connected, ...secretsSync.plan(cfg.secrets, project, config.getSecret) }));
 ipcMain.handle('secrets:set', (_e, { name, value }) => {
   const bad = secrets.nameError(name);
   if (bad) return { error: bad };
   if (!value) return { error: 'Enter a value.' };
   config.setSecret(secrets.key(name), String(value));
+  syncAllSecretsQuietly();
   return { ok: true };
 });
-ipcMain.handle('secrets:remove', (_e, name) => { if (!secrets.nameError(name)) config.setSecret(secrets.key(name), ''); return { ok: true }; });
+ipcMain.handle('secrets:remove', (_e, name) => { if (!secrets.nameError(name)) { config.setSecret(secrets.key(name), ''); syncAllSecretsQuietly(); } return { ok: true }; });
 ipcMain.handle('secrets:has', (_e, names) => (Array.isArray(names) ? names : []).map((n) => !secrets.nameError(n) && config.hasSecret(secrets.key(n))));
 ipcMain.handle('secrets:copy', (_e, name) => {
   const value = secrets.nameError(name) ? '' : config.getSecret(secrets.key(name));
@@ -519,7 +588,7 @@ ipcMain.handle('login:start', (_e, target) => {
     verify: async () => (await ssh.check(host)).connected,
     password: secret ? config.getSecret(secret) : '',
     emit: (s) => { l.state = s; send('login:state', { target, ...s }); },
-    onUp: () => { if (secret && l.pending) config.setSecret(secret, l.pending); l.pending = ''; }
+    onUp: () => { if (secret && l.pending) config.setSecret(secret, l.pending); l.pending = ''; if (target === 'hpc') syncAllSecretsQuietly(); }
   });
   return { ok: true, state: l.session.state() };
 });
@@ -951,13 +1020,21 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   // Prompts and CLI settings are fixed at spawn; permission decisions read cfg on every request.
   const policyAtSpawn = livePolicy();
   const chatDefaults = projectChat(cfg, project);
+  // Names of the secrets this session gets (never values), for the prompt.
+  const secretsInfo = (() => {
+    const local = new Set(Object.keys(userSecretEnv('agents', project)));
+    const plan = secretsSync.plan(cfg.secrets, project, config.getSecret);
+    const onHpc = new Set(plan.names);
+    const list = (cfg.secrets || []).filter((x) => x && (local.has(x.name) || onHpc.has(x.name))).map((x) => ({ name: x.name, local: local.has(x.name), hpc: onHpc.has(x.name) }));
+    return { list, hpcPath: plan.path };
+  })();
   let s;
   if (engine === 'codex') {
     s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked, policy: livePolicy,
-      instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, persona, cwd: project, policyAtSpawn }), model: chatDefaults.codexModel, effort: chatDefaults.codexEffort });
+      instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, secrets: secretsInfo, persona, cwd: project, policyAtSpawn }), model: chatDefaults.codexModel, effort: chatDefaults.codexEffort });
   } else {
     if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy });
+    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
   return { s, acct, dir };

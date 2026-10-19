@@ -1067,6 +1067,7 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .sec-use, .sec-acts { display: flex; gap: 12px; align-items: center; }
 .sec-acts { gap: 6px; }
 .sec-scope { min-width: 96px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec-hpc-status { min-width: 0; overflow-wrap: anywhere; }
 .sec-add { display: grid; grid-template-columns: minmax(140px, 220px) minmax(140px, 1fr) auto; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
 .ag-table { display: flex; flex-direction: column; }
 .ag-row { display: grid; grid-template-columns: minmax(150px, 1fr) 130px minmax(150px, 200px) 90px 55px 130px; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
