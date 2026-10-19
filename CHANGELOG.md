@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Fixed
+- **"Launch in a new session"** on a prompt in chat opens a new chat tab with that prompt as its first message, on the same engine and account as the chat it came from, instead of opening a terminal. The new chat uses the project's default model and effort.
+
 ## 1.2.0
 
 ### Changed

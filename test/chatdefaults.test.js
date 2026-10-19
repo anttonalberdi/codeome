@@ -36,10 +36,6 @@ test('new chat defaults resolve project, app, and remembered choices', () => {
   assert.equal(resolve(App.cfg, project, 'acceptEdits').engine, 'claude');
   App.cfg.projectChat[project].model = ' opus';
   assert.equal(resolve(App.cfg, project, 'acceptEdits').model, 'sonnet');
-  App.cfg.projectChat[project] = { model: 'opus', effort: 'high' };
-  App.views.chat.byProject[project] = { active: { project, engine: 'claude' } };
-  App.views.chat.launchPrompt('hello');
-  assert.match(opened[0].command, /--model opus --effort high/);
 });
 
 test('blank chats refresh defaults on activation and reuse, while explicit and started choices stay', async () => {

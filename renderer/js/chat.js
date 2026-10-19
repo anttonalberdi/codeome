@@ -490,21 +490,14 @@
   }
 
   // Continue the same conversation in a Claude Code terminal session.
-  // Start a fresh agent session in the terminal panel with a prompt from an answer.
+  // Open a new chat tab with a prompt from an answer as its first message.
   C.launchPrompt = (text) => {
     text = String(text || '').trim();
     if (!text) return;
     const chat = cur();
-    const engine = chat ? engineOf(chat) : 'claude';
-    let cmd = (App.cfg.agents.find((a) => new RegExp('^' + engine + '(\\s|$)').test(a.cmd)) || { cmd: engine }).cmd;
-    const project = chat ? chat.project : App.project;
-    const { model, effort } = resolveDefaults(App.cfg, project, store.get('codeome.chat.mode', 'default'));
-    if (engine === 'claude') {
-      if (model) cmd = cmd.replace(/\s--model(=|\s+)\S+/, '') + ' --model ' + model;
-      if (effort) cmd = cmd.replace(/\s--effort(=|\s+)\S+/, '') + ' --effort ' + effort;
-    }
-    const dirs = engine === 'claude' ? App.views.projects.linksOf(project).map((d) => ' --add-dir ' + App.shq(d)).join('') : '';
-    App.views.terminals.open({ kind: 'agent-local', title: 'New session', command: cmd + dirs + ' ' + App.shq(text), cwd: project, badge: 'Mac', engine, account: (chat && chat.accountName) || 'auto' });
+    App.setView('agents');
+    App.views.agents.show('chat');
+    return C.newChat({ send: text, ...(chat ? { engine: engineOf(chat), account: chat.accountName || 'auto' } : {}) });
   };
 
   C.toTerminal = async () => {
