@@ -11,7 +11,7 @@
   const h = App.h;
   const P = { list: [], state: {} }; // state[dir] = { remoteDir, jobs }
   App.views.projects = P;
-  let el, dragging = null, pending = 0;
+  let el, dragging = null, draggingGroup = null, pending = 0;
 
   P.init = () => {
     el = document.getElementById('projects');
@@ -333,14 +333,36 @@
     const dirs = members(g), n = dirs.length;
     const dot = g.collapsed ? mark(dirs) : null;
     const head = h('button.pg-head' + (g.collapsed && dirs.includes(App.project) ? '.active' : ''), {
-      'data-g': g.id, 'aria-expanded': String(!g.collapsed),
+      'data-g': g.id, draggable: 'true', 'aria-expanded': String(!g.collapsed),
       title: `${g.name} · ${n} project${n === 1 ? '' : 's'}`,
       onclick: () => toggleGroup(g),
       oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, groupMenu(g)); },
-      ondragover: (e) => { if (!dragging) return; e.preventDefault(); head.classList.add('drop-in'); },
-      ondragleave: () => head.classList.remove('drop-in'),
+      ondragstart: (e) => { draggingGroup = g; dragging = null; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', g.name); },
+      ondragend: () => { draggingGroup = null; el.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); },
+      ondragover: (e) => {
+        if (draggingGroup) {
+          if (draggingGroup === g) return;
+          e.preventDefault();
+          const r = head.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+          head.classList.toggle('drop-after', after); head.classList.toggle('drop-before', !after);
+          return;
+        }
+        if (!dragging) return;
+        e.preventDefault(); head.classList.add('drop-in');
+      },
+      ondragleave: () => head.classList.remove('drop-in', 'drop-before', 'drop-after'),
       ondrop: (e) => {
         e.preventDefault();
+        if (draggingGroup) {
+          const moved = draggingGroup, after = head.classList.contains('drop-after');
+          draggingGroup = null;
+          if (moved === g) return;
+          const all = App.cfg.projectGroups;
+          all.splice(all.indexOf(moved), 1);
+          all.splice(all.indexOf(g) + (after ? 1 : 0), 0, moved);
+          saveOrder();
+          return;
+        }
         if (!dragging) return;
         const dir = dragging; dragging = null;
         moveTo(dir, g);
@@ -351,7 +373,7 @@
     dot ? h('i.' + dot) : null,
     h('span.pg-count', String(n)));
     return h('div.pg', { role: 'group', 'aria-label': g.name }, head,
-      g.collapsed ? null : n ? dirs.map(card) : h('div.pg-empty', 'Drag a project here'));
+      g.collapsed ? null : h('div.pg-body', n ? dirs.map(card) : h('div.pg-empty', 'Drag a project here')));
   }
 
   // ---------- connections ----------
