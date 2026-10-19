@@ -89,14 +89,14 @@ function linkedPrompt(linked, kitInstalled, engine = 'claude') {
   if (engine === 'codex') return ['', '## Connected projects', '',
     'The user has connected this project to the folders below. Treat them and this project as parts of one larger project: read and search them as the task needs, and follow their `AGENTS.md` and `CLAUDE.md` files.',
     '', ...linked.map((d) => `- \`${path.basename(d)}\`: ${d}`), '',
-    '- Relative paths are in this project. Name a connected project when you mean a file there.',
+    '- Relative paths are in this project. For a file in a connected project, write its full absolute path (as listed above) when you mention or link it, for example `' + path.join(linked[0], 'docs/notes.md') + '`. A relative link such as `' + path.basename(linked[0]) + '/docs/notes.md` is read as a path inside this project and will not open.',
     '- Each folder can be its own git repository, so check and commit them one at a time.',
     '- The sandbox may refuse writes outside this project. If it does, say so and let the user decide; don\'t work around it.'
   ].join('\n') + '\n';
   return ['', '## Connected projects', '',
     'The user has connected this project to the folders below. Treat them and this project as parts of one larger project: read, search and edit them as the task needs, and follow their `CLAUDE.md` files, which are loaded.',
     '', ...linked.map((d) => `- \`${path.basename(d)}\`: ${d}`), '',
-    '- Relative paths are in this project. Name a connected project when you mean a file there.',
+    '- Relative paths are in this project. For a file in a connected project, write its full absolute path (as listed above) when you mention or link it, for example `' + path.join(linked[0], 'docs/notes.md') + '`. A relative link such as `' + path.basename(linked[0]) + '/docs/notes.md` is read as a path inside this project and will not open.',
     '- Each folder can be its own git repository, so check and commit them one at a time.',
     kitInstalled ? '- The team, the jobs and the Codex runner belong to this project. Codex jobs can read the connected folders but write only here, so make changes there yourself or give them to a Claude specialist.' : null
   ].filter((l) => l !== null).join('\n') + '\n';

@@ -1231,6 +1231,13 @@
     let p = decodeURI(m[1]);
     if (!p.startsWith('/') && !p.startsWith('~')) {
       const root = chat ? chat.project : App.project;
+      // A path that starts with a connected project's folder name belongs to that project.
+      const first = p.replace(/^\.\//, '').split('/')[0];
+      const other = p.includes('/') ? App.views.projects.linksOf(root).find((d) => App.basename(d) === first) : null;
+      if (other) p = App.join(other, p.replace(/^\.\//, '').slice(first.length + 1));
+    }
+    if (!p.startsWith('/') && !p.startsWith('~')) {
+      const root = chat ? chat.project : App.project;
       const direct = App.join(root, p);
       // A bare name is often a file in a subfolder: look for it when it is not at the root.
       const here = await codeome.local.read(direct);
