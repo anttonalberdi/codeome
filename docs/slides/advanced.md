@@ -31,6 +31,8 @@ It adds a layer around `ssh`, `rsync`, `git` and `gh`; it does not replace them.
 
 See [Project settings](/guide/project-settings) and the [project layout](/reference/project-layout).
 
+<Shot src="/screens/projects-groups.webp" alt="The project column with cards in groups" width="900" />
+
 </Slide>
 
 <Slide title="HPC connection: your ssh, once" more="/guide/hpc" label="HPC connection">
@@ -42,6 +44,8 @@ See [Project settings](/guide/project-settings) and the [project layout](/refere
 
 Setup: [Settings](/settings).
 
+<Shot src="/screens/settings-hpc.webp" alt="The HPC settings with VPN tunnel, login and shared connection" width="900" />
+
 </Slide>
 
 <Slide title="Run, monitor and debug jobs" more="/guide/slurm" label="Slurm">
@@ -50,6 +54,8 @@ Setup: [Settings](/settings).
 - A fourth section shows free and used **CPUs, memory and GPUs** for the cluster and per partition, to size your next request.
 - `⌘↩` / `⇧⌘↩` send code to the active **R console**, including R inside an `srun` interactive job. Right-click the tab to choose where R code goes.
 - Plots from remote R sessions are fetched into the [Plots view](/guide/plots) and re-drawn at any export size.
+
+<Shot src="/screens/slurm.webp" alt="The Slurm view with job history and cluster resources" width="900" />
 
 </Slide>
 
@@ -80,6 +86,8 @@ Several chats run in parallel as tabs. A **context meter** warns past 70%, and t
 - Codex runs in a sandbox with no network, so HPC work goes to Claude roles.
 - `routing.md` in the project lets you change routing per project.
 
+<Shot src="/diagrams/team.svg" alt="The orchestrator routing work to Claude and Codex, with review by the other engine" width="900" />
+
 </Slide>
 
 <Slide title="The agent kit is plain files" more="/reference/agent-kit" label="Agent kit reference">
@@ -92,6 +100,8 @@ Installing the kit writes into the repo, so it is versioned and shared:
 - `.codeome/bin/codeome-agent`: a stdlib-only Python job runner that also works on the HPC (`list`, `show`, `cancel`, `usage`)
 
 Updates never overwrite a role or skill you edited.
+
+<Shot src="/diagrams/kit.svg" alt="The files the agent kit writes into a project" width="900" />
 
 </Slide>
 
@@ -107,6 +117,8 @@ Five switches, set app-wide in Settings → *Agent policy* and overridable per p
 
 *Never* is enforced by permission checks; *Read-only* and *Require a plan* are partly advisory. Chat modes: *Ask before changes*, *Accept edits*, *Auto*, *Plan only*.
 
+<Shot src="/diagrams/policies.svg" alt="The five agent policy switches and their options" width="900" />
+
 </Slide>
 
 <Slide title="Accounts, limits and cost" more="/guide/team#accounts-and-limits" label="Accounts and limits">
@@ -116,6 +128,8 @@ Five switches, set app-wide in Settings → *Agent policy* and overridable per p
 - Each finished turn is logged to `~/.codeome/stats/turns.jsonl`; the chat meter shows tokens and API-list-price cost.
 - The **Forum** puts a Claude seat and a Codex seat in a moderated discussion. Each post costs a small check per seat. See [Forum & Ideas](/guide/forum-ideas).
 
+<Shot src="/screens/settings-accounts.webp" alt="Accounts and limits with 5-hour and weekly usage bars" width="900" />
+
 </Slide>
 
 <Slide title="Data movement" more="/guide/files-transfer" label="Files & transfer">
@@ -124,6 +138,8 @@ Five switches, set app-wide in Settings → *Agent policy* and overridable per p
 - **Transfer view** (`⌘8`): two panes, a queue with 1–4 parallel slots, pause, retry and cancel.
 - HPC ⇄ storage copies run **on the HPC** in reusable *Transfers N* terminals, so a long queue does not fill the panel with tabs.
 - If the target exists you are asked to replace or skip. SFTP has no copy, so copying within the storage is not possible.
+
+<Shot src="/screens/transfer.webp" alt="The Transfer view with two panes and a queue" width="900" />
 
 </Slide>
 
@@ -135,6 +151,8 @@ Five switches, set app-wide in Settings → *Agent policy* and overridable per p
 
 HPC secrets are plaintext on disk and shared across your projects by your one account. Read the warnings first.
 
+<Shot src="/screens/secrets.webp" alt="The Secrets page with per-secret scope switches" width="900" />
+
 </Slide>
 
 <Slide title="Release and publish" more="/guide/publishing" label="Publishing">
@@ -143,6 +161,8 @@ HPC secrets are plaintext on disk and shared across your projects by your one ac
 - **Zenodo**: drafts, metadata, uploads, publish and new versions. Link the repo and each GitHub release gets a DOI.
 - **Packages** (`⌘6`): pip and R libraries on the Mac or HPC, with renv and Bioconductor support, plus build and upload to TestPyPI/PyPI.
 - The **release-manager** role has playbooks for PyPI, Bioconda, conda-forge, CRAN and Bioconductor and stops at the steps only you can do.
+
+<Shot src="/screens/packages.webp" alt="The Packages view with Python and R libraries" width="900" />
 
 </Slide>
 
@@ -156,6 +176,8 @@ HPC secrets are plaintext on disk and shared across your projects by your one ac
 New to this? See the [beginner guide](/slides/beginners).
 
 Found a gap? Each page has an *Edit this page on GitHub* link.
+
+<Shot src="/diagrams/reference.svg" alt="Reference pages: shortcuts, settings, agent kit and project layout" width="900" />
 
 </Slide>
 

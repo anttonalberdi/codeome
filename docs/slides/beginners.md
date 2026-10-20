@@ -32,6 +32,8 @@ Use `→` and `←` to move. Press `F` for full screen.
 
 The first time, right-click Codeome and choose **Open**, then **Open** again. The app is not signed with an Apple certificate, so macOS asks once.
 
+<Shot src="/diagrams/install.svg" alt="The three install steps: download the .dmg, drag to Applications, right-click and Open" width="900" />
+
 </Slide>
 
 <Slide title="Open Settings and follow the checklist" step="2 · Set up" more="/settings" label="Settings">
@@ -59,6 +61,8 @@ The *HPC* is the big shared computer your institution runs for heavy jobs.
 
 Not on a cluster? Skip this slide: everything else works on your Mac.
 
+<Shot src="/screens/settings-hpc.webp" alt="The HPC section of Settings with the login, key and connection steps" width="900" />
+
 </Slide>
 
 <Slide title="Sign in to the AI agents" step="4 · Set up" more="/guide/team" label="The team">
@@ -68,6 +72,8 @@ The chat is run by **Claude**, which hands work to specialists on **Claude** or 
 - Sign in to one or both under *Agents and accounts* in Settings.
 - Claude alone is enough to start.
 - The title bar shows your usage, and new jobs pause near the limit.
+
+<Shot src="/screens/settings-agents.webp" alt="The Agents section of Settings" width="900" />
 
 </Slide>
 
@@ -80,6 +86,8 @@ Tokens for GitHub, Zenodo or your own services go in **Settings → Secrets**.
 - Never paste a token into the chat. If you do, rotate it.
 
 You can skip this now and come back when you need a token.
+
+<Shot src="/screens/secrets.webp" alt="The Secrets page with saved tokens and per-scope switches" width="900" />
 
 </Slide>
 
@@ -154,6 +162,8 @@ For larger tasks the agent follows a fixed routine:
 
 Approvals appear as **buttons** in the chat.
 
+<Shot src="/diagrams/control.svg" alt="The routine: plan, your approval, specialists, cross-review, your approval, commit" width="900" />
+
 </Slide>
 
 <Slide title="Run and watch cluster jobs" step="12 · Work" more="/guide/slurm" label="Slurm">
@@ -161,6 +171,8 @@ Approvals appear as **buttons** in the chat.
 - Open **HPC shells** from the terminal panel (`⌘J`).
 - The **Slurm** view lists jobs as waiting, running or finished, and marks failed or out-of-memory ones in red.
 - It also shows free CPUs, memory and GPUs, to help size your next request.
+
+<Shot src="/screens/slurm.webp" alt="The Slurm view with running, waiting and failed jobs and cluster resources" width="900" />
 
 </Slide>
 
@@ -173,6 +185,8 @@ Git keeps a history, so you can go back if something breaks.
 - Or tell the agent *“commit and push”*. It asks first.
 - Releases can get a citable DOI through [Zenodo](/guide/publishing).
 
+<Shot src="/screens/git.webp" alt="The Git panel with changes, a commit box and history" width="900" />
+
 </Slide>
 
 <Slide title="You are ready" step="Next" more="/guide/getting-started" label="Read the full guide">
@@ -182,6 +196,8 @@ Git keeps a history, so you can go back if something breaks.
 - Comfortable with clusters and Slurm? Take the [advanced tour](/slides/advanced).
 
 Found a gap? Every page has an *Edit this page on GitHub* link.
+
+<Shot src="/diagrams/ready.svg" alt="Next steps: the full guide, keyboard shortcuts and the advanced tour" width="900" />
 
 </Slide>
 
