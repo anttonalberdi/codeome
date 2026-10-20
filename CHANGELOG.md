@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **HPC login wizard**: Settings → HPC has a *Set up…* button that asks for the cluster's address and your username (and a jump host or port if needed) and saves the login, so nobody has to edit `~/.ssh/config`. The beginner guide now points to it.
+
 ## 1.2.1
 
 ### Added

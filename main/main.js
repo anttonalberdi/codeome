@@ -628,6 +628,7 @@ ipcMain.handle('setup:testLogin', async () => {
   const r = await ssh.testLogin(cfg.hpc.host);
   return { result: setup.classifyLogin(r.code, r.stderr), detail: r.stderr.trim().split('\n').filter((l) => !/^Warning: Permanently added/.test(l)).slice(-2).join(' ') };
 });
+ipcMain.handle('setup:addHost', (_e, spec) => { try { return setup.addHost(spec); } catch (e) { return { error: e.message }; } });
 ipcMain.handle('setup:install', (_e, tools) => { const ic = setup.installCommand(tools || []); return ic && { ...ic, brewInstall: setup.BREW_INSTALL }; });
 
 // ---------- long-term storage (SFTP) ----------

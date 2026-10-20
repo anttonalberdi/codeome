@@ -219,6 +219,38 @@
   // A result is about one setup; changing the login, check host or tunnel starts over.
   App.listen('config', () => { if (U.vpnTest && U.vpnTest.key !== vpnKey()) U.vpnTest = null; });
 
+  // ---------- HPC login wizard ----------
+  // Asks for the cluster's address and your username, writes the Host entry ssh needs, and
+  // fills in the login, so nobody has to edit ~/.ssh/config by hand.
+  U.loginWizard = async () => {
+    let v = { alias: '', hostname: '', user: '', proxyJump: '', port: '' };
+    for (;;) {
+      const r = await App.modal({
+        title: 'Set up your HPC login',
+        text: 'Codeome saves these as a login for ssh, which it uses to reach your cluster. Your IT or HPC team’s welcome email has the address and username.',
+        ok: 'Save login',
+        fields: [
+          { key: 'hostname', label: 'Cluster address', value: v.hostname, placeholder: 'login.cluster.example.org', hint: 'The login (or gateway) server of your cluster.' },
+          { key: 'user', label: 'Username', value: v.user, placeholder: 'abc123' },
+          { key: 'alias', label: 'Short name', value: v.alias, placeholder: 'mycluster', hint: 'A nickname for this login. Letters, digits, dots and dashes.' },
+          { legend: 'Only if your cluster needs it' },
+          { key: 'proxyJump', label: 'Jump host', value: v.proxyJump, placeholder: 'user@gateway.example.org', hint: 'Leave empty unless you reach the cluster through another server.' },
+          { key: 'port', label: 'Port', type: 'number', value: v.port, placeholder: '22' }
+        ]
+      });
+      if (!r) return false;
+      v = { ...r, alias: r.alias.trim() || r.hostname.trim().split('.')[0] };
+      const res = await codeome.setup.addHost(v);
+      if (res.error) { App.err(res.error); continue; }
+      App.cfg.hpc.host = res.alias;
+      await App.saveConfig();
+      App.pollHpc();
+      U.refresh();
+      App.toast(`Login ${res.alias} saved. Next: choose the network, then create and copy an ssh key.`);
+      return true;
+    }
+  };
+
   // ---------- ssh key ----------
   U.createKey = async () => {
     const st = U.status || await U.refresh();

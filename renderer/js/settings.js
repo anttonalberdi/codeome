@@ -235,7 +235,7 @@
       { value: 'system', label: 'Campus network, or a VPN for the whole Mac' },
       { value: 'tunnel', label: "Codeome's own VPN tunnel" }
     ], c.hpc.vpn.mode, (v) => { vpn().mode = v; commit({ host: true, setup: true }); redraw(); }, 'How Codeome reaches the HPC network');
-    return section('hpc', 'HPC', 'How Codeome reaches your cluster. It uses your system ssh, so ~/.ssh/config, keys and ProxyJump apply.',
+    return section('hpc', 'HPC', 'How Codeome reaches your cluster. It uses your system ssh, so existing ssh logins, keys and jump hosts keep working.',
       card('Network',
         row('Reach the HPC through', mode, tunnel
           ? "Only Codeome's connections to the HPC go through the VPN; the rest of the Mac stays on its own network. Uses OpenConnect, which speaks Cisco's protocol. Off campus, use it instead of Cisco Secure Client, not alongside it."
@@ -259,8 +259,9 @@
       card('Login',
         row('Name', text(() => (App.cfg.ui.panes.remote || {}).title || '', (v) => { const p = App.cfg.ui.panes.remote = App.cfg.ui.panes.remote || {}; if (v.trim() && v.trim() !== 'HPC') p.title = v.trim().slice(0, 40); else delete p.title; }, { placeholder: 'e.g. MyCluster', label: 'HPC name' }),
           'Shown in the title bar and on the HPC files pane. Empty: the title bar shows your login.'),
-        row('Login', text(() => App.cfg.hpc.host, (v) => { App.cfg.hpc.host = v.trim(); }, { placeholder: 'myhpc  or  user@login.cluster.example.org', apply: { host: true, setup: true }, label: 'HPC login' }),
-          'A Host alias from ~/.ssh/config, or user@host.'),
+        row('Login', h('div.row', text(() => App.cfg.hpc.host, (v) => { App.cfg.hpc.host = v.trim(); }, { placeholder: 'myhpc  or  user@login.cluster.example.org', apply: { host: true, setup: true }, label: 'HPC login' }),
+          h('button.btn.small', { onclick: async () => { if (await App.setup.loginWizard()) redraw(); } }, 'Set up…')),
+          'New to this? Click Set up…: it asks for your cluster’s address and username. If ssh already knows your login, type its name, or user@host.'),
         row('Password', savedPassword('hpc:password', 'HPC password', 'Asked for when connecting'),
           'Optional. Kept in the macOS Keychain and used when connecting; without it, Codeome asks. A one-time code, if the HPC wants one, is asked for too. An ssh key on the HPC needs no password.'),
         row('Start folder', text(() => App.cfg.hpc.remoteRoot, (v) => { App.cfg.hpc.remoteRoot = v.trim() || '~'; }, { placeholder: '~ or /projects/mygroup', label: 'Start folder' })),
@@ -310,7 +311,7 @@
     rows.push(vpnRow(tunnel));
 
     const login = st.login;
-    if (!c.hpc.host) rows.push(stepRow('todo', 'HPC login', 'Enter your login above.'));
+    if (!c.hpc.host) rows.push(stepRow('todo', 'HPC login', 'Not set up yet.', btn('Set up login…', async () => { if (await U.loginWizard()) backHere(); }, true)));
     else if (!login || login.error) rows.push(stepRow('warn', 'HPC login', (login && login.error) || 'ssh could not read this login.'));
     else {
       const via = login.proxyJump ? 'ProxyJump ' + login.proxyJump : login.proxyCommand ? 'a ProxyCommand' : '';
@@ -372,7 +373,7 @@
     switch (t.result) {
       case 'busy': return stepRow('busy', title, 'Testing…');
       case 'ok': return stepRow('ok', title, `${at} answers${tunnel ? ' through the tunnel' : ''}.`, test);
-      case 'nohost': return stepRow('off', title, 'Enter your HPC login below' + (tunnel ? '.' : ', or a VPN check host above.'));
+      case 'nohost': return stepRow('off', title, 'Set up your HPC login below' + (tunnel ? '.' : ', or enter a VPN check host above.'));
       case 'notunnel': return stepRow('warn', title, 'The VPN tunnel is not running.', btn('Start VPN', () => U.startVpn({ returnTo: backHere })), test);
       case 'dns': return stepRow('warn', title, tunnel ? `The VPN does not know ${t.host}. Check the login below, or stop and start the tunnel.`
         : `This network does not know ${t.host}, so the VPN looks off. Turn on Cisco Secure Client (or switch to Codeome's own tunnel), then test again.`, test);

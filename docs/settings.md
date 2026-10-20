@@ -4,13 +4,7 @@ Open **Settings** (`⌘,`). It is a full page with a section list on the left. C
 
 ## Set up
 
-1. **HPC login** — ideally a Host alias from `~/.ssh/config`, for example:
-   ```
-   Host myhpc
-     HostName login.cluster.example.org
-     User abc123
-     IdentityFile ~/.ssh/id_ed25519
-   ```
+1. **HPC login** — click **Set up…** next to *Login*. The wizard asks for the cluster's address (e.g. `login.cluster.example.org`), your username and a short name, plus a jump host and port if your cluster needs them, and saves the login for ssh. If you already have a login in `~/.ssh/config`, type its name instead.
    See [HPC connection](/guide/hpc) for how the connection works.
 2. **Network** — how Codeome reaches the cluster's network:
    - *Campus network, or a VPN for the whole Mac* (e.g. Cisco Secure Client). Optionally give a **VPN check** host, only reachable on the VPN, so the title bar shows whether the VPN is up.

@@ -40,7 +40,7 @@ Press `⌘,`. A **setup checklist** shows what is done and gives a button for ea
 
 You need three things for a first run:
 
-- **HPC login**: your cluster's name from `~/.ssh/config` (skip if you have no cluster)
+- **HPC login**: your cluster's address and username, entered in a short wizard (skip if you have no cluster)
 - **Network**: direct, your VPN, or Codeome's own VPN tunnel
 - **Agents**: sign in to Claude and/or Codex
 
@@ -52,6 +52,7 @@ You need three things for a first run:
 
 The *HPC* is the big shared computer your institution runs for heavy jobs.
 
+- Click **Set up…** next to *Login*, then enter the cluster's address and your username. Codeome does the rest.
 - Codeome logs in **once** and keeps the connection open.
 - If it needs a password or one-time code, it asks in a dialog.
 - Agents can work on the cluster too, and keep going if your VPN drops.

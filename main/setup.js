@@ -208,6 +208,39 @@ function classifyLogin(code, stderr) {
   return 'other';
 }
 
+// ---------- the HPC login wizard ----------
+// Adds a Host block to ~/.ssh/config so the login can be set up from a form. It only ever
+// appends: an alias that is already defined is refused, and nothing existing is rewritten.
+const SAFE = /^[A-Za-z0-9._-]+$/;
+const SAFE_HOP = /^[A-Za-z0-9._@:\[\]-]+$/;
+function hostBlock({ alias, hostname, user, port, proxyJump, identityFile }) {
+  alias = String(alias || '').trim(); hostname = String(hostname || '').trim(); user = String(user || '').trim();
+  proxyJump = String(proxyJump || '').trim(); identityFile = String(identityFile || '').trim();
+  if (!SAFE.test(alias)) throw new Error('Use letters, digits, dots, dashes or underscores in the short name.');
+  if (!SAFE.test(hostname)) throw new Error('Enter the cluster’s address, e.g. login.cluster.example.org.');
+  if (user && !SAFE.test(user)) throw new Error('The username has characters ssh logins do not use.');
+  if (proxyJump && !SAFE_HOP.test(proxyJump)) throw new Error('The jump host should look like user@host or host.');
+  const n = port === '' || port == null ? 22 : Number(port);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error('The port should be a number between 1 and 65535.');
+  if (identityFile && /[\s"'\\]/.test(identityFile)) throw new Error('The key path cannot contain spaces or quotes.');
+  return ['Host ' + alias, '  HostName ' + hostname, ...(user ? ['  User ' + user] : []), ...(n !== 22 ? ['  Port ' + n] : []),
+    ...(proxyJump ? ['  ProxyJump ' + proxyJump] : []), ...(identityFile ? ['  IdentityFile ' + identityFile] : [])].join('\n') + '\n';
+}
+
+function addHost(spec, file = path.join(os.homedir(), '.ssh', 'config')) {
+  const block = hostBlock(spec);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const cur = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const alias = String(spec.alias).trim().toLowerCase();
+  const taken = cur.split('\n').some((l) => {
+    const m = /^\s*Host\s+(.+?)\s*$/i.exec(l);
+    return m && m[1].split(/\s+/).some((a) => a.toLowerCase() === alias);
+  });
+  if (taken) throw new Error(`~/.ssh/config already has a login called ${spec.alias}. Pick another short name.`);
+  fs.appendFileSync(file, (cur && !cur.endsWith('\n\n') ? (cur.endsWith('\n') ? '\n' : '\n\n') : '') + '# Added by Codeome\n' + block, { mode: 0o600 });
+  return { alias: spec.alias.trim() };
+}
+
 // Cisco Secure Client's server list, offered as suggestions for the VPN server.
 function ciscoServers() {
   const dirs = ['/opt/cisco/secureclient/vpn/profile', '/opt/cisco/anyconnect/profile'];
@@ -237,4 +270,4 @@ async function status(cfg, shell) {
 }
 
 module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, proxyCommand, portOpen, tunnelReady, hostPort, vpnTarget, classifyProbe, probe, testVpn, locate, RECIPES, BREW_INSTALL, installCommand,
-  parseSshG, resolveHost, findKey, classifyLogin, ciscoServers, status };
+  parseSshG, hostBlock, addHost, resolveHost, findKey, classifyLogin, ciscoServers, status };
