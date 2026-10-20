@@ -2,8 +2,8 @@
 const ssh = require('./ssh');
 const { q } = require('./util');
 
-const SQ_FMT = '%i|%j|%T|%M|%l|%D|%C|%R|%P|%V|%Z';
-const SQ_FIELDS = ['id', 'name', 'state', 'elapsed', 'limit', 'nodes', 'cpus', 'reason', 'partition', 'submitted', 'workdir'];
+const SQ_FMT = '%i|%j|%T|%M|%l|%D|%C|%R|%P|%V|%Z|%m|%b';
+const SQ_FIELDS = ['id', 'name', 'state', 'elapsed', 'limit', 'nodes', 'cpus', 'reason', 'partition', 'submitted', 'workdir', 'mem', 'gres'];
 const SACCT_FIELDS = ['id', 'name', 'state', 'elapsed', 'exitcode', 'start', 'end', 'partition', 'maxrss', 'alloccpus', 'workdir'];
 
 function parsePipe(stdout, fields) {

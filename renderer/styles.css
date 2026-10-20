@@ -545,9 +545,11 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .res-meter { display: grid; grid-template-columns: 30px minmax(40px, 1fr) auto; gap: 8px; align-items: center; font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .res-meter .k { color: var(--muted); }
 .res-meter .v { white-space: nowrap; }
-.res-meter .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.res-meter .bar { position: relative; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .res-meter .bar i { display: block; height: 100%; background: var(--run); }
 .res-meter .bar.full i { background: var(--pend); }
+.res-meter .bar b { position: absolute; left: 0; top: 0; height: 100%; background: rgba(0, 0, 0, .35); }
+.res-meter .bar b::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 1px; background: rgba(255, 255, 255, .5); }
 .job { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; }
 .job:hover { background: var(--surface-2); }
 .job.sel { background: var(--sel); }

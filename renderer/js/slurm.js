@@ -135,10 +135,29 @@
   const fmtMem = (mb) => (mb >= 1024 * 1024 ? (mb / 1024 / 1024).toFixed(1) + ' TB' : Math.round(mb / 1024) + ' GB');
   const fmtN = (n) => n.toLocaleString();
 
-  function meter(label, used, total, text) {
+  // What a running job asked for, from squeue's %m ("32G", "4000M", "2Gc" per CPU, "2Gn" per node) and %b ("gres/gpu:2").
+  function jobMemMb(j) {
+    const m = String(j.mem || '').match(/^([\d.]+)([KMGT]?)([cn]?)$/i);
+    if (!m) return 0;
+    const mb = Number(m[1]) * ({ K: 1 / 1024, M: 1, G: 1024, T: 1024 * 1024 }[m[2].toUpperCase()] || 1);
+    return m[3].toLowerCase() === 'c' ? mb * (Number(j.cpus) || 0) : mb * (m[3] ? Number(j.nodes) || 1 : 1);
+  }
+  function jobGpus(j) {
+    const m = String(j.gres || '').match(/gpu(?::[^:,=]+)?[:=](\d+)/);
+    return m ? Number(m[1]) * (Number(j.nodes) || 1) : 0;
+  }
+  const mineOf = (jobs, part) => {
+    const mine = jobs.running.filter((j) => !part || (j.partition || '').split(',').includes(part));
+    return { cpus: mine.reduce((n, j) => n + (Number(j.cpus) || 0), 0), mem: mine.reduce((n, j) => n + jobMemMb(j), 0), gpus: mine.reduce((n, j) => n + jobGpus(j), 0) };
+  };
+
+  // `mine` is your share of `used`; it is drawn as a darker segment at the start of the bar.
+  function meter(label, used, total, text, mine = 0) {
     const pct = total ? Math.min(100, Math.round(100 * used / total)) : 0;
+    const own = total ? Math.min(pct, Math.round(100 * Math.min(mine, used) / total)) : 0;
     return h('div.res-meter', h('span.k', label),
-      h('span.bar' + (pct >= 90 ? '.full' : ''), { role: 'meter', 'aria-label': label + ' in use', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct) }, h('i', { style: { width: pct + '%' } })),
+      h('span.bar' + (pct >= 90 ? '.full' : ''), { role: 'meter', 'aria-label': label + ' in use', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct), title: mine ? `${pct}% in use, ${own}% by you` : '' },
+        h('i', { style: { width: pct + '%' } }), mine ? h('b', { style: { width: own + '%' } }) : null),
       h('span.v', text));
   }
 
@@ -150,12 +169,12 @@
     if (res.error) { el.append(h('div.empty', 'Could not read the cluster’s resources: ' + res.error)); return; }
     const t = res.total, free = t.cpus - t.cpusUsed;
     s.dot.textContent = t.cpus ? Math.round(100 * free / t.cpus) + '% free' : '';
-    const mine = jobs.running.reduce((n, j) => n + (Number(j.cpus) || 0), 0);
+    const all = mineOf(jobs), mine = all.cpus;
     el.append(h('div.res-part',
       h('div.res-name', h('b', 'Whole cluster'), h('span', `${fmtN(t.nodes - t.offline)} nodes` + (t.offline ? ` · ${fmtN(t.offline)} offline` : ''))),
-      meter('CPU', t.cpusUsed, t.cpus, `${fmtN(free)} of ${fmtN(t.cpus)} free`),
-      meter('Mem', t.memUsed, t.mem, `${fmtMem(t.mem - t.memUsed)} of ${fmtMem(t.mem)} free`),
-      t.gpus ? meter('GPU', t.gpusUsed, t.gpus, `${fmtN(t.gpus - t.gpusUsed)} of ${fmtN(t.gpus)} free`) : null,
+      meter('CPU', t.cpusUsed, t.cpus, `${fmtN(free)} of ${fmtN(t.cpus)} free`, all.cpus),
+      meter('Mem', t.memUsed, t.mem, `${fmtMem(t.mem - t.memUsed)} of ${fmtMem(t.mem)} free`, all.mem),
+      t.gpus ? meter('GPU', t.gpusUsed, t.gpus, `${fmtN(t.gpus - t.gpusUsed)} of ${fmtN(t.gpus)} free`, all.gpus) : null,
       h('div.res-note', mine || jobs.waiting.length
         ? `Your jobs: ${fmtN(mine)} CPUs in ${jobs.running.length} running` + (jobs.waiting.length ? ` · ${jobs.waiting.length} waiting` : '')
         : 'You have no jobs in the queue.')));
@@ -163,11 +182,12 @@
     const used = new Set(S.queue.flatMap((j) => (j.partition || '').split(',')));
     const parts = res.partitions.slice().sort((a, b) => used.has(b.name) - used.has(a.name) || b.cpus - a.cpus);
     for (const p of parts) {
+      const my = mineOf(jobs, p.name);
       el.append(h('div.res-part',
         h('div.res-name', h('b', p.name), h('span', `${fmtN(p.nodes - p.offline)} nodes` + (p.offline ? ` · ${fmtN(p.offline)} offline` : ''))),
-        meter('CPU', p.cpusUsed, p.cpus, `${fmtN(p.cpus - p.cpusUsed)} of ${fmtN(p.cpus)} free`),
-        meter('Mem', p.memUsed, p.mem, `${fmtMem(p.mem - p.memUsed)} of ${fmtMem(p.mem)} free`),
-        p.gpus ? meter('GPU', p.gpusUsed, p.gpus, `${fmtN(p.gpus - p.gpusUsed)} of ${fmtN(p.gpus)} free`) : null,
+        meter('CPU', p.cpusUsed, p.cpus, `${fmtN(p.cpus - p.cpusUsed)} of ${fmtN(p.cpus)} free`, my.cpus),
+        meter('Mem', p.memUsed, p.mem, `${fmtMem(p.mem - p.memUsed)} of ${fmtMem(p.mem)} free`, my.mem),
+        p.gpus ? meter('GPU', p.gpusUsed, p.gpus, `${fmtN(p.gpus - p.gpusUsed)} of ${fmtN(p.gpus)} free`, my.gpus) : null,
         h('div.res-note', p.pendingJobs ? `${fmtN(p.pendingJobs)} jobs waiting, asking for ${fmtN(p.pendingCpus)} CPUs` : 'No jobs waiting')));
     }
     el.scrollTop = top;
