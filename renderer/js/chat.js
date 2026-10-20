@@ -885,7 +885,11 @@
     thinkEl.append(h('span.spinner'), h('span', ` ${ENGINE[engineOf(chat)]} is thinking…`), h('span.think-t', clock(secs)));
     if (logEl.lastChild !== thinkEl) { logEl.append(thinkEl); if (stick) scrollEnd(); }
   }
-  const stamp = (at) => (at ? h('span.stamp', { title: new Date(at).toLocaleString() }, new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null);
+  const stampText = (at) => {
+    const d = new Date(at), time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toDateString() === new Date().toDateString() ? time : d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + time;
+  };
+  const stamp = (at) => (at ? h('span.stamp', { title: new Date(at).toLocaleString() }, stampText(at)) : null);
   function note(chat, text, kind) { push(chat, { t: 'note', text, kind }); }
   function remove(chat, it) { chat.items = chat.items.filter((x) => x !== it); const el = dom.get(it); if (el) el.remove(); }
 

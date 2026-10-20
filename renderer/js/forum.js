@@ -18,7 +18,8 @@
   const atBottom = () => logEl && logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 40;
   const scrollEnd = () => { if (logEl) logEl.scrollTop = logEl.scrollHeight; };
   const stamp = (at) => at ? h('time.forum-stamp', { datetime: new Date(at).toISOString(), title: new Date(at).toLocaleString() },
-    new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null;
+    (new Date(at).toDateString() === new Date().toDateString() ? '' : new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ')
+    + new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null;
 
   async function call(promise) {
     try {
