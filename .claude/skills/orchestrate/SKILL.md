@@ -51,7 +51,7 @@ Work through tasks in dependency order. For each task:
    - Out of scope.
    - Connected projects: when a task reads or changes a folder of a connected project (the chat's instructions list them), name the folder in the brief. Codex jobs can write to those folders as well as to this project; Claude subagents reach them only when the brief names them.
    - The HPC: for work on the cluster, copy in the connection command and the project folder from the chat's instructions ("Reaching the HPC", "Projects on the HPC"), so the specialist uses the open connection and does not start a login of its own.
-   - Secrets: name the environment variables a task needs, never their values.
+   - Secrets: name the environment variables a task needs, never their values. For HPC work, give the project's secrets file path from the chat's instructions and say to `source` it. If a variable is missing, the user adds it in Settings > Secrets (with the right scopes); never ask for the value in chat.
 4. **Dispatch.**
    - Claude: Agent tool with `subagent_type: "<role>"` and the brief as the prompt.
    - Codex: Bash with `run_in_background: true`:

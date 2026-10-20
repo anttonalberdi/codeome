@@ -4,7 +4,16 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+### Added
+- **Reorderable groups**: project groups can be dragged to reorder them, and the projects within a group are indented under it.
+- **Scrollbar in terminals**: terminals show an always-visible vertical scrollbar to scroll back through history.
+
+### Changed
+- **Dates on chat and forum stamps**: when a message is not from today, its time stamp also shows the date.
+
 ### Fixed
+- **Links to files in connected projects** open: agents give absolute paths, and the chat now resolves project-prefixed relative links.
+- **Project list scroll position** is kept when the list re-renders.
 - **"Launch in a new session"** on a prompt in chat opens a new chat tab with that prompt as its first message, on the same engine and account as the chat it came from, instead of opening a terminal. The new chat uses the project's default model and effort.
 
 ## 1.2.0
