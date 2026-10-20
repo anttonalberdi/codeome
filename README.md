@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/anttonalberdi/codeome)](https://github.com/anttonalberdi/codeome/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/anttonalberdi/codeome/total)](https://github.com/anttonalberdi/codeome/releases)
 [![CI](https://github.com/anttonalberdi/codeome/actions/workflows/ci.yml/badge.svg)](https://github.com/anttonalberdi/codeome/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-anttonalberdi.github.io-blue)](https://anttonalberdi.github.io/codeome/)
+[![Docs](https://img.shields.io/badge/docs-alberdilab.dk-blue)](https://www.alberdilab.dk/codeome/)
 [![License: MIT](https://img.shields.io/github/license/anttonalberdi/codeome)](LICENSE)
 ![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
 
@@ -16,9 +16,9 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 - **Apple silicon** (M1 and later): `Codeome-<version>-arm64.dmg`
 - **Intel**: `Codeome-<version>.dmg` (x64)
 
-Open the `.dmg` and drag Codeome to Applications. The app is not signed with an Apple Developer certificate, so the first time: right-click Codeome in Applications → **Open** → **Open**. More in [Getting started](https://anttonalberdi.github.io/codeome/guide/getting-started).
+Open the `.dmg` and drag Codeome to Applications. The app is not signed with an Apple Developer certificate, so the first time: right-click Codeome in Applications → **Open** → **Open**. More in [Getting started](https://www.alberdilab.dk/codeome/guide/getting-started).
 
-**Documentation: https://anttonalberdi.github.io/codeome/**
+**Documentation: https://www.alberdilab.dk/codeome/**
 
 ## What it does
 
@@ -28,7 +28,7 @@ Open the `.dmg` and drag Codeome to Applications. The app is not signed with an 
 - **HPC, files and Slurm** — a shared SSH connection, FileZilla-style transfer, and live job queues and logs.
 - **Plots, reports, Git/GitHub, Zenodo, packages** — all in the same window.
 
-See the [guide](https://anttonalberdi.github.io/codeome/guide/getting-started) for each area, the [settings](https://anttonalberdi.github.io/codeome/settings) for first-time set-up, and the [keyboard shortcuts](https://anttonalberdi.github.io/codeome/reference/keyboard).
+See the [guide](https://www.alberdilab.dk/codeome/guide/getting-started) for each area, the [settings](https://www.alberdilab.dk/codeome/settings) for first-time set-up, and the [keyboard shortcuts](https://www.alberdilab.dk/codeome/reference/keyboard).
 
 ## Advanced: run from source
 
@@ -46,7 +46,7 @@ Every push to `main` also builds the app: see the *Codeome-mac* artifact of the 
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and the [project layout](https://anttonalberdi.github.io/codeome/reference/project-layout). The docs source is in [`docs/`](docs); run `cd docs && npm install && npm run docs:dev` to preview it.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [project layout](https://www.alberdilab.dk/codeome/reference/project-layout). The docs source is in [`docs/`](docs); run `cd docs && npm install && npm run docs:dev` to preview it.
 
 ## License
 
