@@ -1,14 +1,11 @@
 ---
+layout: page
 sidebar: false
 aside: false
-outline: false
+title: Codeome for advanced bioinformaticians
 ---
 
-# Codeome for advanced bioinformaticians
-
-You know SSH, Slurm, conda and Git. This tour covers how Codeome fits around them: connection model, agent orchestration, policies and publishing. Each slide links to the detailed page. Use the arrow keys or the buttons, and `F` for full screen. New to this? See the [beginner tour](/slides/beginners).
-
-<SlideDeck>
+<SlideDeck title="Codeome · for advanced bioinformaticians">
 
 <Slide title="The model in one slide" more="/guide/getting-started" label="Getting started">
 
@@ -155,6 +152,8 @@ HPC secrets are plaintext on disk and shared across your projects by your one ac
 - [Settings](/settings) for HPC, network, agents, storage and accounts
 - [Agent kit](/reference/agent-kit) and [project layout](/reference/project-layout)
 - The full [guide](/guide/getting-started), which holds the detail behind every slide
+
+New to this? See the [beginner guide](/slides/beginners).
 
 Found a gap? Each page has an *Edit this page on GitHub* link.
 
