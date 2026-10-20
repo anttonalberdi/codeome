@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.2.1
 
 ### Added
 - **Reorderable groups**: project groups can be dragged to reorder them, and the projects within a group are indented under it.
