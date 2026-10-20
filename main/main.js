@@ -390,8 +390,24 @@ ipcMain.handle('project:clone', async (_e, { url, parent } = {}) => {
   const dir = path.join(base, name);
   if (fs.existsSync(dir)) return { error: `${dir} already exists. Open it as a folder instead, or remove it first.` };
   try { fs.mkdirSync(base, { recursive: true }); } catch (e) { return { error: String(e.message || e) }; }
-  const r = await run('git', ['clone', '--', url, dir], { timeout: 600000, env: { GIT_TERMINAL_PROMPT: '0' } });
-  if (r.code !== 0) return { error: (r.stderr || r.stdout || 'git clone failed').trim().split('\n').slice(-4).join('\n') };
+  // git writes progress to stderr with carriage returns, e.g. "Receiving objects:  42% (21/50), 1.2 MiB | 800 KiB/s".
+  const r = await new Promise((resolve) => {
+    const p = require('child_process').spawn('git', ['clone', '--progress', '--', url, dir], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+    let err = '', out = '';
+    const timer = setTimeout(() => p.kill(), 600000);
+    p.stdout.on('data', (d) => { out += d; });
+    p.stderr.on('data', (d) => {
+      const t = String(d); err = (err + t).slice(-4000);
+      const lines = t.split(/[\r\n]+/).filter(Boolean);
+      for (const l of lines.reverse()) {
+        const m = /^(Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files):\s+(\d+)%(?:[^,]*,\s*(.*))?/.exec(l.replace(/^remote:\s*/, ''));
+        if (m) { send('project:cloneProgress', { phase: m[1], percent: +m[2], detail: (m[3] || '').trim() }); break; }
+      }
+    });
+    p.on('error', (e) => { clearTimeout(timer); resolve({ code: 1, stderr: String(e.message || e) }); });
+    p.on('close', (code) => { clearTimeout(timer); resolve({ code, stderr: err, stdout: out }); });
+  });
+  if (r.code !== 0) return { error: (r.stderr || r.stdout || 'git clone failed').trim().split(/[\r\n]+/).filter(Boolean).slice(-4).join('\n') };
   return { dir };
 });
 ipcMain.handle('shell:open', (_e, url) => shell.openExternal(url));

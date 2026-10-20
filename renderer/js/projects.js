@@ -76,6 +76,9 @@
     const root = App.cfg.projectsDir || '~/Codeome';
     const url = h('input', { type: 'text', placeholder: 'https://github.com/owner/repo.git', spellcheck: 'false', autocomplete: 'off' });
     const err = h('div.hint', { role: 'alert' });
+    const bar = h('progress', { max: 100, value: 0 });
+    const label = h('div.hint');
+    const prog = h('div.clone-progress', { hidden: true }, bar, label);
     const ov = document.getElementById('overlay');
     return new Promise((resolve) => {
       const close = (v) => { ov.hidden = true; ov.replaceChildren(); ov.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(v || null); };
@@ -83,8 +86,11 @@
       let busy = false;
       const clone = async () => {
         if (busy || !url.value.trim()) return;
-        busy = true; err.textContent = 'Cloning…'; go.disabled = true;
+        busy = true; err.textContent = ''; go.disabled = true;
+        bar.value = 0; label.textContent = 'Starting…'; prog.hidden = false;
+        const off = codeome.project.onCloneProgress((p) => { bar.value = p.percent; label.textContent = `${p.phase} ${p.percent}%${p.detail ? ' · ' + p.detail : ''}`; });
         const r = await codeome.project.clone({ url: url.value });
+        off(); prog.hidden = true;
         busy = false; go.disabled = false;
         if (r.error) { err.textContent = r.error; return; }
         close(r.dir);
@@ -98,7 +104,7 @@
             h('button.btn', { onclick: async () => { if (busy) return; const d = await codeome.dialog.folder({ defaultPath: App.isIdeas() ? App.cfg.localRoot : App.project || App.cfg.localRoot }); if (d) close(d); } }, 'Choose folder…'))),
           h('fieldset', h('button.btn', { onclick: async () => { if (busy) return; close(); await P.openIdeas(); } }, '💡 Discuss an idea (no project)')),
           h('fieldset', h('label.field', h('span', 'Or a git URL'), url,
-            h('div.hint', `It is cloned into a new folder in ${root}. Change that folder in Settings → Projects.`)), err)),
+            h('div.hint', `It is cloned into a new folder in ${root}. Change that folder in Settings → Projects.`)), prog, err)),
         h('footer', h('button.btn', { onclick: () => { if (!busy) close(); } }, 'Cancel'), go));
       ov.replaceChildren(m); ov.hidden = false;
       ov.onclick = (e) => { if (e.target === ov && !busy) close(); };
