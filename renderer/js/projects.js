@@ -401,9 +401,9 @@
   const LINK_ICON = '<svg viewBox="0 0 16 16"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l.9-.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
   // The other open projects, and connected ones that are closed, each with a checkbox.
-  function pickLinks(dir, anchor) {
+  P.linkPicker = (dir) => {
     const others = [...new Set([...P.list, ...linksOf(dir)])].filter((d) => d !== dir && !App.isIdeas(d));
-    const body = h('div.link-pick',
+    return h('div.link-pick',
       h('div.cp-head', 'Connect ', h('b', App.basename(dir)), ' to'),
       others.length ? h('div.lp-list', others.map((d) => {
         const box = h('input', { type: 'checkbox', checked: linksOf(dir).includes(d), onchange: () => setLink(dir, d, box.checked) });
@@ -413,6 +413,9 @@
           P.list.includes(d) ? null : h('span.lp-note', 'closed'));
       })) : h('div.lp-note', 'Open another project to connect it.'),
       h('div.lp-help', 'The agent chat of each project can read and edit the other\'s files. Chats that are running pick this up when they restart.'));
+  };
+  function pickLinks(dir, anchor) {
+    const body = P.linkPicker(dir);
     const p = App.popover(anchor, body, 'Connected projects');
     p.pop.classList.add('color-pop');
     p.set(body);

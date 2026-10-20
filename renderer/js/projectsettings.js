@@ -152,6 +152,8 @@
         catalogError ? h('div.ps-catalog-error', { role: 'alert' }, 'Could not load Codex model choices: ' + catalogError,
           h('button.btn.small', { type: 'button', onclick: loadDefaults }, 'Retry')) : null,
         h('div.ps-list', CHAT_ROWS.map(([key, label]) => chatRow(key, label, options[key], path)))),
+      h('section.ps-card', h('h3.ps-card-title', 'Connected projects'),
+        App.isIdeas(path) ? h('div.lp-note', 'Ideas cannot be connected to projects.') : App.views.projects.linkPicker(path)),
       h('div.ps-footer',
         h('button.ps-reset', { type: 'button', disabled: busy || !hasOverrides, onclick: () => save(path, null, null, null) }, 'Reset to app defaults'),
         saveError ? h('p.ps-error', { role: 'alert' }, 'Could not save agent rules: ' + saveError) : null,

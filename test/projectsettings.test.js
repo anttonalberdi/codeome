@@ -32,7 +32,7 @@ function load() {
   const listeners = {};
   const writes = [];
   const App = {
-    h, views: {}, cfg: { projectPolicy: {}, policyDefaults: {}, projectChat: {}, chat: {}, agents: [{ cmd: 'claude' }] }, project: '/projects/alpha', currentView: 'projectSettings',
+    h, views: { projects: { linkPicker: () => h('div.link-pick') } }, cfg: { projectPolicy: {}, policyDefaults: {}, projectChat: {}, chat: {}, agents: [{ cmd: 'claude' }] }, project: '/projects/alpha', currentView: 'projectSettings',
     basename: (value) => path.basename(value), isIdeas: (value) => value === '/projects/ideas',
     prompt: async () => null,
     listen: (event, fn) => { (listeners[event] ||= []).push(fn); },

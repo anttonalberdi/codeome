@@ -281,7 +281,20 @@ App.tildify = (p) => (App.env.home && p && p.startsWith(App.env.home) ? '~' + p.
 App.shPath = (p) => (/^~(\/|$)/.test(p) ? '"$HOME' + p.slice(1).replace(/(["\\$`])/g, '\\$1') + '"' : App.shq(p));
 
 // ---------- misc ----------
-App.saveConfig = async () => { App.cfg = await codeome.config.set(App.cfg); App.emit('config', App.cfg); };
+// Saves go one at a time, and only the last reply replaces App.cfg: an older reply would
+// otherwise wipe a change made while it was in flight (two quick clicks on connections).
+let cfgSaving = Promise.resolve(), cfgPending = 0;
+App.saveConfig = () => {
+  cfgPending++;
+  const run = cfgSaving.then(async () => {
+    try {
+      const saved = await codeome.config.set(App.cfg);
+      if (cfgPending === 1) { App.cfg = saved; App.emit('config', App.cfg); }
+    } finally { cfgPending--; }
+  });
+  cfgSaving = run.catch(() => {});
+  return run;
+};
 // The HPC as the user named it (Settings → HPC, or the title of its files pane); its login until then.
 App.hpcName = () => ((App.cfg.ui.panes || {}).remote || {}).title || App.cfg.hpc.host;
 App.requireHpc = () => {
