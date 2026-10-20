@@ -531,6 +531,7 @@
   function render() {
     if (!el) return;
     const focused = el.contains(document.activeElement), fg = focused && document.activeElement.dataset.g;
+    const keepTop = el.querySelector('.proj-list')?.scrollTop || 0;
     el.innerHTML = '';
     // Dropping a card on the empty part of the list takes it out of its group.
     const list = h('div.proj-list', {
@@ -552,7 +553,8 @@
       h('button.proj-add', { title: 'New group of projects', 'aria-label': 'New group of projects', onclick: () => P.addGroup(true) }, h('span', { html: collapsed ? GROUP_ICON : App.icons.plus }), collapsed ? null : h('span', 'Group')),
       h('button.proj-fold', { title: collapsed ? 'Show project names' : 'Hide project names', 'aria-label': collapsed ? 'Expand project column' : 'Collapse project column', onclick: toggleCollapsed },
         h('span', { html: `<svg viewBox="0 0 16 16"><path d="${collapsed ? 'm6 4 4 4-4 4' : 'm10 4-4 4 4 4'}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` }))));
-    if (focused) { const a = (fg && el.querySelector(`.pg-head[data-g="${fg}"]`)) || el.querySelector('.proj.active') || el.querySelector('.proj-add'); if (a) a.focus(); }
+    list.scrollTop = keepTop;
+    if (focused) { const a = (fg && el.querySelector(`.pg-head[data-g="${fg}"]`)) || el.querySelector('.proj.active') || el.querySelector('.proj-add'); if (a) a.focus({ preventScroll: true }); }
   }
   const GROUP_ICON = '<svg viewBox="0 0 16 16"><path d="M2.5 3.5h11v3.5h-11zM2.5 9h11v3.5h-11z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
 
