@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.2.2
 
 ### Added
 - **New project from scratch**: the *New project* popup has a *Create a new project…* wizard. Pick a type (R project, R package, Python project or notebook, Python package, Quarto report, Snakemake workflow, or empty), then name it and choose a licence. Codeome writes a starter layout that follows the community standard for that type (usethis/devtools, PyPA src layout, Cookiecutter Data Science, Snakemake standardized usage), optionally runs `git init` with a first commit, and opens it.
