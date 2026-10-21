@@ -27,3 +27,11 @@ test('forum check settings are bounded when saved and loaded', () => {
   saved.forum.checkTimeoutMs = -1;
   assert.equal(config.save(saved).forum.checkTimeoutMs, 1000);
 });
+
+test('project HPC paths are sanitised on load', () => {
+  config.save({ ...config.DEFAULTS, projectHpc: {
+    '/projects/alpha': { paths: [' /cluster/a/// ', '/cluster/a', 'relative/path', '~/work/', null] },
+    '/projects/beta': { paths: 'wrong' }
+  } });
+  assert.deepEqual(config.load().projectHpc, { '/projects/alpha': { paths: ['/cluster/a', '~/work'] } });
+});

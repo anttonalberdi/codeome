@@ -288,6 +288,9 @@ svg { width: 18px; height: 18px; display: block; }
 .ps-chat-control select { max-width: 100%; }
 .ps-field-error, .ps-catalog-error { color: var(--fail); font-size: 11px; }
 .ps-field-error:empty { display: none; }
+.ps-hpc-path, .ps-hpc-add { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+.ps-hpc-path span:first-child { overflow-wrap: anywhere; min-width: 0; flex: 1; }
+.ps-hpc-add input { min-width: 0; flex: 1; }
 .ps-catalog-error { padding: 8px 12px; }
 .ps-catalog-error .btn { margin-left: 8px; }
 .ps-segments { display: flex; width: fit-content; max-width: 100%; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--surface-2); }

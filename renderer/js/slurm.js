@@ -2,7 +2,7 @@
 // cluster has free, job logs, cancel and submit.
 (function () {
   const h = App.h;
-  const S = { queue: [], history: [], resources: null, timer: null, sel: null, lastError: '', all: false };
+  const S = { queue: [], history: [], resources: null, timer: null, sel: null, lastError: '', all: false, tag: '', home: '' };
   App.views.slurm = S;
   let root, stamp, emptyEl, scopeBtn;
 
@@ -19,19 +19,19 @@
   };
   const norm = (s) => (s || '').split(' ')[0].replace(/\+$/, '');
   const isLive = (j) => S.queue.some((x) => x.id === j.id);
-  // A job belongs to the project when it runs inside the project's HPC folder.
-  const inProject = (j) => {
-    const dir = (App.remoteDir || '').replace(/\/+$/, '');
-    if (!dir || dir === '~') return true;
-    const w = j.workdir || '';
-    return w === dir || w.startsWith(dir + '/');
-  };
+  const projectPaths = () => ((App.cfg.projectHpc || {})[App.project] || {}).paths || [];
+  const inProject = (j) => SlurmScope.matches(j, S.tag, projectPaths(), App.remoteDir, S.home);
   const scoped = (list) => (S.all ? list : list.filter(inProject));
   const paintScope = () => {
     if (!scopeBtn) return;
     scopeBtn.classList.toggle('right', !!S.all);
     scopeBtn.setAttribute('aria-checked', S.all ? 'true' : 'false');
-    scopeBtn.title = S.all ? 'Showing all your jobs. Click to show only this project’s.' : 'Showing jobs run in ' + (App.remoteDir || 'the HPC folder') + '. Click to show all your jobs.';
+    const paths = projectPaths();
+    const folder = paths.length ? paths.join(', ') : (App.remoteDir || '~');
+    const matched = 'jobs tagged for this project or run in ' + folder;
+    scopeBtn.title = !paths.length && folder === '~' ? 'Showing all your jobs until an HPC folder is saved or opened.'
+      : S.all ? 'Showing all your jobs. Click to show ' + matched + '.'
+        : 'Showing ' + matched + '. Click to show all your jobs.';
   };
 
   // The sections of the view, top to bottom. Each lists jobs, except the last.
@@ -58,16 +58,31 @@
       h('div.pad', { style: { paddingTop: 0 } }, stamp),
       emptyEl, S.stack.el);
     App.listen('remote-dir', () => { if (!S.all) { paintScope(); render(); } });
+    const loadTag = async (project) => {
+      S.tag = '';
+      render();
+      if (project && !App.isIdeas(project)) {
+        const tag = await codeome.slurm.tag(project);
+        if (App.project === project) { S.tag = tag; render(); }
+      }
+    };
+    App.listen('project', loadTag);
+    loadTag(App.project);
+    App.listen('config', () => render());
     App.listen('hpc', (c) => { if (c) S.start(); else S.stop(); render(); });
     render();
   };
 
+  let homeTick = 0;
   S.start = () => {
     S.stop();
+    S.home = '';
+    const tick = homeTick;
+    codeome.remote.list('~').then((r) => { if (tick === homeTick && !r.error) { S.home = r.cwd; render(); } }).catch(() => {});
     S.refresh();
     S.timer = setInterval(() => { if (!document.hidden) S.refresh(); }, Math.max(5, App.cfg.slurm.refreshSeconds || 20) * 1000);
   };
-  S.stop = () => { if (S.timer) clearInterval(S.timer); S.timer = null; };
+  S.stop = () => { homeTick++; if (S.timer) clearInterval(S.timer); S.timer = null; };
   S.render = () => render();
 
   let busy = false, histTick = 0;
@@ -213,9 +228,10 @@
 
   S.submit = async (path) => {
     if (!App.requireHpc()) return;
+    const project = App.project;
     const t = App.views.editor.tabs.find((x) => x.remote && x.path === path && x.dirty);
     if (t) await App.views.editor.save(t);
-    const r = await codeome.slurm.submit(path);
+    const r = await codeome.slurm.submit(path, project && !App.isIdeas(project) ? await codeome.slurm.tag(project) : '');
     if (r.error) return App.err('sbatch: ' + r.error);
     App.toast(r.message || 'Submitted.');
     setTimeout(() => S.refresh(true), 1200);

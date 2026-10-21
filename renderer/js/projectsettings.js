@@ -122,6 +122,45 @@
       inheritance(label, appLabel, overridden, () => save(path, 'chat', key, null)));
   }
 
+  async function saveHpc(path, paths) {
+    if (busy) return;
+    App.cfg.projectHpc = App.cfg.projectHpc || {};
+    const previous = App.cfg.projectHpc[path];
+    if (paths.length) App.cfg.projectHpc[path] = { paths };
+    else delete App.cfg.projectHpc[path];
+    busy = true; saveError = ''; P.refresh();
+    try { await App.saveConfig(); }
+    catch (error) {
+      if (previous) App.cfg.projectHpc[path] = previous;
+      else delete App.cfg.projectHpc[path];
+      saveError = error.message || String(error);
+    } finally { busy = false; P.refresh(); }
+  }
+
+  function hpcFolders(path) {
+    const paths = ((App.cfg.projectHpc || {})[path] || {}).paths || [];
+    const error = h('span.ps-field-error', { role: 'alert' });
+    const input = h('input', { type: 'text', 'aria-label': 'HPC folder path', placeholder: '/projects/your-folder', disabled: busy,
+      onkeydown: (event) => { if (event.key === 'Enter') { event.preventDefault(); add(input.value); } } });
+    const add = (raw) => {
+      const trimmed = (raw || '').trim();
+      const value = trimmed.replace(/\/+$/, '') || (trimmed.startsWith('/') ? '/' : '');
+      if (!value || !(value.startsWith('/') || value.startsWith('~'))) { error.textContent = 'Enter an absolute HPC path or one starting with ~.'; return; }
+      if (paths.includes(value)) { error.textContent = 'That HPC folder is already listed.'; return; }
+      return saveHpc(path, [...paths, value]);
+    };
+    return h('section.ps-card', h('h3.ps-card-title', 'HPC folders'),
+      h('div.ps-list',
+        h('p.ps-help', 'Jobs tagged for this project or run in these folders appear in its Slurm view. The first folder is its root.'),
+        paths.length ? paths.map((folder, i) => h('div.ps-hpc-path', h('span', { title: folder }, folder),
+          i === 0 ? h('span.ps-tag', 'root') : null,
+          h('button.btn.small', { type: 'button', disabled: busy, 'aria-label': 'Remove HPC folder ' + folder,
+            onclick: () => saveHpc(path, paths.filter((_, n) => n !== i)) }, 'Remove'))) : h('p.ps-help', 'No HPC folders saved. The current HPC folder is used until you add one.'),
+        h('div.ps-hpc-add', input, h('button.btn.small', { type: 'button', disabled: busy, onclick: () => add(input.value) }, 'Add folder')),
+        h('button.btn.small', { type: 'button', disabled: busy || !App.remoteDir, onclick: () => add(App.remoteDir) }, 'Use current HPC folder'),
+        error));
+  }
+
   P.refresh = () => {
     if (!root) return;
     const path = App.project;
@@ -152,11 +191,12 @@
         catalogError ? h('div.ps-catalog-error', { role: 'alert' }, 'Could not load Codex model choices: ' + catalogError,
           h('button.btn.small', { type: 'button', onclick: loadDefaults }, 'Retry')) : null,
         h('div.ps-list', CHAT_ROWS.map(([key, label]) => chatRow(key, label, options[key], path)))),
+      App.isIdeas(path) ? null : hpcFolders(path),
       h('section.ps-card', h('h3.ps-card-title', 'Connected projects'),
         App.isIdeas(path) ? h('div.lp-note', 'Ideas cannot be connected to projects.') : App.views.projects.linkPicker(path)),
       h('div.ps-footer',
         h('button.ps-reset', { type: 'button', disabled: busy || !hasOverrides, onclick: () => save(path, null, null, null) }, 'Reset to app defaults'),
-        saveError ? h('p.ps-error', { role: 'alert' }, 'Could not save agent rules: ' + saveError) : null,
+        saveError ? h('p.ps-error', { role: 'alert' }, 'Could not save project settings: ' + saveError) : null,
         h('p.ps-note', 'Matching is heuristic, not a security boundary.')));
   };
 })();

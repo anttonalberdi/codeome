@@ -68,6 +68,7 @@ const DEFAULTS = {
   projectGroup: {},       // project → id of its group; kept when the project is closed
   scratchpads: {},        // project → the text of its scratchpad, shown when no file is open
   projectLinks: {},       // project → [projects connected to it]; both ways, kept when a project is closed
+  projectHpc: {},         // project → { paths: [HPC folders] }; first folder is the root
   gitAccounts: [],        // GitHub account metadata; tokens stay in the encrypted secret store
   projectAccounts: {},    // project → GitHub account id; kept when the project is closed
   policyDefaults: {},     // app-wide agent policy switch values
@@ -105,6 +106,17 @@ function forumSettings(value) {
   return forum;
 }
 
+function projectHpcSettings(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out = {};
+  for (const [project, entry] of Object.entries(value)) {
+    if (!project.startsWith('/') || !entry || !Array.isArray(entry.paths)) continue;
+    const paths = [...new Set(entry.paths.filter((p) => typeof p === 'string').map((p) => p.trim()).filter((p) => p.startsWith('/') || p.startsWith('~')).map((p) => p.replace(/\/+$/, '') || '/'))];
+    if (paths.length) out[project] = { paths };
+  }
+  return out;
+}
+
 function load() {
   try {
     const saved = JSON.parse(fs.readFileSync(file('config.json'), 'utf8'));
@@ -112,6 +124,7 @@ function load() {
     if (saved.chat && saved.chat.model === '' && !saved.chat.modelPicked) delete saved.chat.model;
     const cfg = deepMerge(DEFAULTS, saved);
     cfg.forum = forumSettings(cfg.forum);
+    cfg.projectHpc = projectHpcSettings(cfg.projectHpc);
     return cfg;
   }
   catch { return JSON.parse(JSON.stringify(DEFAULTS)); }
@@ -119,6 +132,7 @@ function load() {
 
 function save(cfg) {
   cfg.forum = forumSettings(cfg.forum);
+  cfg.projectHpc = projectHpcSettings(cfg.projectHpc);
   fs.mkdirSync(app.getPath('userData'), { recursive: true });
   fs.writeFileSync(file('config.json'), JSON.stringify(cfg, null, 2));
   return cfg;

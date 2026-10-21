@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { parseListing, passwordFiller } = require('../main/ssh');
-const { parsePipe, parseNodes, SQ_FIELDS, SACCT_FIELDS } = require('../main/slurm');
+const { parsePipe, parseNodes, SQ_FIELDS, SACCT_FIELDS, projectTag, submit, queue, history } = require('../main/slurm');
+const ssh = require('../main/ssh');
 const { q } = require('../main/util');
 
 test('remote listing parses find -printf output and sorts folders first', () => {
@@ -15,18 +16,50 @@ test('remote listing parses find -printf output and sorts folders first', () => 
 });
 
 test('squeue pipe output maps to fields', () => {
-  const out = '123|mapping|RUNNING|1:02:03|4:00:00|1|8|node12|standard|2026-10-09T10:00:00|/home/u/proj\n124|qc|PENDING|0:00|1:00:00|1|4|(Priority)|standard|2026-10-09T10:05:00|/home/u/proj\n';
+  const out = '123|mapping|RUNNING|1:02:03|4:00:00|1|8|node12|standard|2026-10-09T10:00:00|/home/u/proj|32G|gres/gpu:1|codeome:proj-abcd1234\n124|qc|PENDING|0:00|1:00:00|1|4|(Priority)|standard|2026-10-09T10:05:00|/home/u/proj|||\n';
   const jobs = parsePipe(out, SQ_FIELDS);
   assert.strictEqual(jobs.length, 2);
   assert.strictEqual(jobs[0].id, '123');
   assert.strictEqual(jobs[1].reason, '(Priority)');
   assert.strictEqual(jobs[0].workdir, '/home/u/proj');
+  assert.strictEqual(jobs[0].comment, 'codeome:proj-abcd1234');
+  assert.strictEqual(jobs[1].comment, '');
 });
 
 test('sacct fields cover the requested columns', () => {
-  const rows = parsePipe('99|assemble|FAILED|00:10:00|1:0|2026-10-09T09:00:00|2026-10-09T09:10:00|standard||16|/w\n99.batch|batch|FAILED|00:10:00|1:0|||||16|\n', SACCT_FIELDS);
+  const rows = parsePipe('99|assemble|FAILED|00:10:00|1:0|2026-10-09T09:00:00|2026-10-09T09:10:00|standard||16|/w|codeome:proj-abcd1234\n99.batch|batch|FAILED|00:10:00|1:0|||||16||\n', SACCT_FIELDS);
   assert.strictEqual(rows[0].exitcode, '1:0');
   assert.strictEqual(rows[1].id, '99.batch');
+  assert.strictEqual(rows[0].comment, 'codeome:proj-abcd1234');
+});
+
+test('Slurm queries request comment fields', async () => {
+  const original = ssh.exec;
+  const commands = [];
+  ssh.exec = async (_host, command) => { commands.push(command); return { code: 0, stdout: '', stderr: '' }; };
+  try { await queue('hpc'); await history('hpc'); }
+  finally { ssh.exec = original; }
+  assert.match(commands[0], /%k/);
+  assert.match(commands[1], /Comment%200/);
+});
+
+test('project tag is stable and separates paths with the same basename', () => {
+  assert.strictEqual(projectTag('/a/My Project'), 'codeome:my-project-' + require('crypto').createHash('sha1').update('/a/My Project').digest('hex').slice(0, 8));
+  assert.strictEqual(projectTag('/a/My Project'), projectTag('/a/My Project'));
+  assert.notStrictEqual(projectTag('/a/My Project'), projectTag('/b/My Project'));
+});
+
+test('submission quotes the tag and script path and rejects unsafe tags', async () => {
+  const original = ssh.exec;
+  const commands = [];
+  ssh.exec = async (_host, command) => { commands.push(command); return { code: 0, stdout: 'Submitted batch job 123', stderr: '' }; };
+  try {
+    const tag = projectTag('/a/My Project');
+    assert.deepStrictEqual(await submit('hpc', "/home/u/project's job.sh", tag), { ok: true, message: 'Submitted batch job 123' });
+    assert.strictEqual(commands[0], `cd ${q('/home/u')} && sbatch ${q('--comment=' + tag)} ${q("/home/u/project's job.sh")}`);
+    assert.deepStrictEqual(await submit('hpc', '/home/u/job.sh', 'bad; touch /tmp/oops'), { error: 'Invalid project tag.' });
+    assert.strictEqual(commands.length, 1);
+  } finally { ssh.exec = original; }
 });
 
 test('scontrol nodes add up per partition, leaving out nodes that are down', () => {

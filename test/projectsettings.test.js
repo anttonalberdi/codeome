@@ -35,6 +35,7 @@ function load() {
     h, views: { projects: { linkPicker: () => h('div.link-pick') } }, cfg: { projectPolicy: {}, policyDefaults: {}, projectChat: {}, chat: {}, agents: [{ cmd: 'claude' }] }, project: '/projects/alpha', currentView: 'projectSettings',
     basename: (value) => path.basename(value), isIdeas: (value) => value === '/projects/ideas',
     prompt: async () => null,
+    saveConfig: async () => { writes.push(JSON.parse(JSON.stringify(App.cfg))); App.emit('config', App.cfg); },
     listen: (event, fn) => { (listeners[event] ||= []).push(fn); },
     emit: (event, value) => (listeners[event] || []).forEach((fn) => fn(value))
   };
@@ -105,6 +106,36 @@ test('Ideas has agent rules and reset clears only its own overrides', async () =
   await find(root, (node) => node.name.startsWith('button') && node.children.includes('Reset to app defaults'))[0].attrs.onclick();
   assert.equal(Object.hasOwn(App.cfg.projectPolicy, '/projects/ideas'), false);
   assert.ok(find(root, (node) => node.children.includes('Ideas')).length);
+  assert.equal(find(root, (node) => node.children.includes('HPC folders')).length, 0);
+});
+
+test('HPC folders can be added, deduplicated, removed and saved per project', async () => {
+  const { App, root, writes } = load();
+  App.remoteDir = '/cluster/current';
+  App.views.projectSettings.init();
+  await new Promise(setImmediate);
+  const button = (label) => find(root, (node) => node.name.startsWith('button') && node.children.includes(label))[0];
+  const input = () => find(root, (node) => node.attrs['aria-label'] === 'HPC folder path')[0];
+  const error = () => find(root, (node) => node.name === 'span.ps-field-error').at(-1).textContent;
+  input().value = ' /cluster/project/// ';
+  await button('Add folder').attrs.onclick();
+  assert.deepEqual(Array.from(App.cfg.projectHpc['/projects/alpha'].paths), ['/cluster/project']);
+  assert.deepEqual(writes.at(-1).projectHpc['/projects/alpha'].paths, ['/cluster/project']);
+  input().value = '/cluster/project/';
+  button('Add folder').attrs.onclick();
+  assert.match(error(), /already listed/);
+  input().value = 'relative/path';
+  button('Add folder').attrs.onclick();
+  assert.match(error(), /absolute HPC path/);
+  await button('Use current HPC folder').attrs.onclick();
+  assert.deepEqual(Array.from(App.cfg.projectHpc['/projects/alpha'].paths), ['/cluster/project', '/cluster/current']);
+  await find(root, (node) => node.attrs['aria-label'] === 'Remove HPC folder /cluster/project')[0].attrs.onclick();
+  assert.deepEqual(Array.from(App.cfg.projectHpc['/projects/alpha'].paths), ['/cluster/current']);
+  input().value = '~/work/';
+  await button('Add folder').attrs.onclick();
+  assert.deepEqual(Array.from(App.cfg.projectHpc['/projects/alpha'].paths), ['/cluster/current', '~/work']);
+  App.project = '/projects/beta'; App.emit('project', App.project);
+  assert.equal(App.cfg.projectHpc['/projects/beta'], undefined);
 });
 
 test('agent defaults save, inherit and reset alongside policy overrides', async () => {

@@ -1,10 +1,18 @@
 // Slurm queries over the shared SSH connection.
 const ssh = require('./ssh');
 const { q } = require('./util');
+const crypto = require('crypto');
+const path = require('path');
 
-const SQ_FMT = '%i|%j|%T|%M|%l|%D|%C|%R|%P|%V|%Z|%m|%b';
-const SQ_FIELDS = ['id', 'name', 'state', 'elapsed', 'limit', 'nodes', 'cpus', 'reason', 'partition', 'submitted', 'workdir', 'mem', 'gres'];
-const SACCT_FIELDS = ['id', 'name', 'state', 'elapsed', 'exitcode', 'start', 'end', 'partition', 'maxrss', 'alloccpus', 'workdir'];
+const SQ_FMT = '%i|%j|%T|%M|%l|%D|%C|%R|%P|%V|%Z|%m|%b|%k';
+const SQ_FIELDS = ['id', 'name', 'state', 'elapsed', 'limit', 'nodes', 'cpus', 'reason', 'partition', 'submitted', 'workdir', 'mem', 'gres', 'comment'];
+const SACCT_FIELDS = ['id', 'name', 'state', 'elapsed', 'exitcode', 'start', 'end', 'partition', 'maxrss', 'alloccpus', 'workdir', 'comment'];
+
+function projectTag(project) {
+  project = project.replace(/(.)\/+$/, '$1');
+  const slug = path.basename(project.replace(/\/+$/, '')).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project';
+  return `codeome:${slug}-${crypto.createHash('sha1').update(project).digest('hex').slice(0, 8)}`;
+}
 
 function parsePipe(stdout, fields) {
   return stdout.split('\n').filter((l) => l.trim()).map((l) => {
@@ -22,7 +30,7 @@ async function queue(host) {
 }
 
 async function history(host, days = 3) {
-  const fmt = 'JobID,JobName%60,State,Elapsed,ExitCode,Start,End,Partition,MaxRSS,AllocCPUS,WorkDir%200';
+  const fmt = 'JobID,JobName%60,State,Elapsed,ExitCode,Start,End,Partition,MaxRSS,AllocCPUS,WorkDir%200,Comment%200';
   const r = await ssh.exec(host, `sacct -u "$USER" -S now-${Number(days) || 3}days --noheader -P -o ${fmt}`);
   if (r.code !== 0) return { error: r.stderr.trim() || 'sacct failed' };
   // Keep the allocation line per job; fold MaxRSS up from the .batch step.
@@ -55,9 +63,10 @@ async function cancel(host, id) {
   return r.code === 0 ? { ok: true } : { error: r.stderr.trim() };
 }
 
-async function submit(host, scriptPath) {
+async function submit(host, scriptPath, tag) {
+  if (tag && (typeof tag !== 'string' || !/^[A-Za-z0-9._:-]+$/.test(tag))) return { error: 'Invalid project tag.' };
   const dir = scriptPath.replace(/\/[^/]*$/, '') || '~';
-  const r = await ssh.exec(host, `cd ${q(dir)} && sbatch ${q(scriptPath)}`);
+  const r = await ssh.exec(host, `cd ${q(dir)} && sbatch ${tag ? q('--comment=' + tag) + ' ' : ''}${q(scriptPath)}`);
   return r.code === 0 ? { ok: true, message: r.stdout.trim() } : { error: r.stderr.trim() };
 }
 
@@ -107,4 +116,4 @@ async function resources(host) {
   return res;
 }
 
-module.exports = { resources, parseNodes, queue, history, details, tail, cancel, submit, partitions, parsePipe, SQ_FIELDS, SACCT_FIELDS };
+module.exports = { resources, parseNodes, queue, history, details, tail, cancel, submit, partitions, parsePipe, projectTag, SQ_FIELDS, SACCT_FIELDS };

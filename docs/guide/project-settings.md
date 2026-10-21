@@ -42,6 +42,10 @@ These are the five switches in *Agent policy*, in Settings and in each project.
 
 Switches marked *advisory* are weaker. *Require a plan* only adds a line to the agent's instructions. *HPC access* adds the same kind of instruction and also denies the commands listed above, but only the ones Codeome recognises.
 
+## HPC folders
+
+The *HPC folders* card lists the cluster folders that belong to this project. The Slurm view's *This project* switch keeps jobs that ran inside any of them (see [Slurm](/guide/slurm)). Type an absolute or `~` path and add it, remove a folder with *Remove*, or click *Use current HPC folder* to add the one open in the HPC Files tab. With none saved, the current HPC folder is used instead. Like the rules, the list is stored per project in Codeome's config on this Mac, not in the repository.
+
 ## When changes take effect
 
 - Permission checks (the *Never* denials and the Slurm *Allow* pre-approval) apply to chats that are already running, from their next request.

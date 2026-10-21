@@ -726,7 +726,8 @@ ipcMain.handle('slurm:history', () => slurm.history(cfg.hpc.host, cfg.slurm.hist
 ipcMain.handle('slurm:details', (_e, id) => slurm.details(cfg.hpc.host, id));
 ipcMain.handle('slurm:tail', (_e, { file, lines }) => slurm.tail(cfg.hpc.host, file, lines));
 ipcMain.handle('slurm:cancel', (_e, id) => slurm.cancel(cfg.hpc.host, id));
-ipcMain.handle('slurm:submit', (_e, p) => slurm.submit(cfg.hpc.host, p));
+ipcMain.handle('slurm:submit', (_e, p, tag) => slurm.submit(cfg.hpc.host, p, tag));
+ipcMain.handle('slurm:tag', (_e, project) => slurm.projectTag(project));
 ipcMain.handle('slurm:partitions', () => slurm.partitions(cfg.hpc.host));
 ipcMain.handle('slurm:resources', () => slurm.resources(cfg.hpc.host));
 
