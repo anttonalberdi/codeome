@@ -5,6 +5,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 ## Unreleased
 
 ### Added
+- **New project from scratch**: the *New project* popup has a *Create a new project…* wizard. Pick a type (R project, R package, Python project or notebook, Python package, Quarto report, Snakemake workflow, or empty), then name it and choose a licence. Codeome writes a starter layout that follows the community standard for that type (usethis/devtools, PyPA src layout, Cookiecutter Data Science, Snakemake standardized usage), optionally runs `git init` with a first commit, and opens it.
 - **HPC login wizard**: Settings → HPC has a *Set up…* button that asks for the cluster's address and your username (and a jump host or port if needed) and saves the login, so nobody has to edit `~/.ssh/config`. The beginner guide now points to it.
 
 ## 1.2.1

@@ -30,6 +30,7 @@ const login = require('./login');
 const gdoc = require('./gdoc');
 const secrets = require('./secrets');
 const secretsSync = require('./secrets-sync');
+const templates = require('./templates');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 
 let pty = null;
@@ -409,6 +410,11 @@ ipcMain.handle('project:clone', async (_e, { url, parent } = {}) => {
   });
   if (r.code !== 0) return { error: (r.stderr || r.stdout || 'git clone failed').trim().split(/[\r\n]+/).filter(Boolean).slice(-4).join('\n') };
   return { dir };
+});
+ipcMain.handle('project:templates', () => ({ types: templates.TYPES, licenses: templates.LICENSES }));
+ipcMain.handle('project:create', async (_e, { type, name, opts = {} } = {}) => {
+  const base = path.resolve(expandHome(cfg.projectsDir || '~/Codeome'));
+  return templates.create({ base, type, name, opts, fs, git });
 });
 ipcMain.handle('shell:open', (_e, url) => shell.openExternal(url));
 ipcMain.handle('shell:reveal', (_e, p) => shell.showItemInFolder(p));

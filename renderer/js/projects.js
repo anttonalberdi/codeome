@@ -81,7 +81,8 @@
     const prog = h('div.clone-progress', { hidden: true }, bar, label);
     const ov = document.getElementById('overlay');
     return new Promise((resolve) => {
-      const close = (v) => { ov.hidden = true; ov.replaceChildren(); ov.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(v || null); };
+      const dismiss = () => { ov.hidden = true; ov.replaceChildren(); ov.onclick = null; document.removeEventListener('keydown', onKey, true); };
+      const close = (v) => { dismiss(); resolve(v || null); };
       const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
       let busy = false;
       const clone = async () => {
@@ -100,6 +101,11 @@
       const m = h('div.modal', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'New project' },
         h('header', h('h2', 'New project')),
         h('div.body',
+          h('fieldset', h('button.btn', { onclick: async () => {
+            if (busy) return;
+            dismiss();
+            resolve(await P.newProject());
+          } }, 'Create a new project…')),
           h('fieldset', h('label.field', h('span', 'A folder on this Mac'),
             h('button.btn', { onclick: async () => { if (busy) return; const d = await codeome.dialog.folder({ defaultPath: App.isIdeas() ? App.cfg.localRoot : App.project || App.cfg.localRoot }); if (d) close(d); } }, 'Choose folder…'))),
           h('fieldset', h('button.btn', { onclick: async () => { if (busy) return; close(); await P.openIdeas(); } }, '💡 Discuss an idea (no project)')),
