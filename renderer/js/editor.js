@@ -221,6 +221,26 @@
     App.toast('Reloaded ' + t.title);
   };
 
+  // Pick up changes made outside the editor (an agent, a terminal): the shown local file is re-read
+  // and, when it has no unsaved edits, updated in place. Edited tabs are left alone.
+  let syncing = false;
+  const syncActive = async () => {
+    const t = E.cur();
+    if (syncing || document.hidden || !t || t.kind !== 'file' || t.remote || t.storage || t.dirty) return;
+    syncing = true;
+    try {
+      const r = await fileApi(t).read(t.path);
+      if (r.error || E.cur() !== t || t.dirty || r.content === t.model.getValue()) return;
+      const view = E.editor && E.editor.saveViewState();
+      t.model.setValue(r.content);
+      if (view && E.cur() === t) E.editor.restoreViewState(view);
+      for (const x of E.tabs) if (x.model === t.model) { x.saved = t.model.getAlternativeVersionId(); x.dirty = false; }
+      renderTabs();
+    } finally { syncing = false; }
+  };
+  setInterval(syncActive, 1500);
+  window.addEventListener('focus', syncActive);
+
   // R code (R files, R chunks) goes to the R console; anything else to the active terminal.
   // With no selection, R sends the whole statement under the cursor, like RStudio.
   E.sendSelection = function (ed) {
