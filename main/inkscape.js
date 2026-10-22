@@ -52,4 +52,16 @@ function openCommand(bin, file, platform = process.platform) {
   return [bin, [file]];
 }
 
-module.exports = { detect, candidates, resolve, bundle, openCommand, OPENABLE, MAC_BINARY };
+// Codeome records what it found for the agents, which cannot ask the app: { path, version, checkedAt }, path '' when
+// Inkscape is missing. It sits in Codeome's own folder (CODEOME_HOME, default ~/.codeome), not in a project.
+const statusFile = (home) => path.join(home || process.env.CODEOME_HOME || path.join(os.homedir(), '.codeome'), 'inkscape.json');
+function writeStatus(d, home) {
+  try {
+    const f = statusFile(home);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, JSON.stringify({ path: d.path || '', version: d.version || '', checkedAt: new Date().toISOString() }, null, 2) + '\n');
+  } catch { /* the agents then fall back to looking for Inkscape themselves */ }
+  return d;
+}
+
+module.exports = { statusFile, writeStatus, detect, candidates, resolve, bundle, openCommand, OPENABLE, MAC_BINARY };

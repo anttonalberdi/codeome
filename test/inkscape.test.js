@@ -44,3 +44,25 @@ test('only figure formats can be opened', () => {
   for (const f of ['a.svg', 'a.PDF', 'a.eps', 'a.emf', 'a.svgz']) assert.ok(inkscape.OPENABLE.test(f), f);
   for (const f of ['a.png', 'a.R', 'a.svg.sh', 'svg']) assert.ok(!inkscape.OPENABLE.test(f), f);
 });
+
+test('the detection result is recorded for the agents, and the kit points them at that file', async () => {
+  const home = tmp();
+  const bin = fake(tmp(), '1.4.4');
+  inkscape.writeStatus(await inkscape.detect({ configured: bin }), home);
+  const f = inkscape.statusFile(home);
+  assert.strictEqual(f, path.join(home, 'inkscape.json'));
+  const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
+  assert.deepStrictEqual([rec.path, rec.version], [bin, '1.4.4']);
+  assert.ok(!isNaN(Date.parse(rec.checkedAt)));
+  inkscape.writeStatus({ path: '' }, home);
+  assert.strictEqual(JSON.parse(fs.readFileSync(f, 'utf8')).path, '');
+  // The skill, the role and the orchestrator all read the same file.
+  const kit = (...p) => fs.readFileSync(path.join(__dirname, '..', 'kit', ...p), 'utf8');
+  for (const t of [kit('skills/figures/SKILL.md'), kit('skills/orchestrate/SKILL.md')]) assert.match(t, /inkscape\.json/);
+  assert.match(kit('roles/figure-designer.md'), /not installed/);
+});
+
+test('CODEOME_HOME moves the status file', () => {
+  const old = process.env.CODEOME_HOME; process.env.CODEOME_HOME = '/x/y';
+  try { assert.strictEqual(inkscape.statusFile(), '/x/y/inkscape.json'); } finally { if (old === undefined) delete process.env.CODEOME_HOME; else process.env.CODEOME_HOME = old; }
+});

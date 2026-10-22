@@ -51,6 +51,7 @@ Work through tasks in dependency order. For each task:
    - Out of scope.
    - Connected projects: when a task reads or changes a folder of a connected project (the chat's instructions list them), name the folder in the brief. Codex jobs can write to those folders as well as to this project; Claude subagents reach them only when the brief names them.
    - The HPC: for work on the cluster, copy in the connection command and the project folder from the chat's instructions ("Reaching the HPC", "Projects on the HPC"), so the specialist uses the open connection and does not start a login of its own.
+   - Figures: before briefing figure work (`figure-designer`, or anyone exporting with Inkscape), read `${CODEOME_HOME:-$HOME/.codeome}/inkscape.json`. If `path` is empty, tell the user Inkscape is not installed and ask whether to install it (Settings → Figures, or `brew install --cask inkscape`) before dispatching; otherwise copy `path` into the brief.
    - Secrets: name the environment variables a task needs, never their values. For HPC work, give the project's secrets file path from the chat's instructions and say to `source` it. If a variable is missing, the user adds it in Settings > Secrets (with the right scopes); never ask for the value in chat.
 4. **Dispatch.**
    - Claude: Agent tool with `subagent_type: "<role>"` and the brief as the prompt.

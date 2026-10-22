@@ -422,13 +422,14 @@ ipcMain.handle('shell:reveal', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
 
 // ---------- Inkscape ----------
-ipcMain.handle('inkscape:detect', () => inkscape.detect({ configured: expandHome((cfg.figures || {}).inkscape || ''), shell: loginShell() }));
+const detectInkscape = async () => inkscape.writeStatus(await inkscape.detect({ configured: expandHome((cfg.figures || {}).inkscape || ''), shell: loginShell() }));
+ipcMain.handle('inkscape:detect', () => detectInkscape());
 // Opens a figure in Inkscape's own window. Only files Inkscape reads, and only ones that exist.
 ipcMain.handle('inkscape:open', async (_e, file) => {
   try {
     if (typeof file !== 'string' || !path.isAbsolute(file) || !inkscape.OPENABLE.test(file)) return { error: 'Inkscape opens SVG, PDF, EPS and EMF files.' };
     if (!fs.existsSync(file)) return { error: 'That file no longer exists.' };
-    const d = await inkscape.detect({ configured: expandHome((cfg.figures || {}).inkscape || ''), shell: loginShell() });
+    const d = await detectInkscape();
     if (!d.path) return { error: 'Inkscape is not installed. Settings → Figures shows how to install it.' };
     const [cmd, args] = inkscape.openCommand(d.path, file);
     const r = await run(cmd, args, { timeout: 20000 });
@@ -1391,7 +1392,8 @@ ipcMain.handle('env:detect', async () => {
   const out = {};
   await Promise.all(tools.map(async (t) => { out[t] = (await run(loginShell(), ['-l', '-c', `command -v ${t}`], { timeout: 8000 })).code === 0; }));
   const installable = Object.keys(out).filter((t) => !out[t] && setup.RECIPES[t]);
-  return { tools: out, installable, recipes: setup.RECIPES, ptyOk: !!pty, ptyError, platform: process.platform, home: os.homedir(), tmp: path.join(os.tmpdir(), 'codeome') };
+  const ink = await detectInkscape().catch(() => null);
+  return { tools: out, inkscape: ink, installable, recipes: setup.RECIPES, ptyOk: !!pty, ptyError, platform: process.platform, home: os.homedir(), tmp: path.join(os.tmpdir(), 'codeome') };
 });
 
 app.whenReady().then(() => {

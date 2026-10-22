@@ -942,6 +942,7 @@
     const status = h('div.su-list', h('span.hint', 'Looking for Inkscape…'));
     const look = async () => {
       const d = await codeome.inkscape.detect();
+      App.env.inkscape = d;
       status.replaceChildren(d.path
         ? stepRow('ok', 'Inkscape' + (d.version ? ' ' + d.version : ''), d.path)
         : stepRow('todo', 'Inkscape', 'Not found in Applications or on your PATH.', btn('Install…', async () => { if (await App.setup.install(['inkscape'], 'Inkscape finishes figures for publication.')) look(); })));
@@ -949,7 +950,7 @@
     look();
     return section('figures', 'Figures', 'Publication-ready figures: R or Python draws the panels as SVG, and Inkscape assembles and exports them to a journal\'s specifications. Ask the agent (the figure-designer role does this), or right-click an SVG or PDF in the file list → Open in Inkscape.',
       card(null, status,
-        row('Inkscape location', text(() => App.cfg.figures.inkscape, (v) => { App.cfg.figures.inkscape = v.trim(); }, { placeholder: 'Automatic', label: 'Path to Inkscape' }),
+        row('Inkscape location', text(() => App.cfg.figures.inkscape, (v) => { App.cfg.figures.inkscape = v.trim(); setTimeout(look, 500); }, { placeholder: 'Automatic', label: 'Path to Inkscape' }),
           'Leave empty to use /Applications/Inkscape.app or the inkscape command. Set a path only for an installation somewhere else.'),
         h('div.sp-foot.row', h('span.grow.hint', 'The agent kit\'s figure-designer and figures skill need the research group installed (Settings → Agents).'),
           btn('Check again', look))));

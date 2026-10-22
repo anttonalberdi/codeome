@@ -6,10 +6,15 @@ user-invocable: false
 
 # Publication figures with Inkscape
 
-Inkscape is an installed desktop app with a headless command line. On macOS the binary is
-`/Applications/Inkscape.app/Contents/MacOS/inkscape`; elsewhere it is `inkscape` on the PATH. Check with `inkscape --version`. If it is missing, say so and ask the user to install it: do not work around it.
+Inkscape is an installed desktop app with a headless command line. **Before anything else**, read what Codeome found:
 
-Below, `INK` stands for that path.
+```bash
+cat "${CODEOME_HOME:-$HOME/.codeome}/inkscape.json"     # {"path": "...", "version": "...", "checkedAt": "..."}
+```
+
+- `path` is the binary to use: it is `INK` below, and it honours the location the user set in Settings → Figures. Use it instead of guessing; on macOS `inkscape` is usually not on the PATH.
+- If `path` is empty, or the file is missing and `inkscape --version` fails, **stop**. Report under Status that Inkscape is not installed and that the user can install it from Settings → Figures (Install…) or `brew install --cask inkscape`. Do not work around it, and do not draw the figure some other way unless the brief says so.
+- Panels drawn by R or Python and the SVG composition (`compose.py`) do not need Inkscape; only the export and the preview do.
 
 ## Workflow
 

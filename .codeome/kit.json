@@ -1,18 +1,18 @@
 {
-  "version": "0.6.8",
+  "version": "0.6.9",
   "groups": [
     "core",
     "research",
     "web",
     "release"
   ],
-  "installedAt": "2026-10-22T10:46:49.772Z",
+  "installedAt": "2026-10-22T11:03:36.959Z",
   "files": {
     ".claude/skills/cross-review/SKILL.md": "fbab9d238b6354be35a6205eb650e6fe84d7a6a40233963c0fc9ccc346ad742b",
     ".claude/skills/delegate/SKILL.md": "967e03bf5f32bc2a990c841442a604bbbb940e40495860053c58a3aac62d67c1",
-    ".claude/skills/figures/SKILL.md": "778c9d126e130c958e62f9d57234731575637e2a9b610850b584f49844d5b8c6",
+    ".claude/skills/figures/SKILL.md": "2bc2c8dd94ff844bd2445c707d0f0007053e6a01a7dc3c33312758d0ffd54723",
     ".claude/skills/figures/compose.py": "20b8dbbe8c231bd5b7d44ec587fae7591e85b854de9d0460ca1c641ec18b61cf",
-    ".claude/skills/orchestrate/SKILL.md": "b58c7a76854a500ac5ce22bfade0277dced6c622cdb96adf0735553c89362ba7",
+    ".claude/skills/orchestrate/SKILL.md": "89796816b07bfd9c45e01374f1cc450d2fff6799bc97a55c3b78014e2a5c5b6e",
     ".claude/skills/release/SKILL.md": "5dec72fd19bee8c4a67b671fd0c685a9ee417ed95b60fde5f85707aa9e431731",
     ".claude/skills/release/bioconda.md": "174e13b1816ea90bb5831074b0416379f54fd9100bcc1ea0fafa5455ff13262f",
     ".claude/skills/release/bioconductor.md": "4fe40ca2ac26b00f5e2df873c01af3a26cb9cb542acad84737b61631ca548842",
@@ -24,7 +24,7 @@
     ".claude/agents/debugger.md": "15ebffc4a17768a99ccc520a6c4a14807617a30774fd9f083047375c381dfb7b",
     ".claude/agents/docs-writer.md": "04e9aa83e19951ef61ee39d1755a2f53b74e9cb8196afd26def3d3494c340508",
     ".claude/agents/explorer.md": "13604b74e35da923b4484ab7035efd66da12d1303a377b2bfacb5072ba27a95a",
-    ".claude/agents/figure-designer.md": "a592a73f36c172bbe64d6e0993d125be9efd88245e4a764ec397b3073c46bdd4",
+    ".claude/agents/figure-designer.md": "16aae1a1949c353b9d781c701f1393045787008cad5f502207184f2bb67f34f4",
     ".claude/agents/frontend.md": "d876ca51124227f4ccfdfc63edef5d37c62e35626c1349f67908122762e4a420",
     ".claude/agents/hpc-operator.md": "3f68d1f25ef3c1fe2ba49b42f0c20677797d5c55976b926bc24a8fef0ec37fe0",
     ".claude/agents/implementer.md": "a5abc005ac5caff3c442fc9d95842825e74d9b8b8c9535ac45cef60e4c5d6044",

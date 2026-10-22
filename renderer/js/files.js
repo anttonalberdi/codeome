@@ -324,6 +324,13 @@
     });
   }
 
+  // Open a figure in Inkscape, or offer to install it when Codeome found it missing (env.inkscape is null until the first check).
+  function inkscapeItem(full) {
+    const ink = App.env.inkscape;
+    if (ink && !ink.path) return { label: 'Install Inkscape to open figures…', run: () => App.setup.install(['inkscape'], 'Inkscape finishes figures for publication.') };
+    return { label: 'Open in Inkscape', run: async () => { const r = await codeome.inkscape.open(full); if (r.error) App.err(r.error); } };
+  }
+
   function itemMenu(side, e, full) {
     const remote = side === 'remote', local = side === 'local';
     const ed = App.views.editor;
@@ -333,7 +340,7 @@
       e.dir ? { label: 'New file here…', run: () => newItem(side, false, full) } : null,
       e.dir ? { label: 'New folder here…', run: () => newItem(side, true, full) } : null,
       !e.dir && ed.isPreviewable(full) ? { label: 'Preview', run: () => ed.preview(full, where(side)) } : null,
-      local && !e.dir && /\.(svg|svgz|pdf|eps|ai|emf|wmf)$/i.test(e.name) ? { label: 'Open in Inkscape', run: async () => { const r = await codeome.inkscape.open(full); if (r.error) App.err(r.error); } } : null,
+      local && !e.dir && /\.(svg|svgz|pdf|eps|ai|emf|wmf)$/i.test(e.name) ? inkscapeItem(full) : null,
       remote && isScript ? { label: 'Submit to Slurm', run: () => App.views.slurm.submit(full) } : null,
       '-',
       ...copyItems(side, full),
