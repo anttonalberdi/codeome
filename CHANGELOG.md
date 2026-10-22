@@ -9,6 +9,15 @@ What changed in each version of Codeome, newest first. The version is the one in
 - **Figure designer** (agent kit): a new role in the research group, with a `figures` skill, that turns R or Python figures into publication-ready ones with Inkscape's command line. It assembles SVG panels into a multi-panel figure that stays vector (`compose.py`; linked panels would be rasterised by Inkscape's PDF export), exports PDF, PNG or SVG to a journal's size, and checks the result against a pre-submission list. It never changes the data a figure shows: such requests go back to the analyst. Needs Inkscape installed.
 - **Saved project groups**: a menu in the project column saves the open projects as a named project group, and lets you load, rename or delete saved groups. Loading a group opens its projects alongside those already open and skips folders that no longer exist.
 - **Open connected projects**: when you open a project manually and it has connected projects that are not open, a window lists them all, ticked, so you can untick any before they are opened.
+- **Pause and Resume for Codex jobs**: a running Codex job card has *Pause job* (in its menu and in its log view's toolbar), which waits for the reply in progress to finish and then stops the job cleanly. A paused job has *Resume job*, which continues the same Codex conversation (agent kit 0.6.7).
+- **Auto-refreshing file tabs**: a file open in the editor is re-read about every second and a half and when the window regains focus, so changes made by an agent or a terminal appear without reopening it. A tab with unsaved edits is left alone.
+- **Connect to projects from the project tag menu**: the project tag's menu has *Connect to projects…*, and its picker now anchors correctly when the project card is hidden because the list is collapsed.
+
+### Changed
+- **Narrow windows**: when the window becomes too narrow for the editor and terminal pane, it folds away so the sidebar fills the window, and it unfolds again at its previous width when the window is widened.
+
+### Fixed
+- **Secret toggles reverting**: in Settings → Secrets, only the first change to a secret's scopes, note or project list stuck; later ones were lost because the row kept an outdated copy of the secret. Each change now applies to the current one.
 
 ## 1.2.2
 
