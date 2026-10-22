@@ -47,7 +47,7 @@ function send(channel, payload) { if (win && !win.isDestroyed()) win.webContents
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1500, height: 940, minWidth: 980, minHeight: 600,
+    width: 1500, height: 940, minWidth: 720, minHeight: 600,
     title: 'Codeome',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 14, y: 14 },

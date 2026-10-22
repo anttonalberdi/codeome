@@ -169,13 +169,29 @@
       App.views.editor.layout();
     };
     const state = () => app.classList.contains('main-collapsed') ? 'main' : app.classList.contains('side-collapsed') ? 'side' : 'both';
+    // Shrinking the window until the editor/terminal pane would be cropped folds it away on its own
+    // (so the sidebar fills the window); widening the window again unfolds it at the width it had.
+    let autoW = null;
+    const fit = () => {
+      const left = document.getElementById('sidebar').getBoundingClientRect().left;
+      const st = state();
+      if (st === 'both') {
+        const w = document.getElementById('sidebar').getBoundingClientRect().width;
+        if (innerWidth - left - 4 - w < MAIN_MIN) { autoW = w; show('main'); }
+      } else if (st === 'main' && autoW !== null) {
+        const room = innerWidth - document.getElementById('rail').getBoundingClientRect().right - 4;
+        if (room - autoW >= MAIN_MIN) { setW(autoW); autoW = null; show('both'); }
+      }
+    };
+    addEventListener('resize', fit);
     // Opening a file, preview or terminal unfolds the editor/terminal pane if it was folded away.
-    App.expandMain = () => { if (state() === 'main') { setW(420); show('both'); } };
-    mainBand.addEventListener('click', () => { setW(420); show('both'); });
+    App.expandMain = () => { autoW = null; if (state() === 'main') { setW(420); show('both'); } };
+    mainBand.addEventListener('click', () => { autoW = null; setW(420); show('both'); });
     sideBand.addEventListener('click', () => { setW(300); show('both'); });
     // Picking a view in the rail while the sidebar is folded away opens it again.
     document.getElementById('rail').addEventListener('click', () => { if (state() === 'side') { setW(300); show('both'); } }, true);
     rz.addEventListener('mousedown', (e) => {
+      autoW = null;
       const start = e.clientX, s0 = state();
       const w = s0 === 'main' ? maxW() : s0 === 'side' ? MIN : document.getElementById('sidebar').getBoundingClientRect().width;
       const move = (ev) => {
