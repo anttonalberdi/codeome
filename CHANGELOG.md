@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.2.3
 
 ### Added
 - **Inkscape in Settings → Figures and the file list**: Settings has a *Figures* section that finds Inkscape (in Applications or on the PATH), shows its version and path, offers to install it with Homebrew when it is missing, and lets you set a path for an unusual installation. Right-clicking an SVG, PDF, EPS or EMF in the file list offers *Open in Inkscape*, or *Install Inkscape…* when it is missing. Codeome checks at startup and records the result in `~/.codeome/inkscape.json`, so the agents use the location you set, and the figure-designer and orchestrator stop and offer to install Inkscape instead of failing midway (agent kit 0.6.9).
