@@ -1098,16 +1098,18 @@
       await App.saveConfig(); flash(); redraw();
     }
 
+    // Saving swaps App.cfg for the copy the main process returns, so a row's handlers look their secret up again by name.
+    const live = (s) => list().find((x) => x.name === s.name) || s;
     const rows = list().map((s, i) => h('div.sec-row', { role: 'listitem' },
       h('div.ag-name',
         h('div.row', h('b.sec-name', s.name), has[i] ? null : h('span.pill.warn', { title: 'Its value is missing from the Keychain. Use Replace… to enter it again.' }, 'no value')),
         h('input.sec-note', { type: 'text', value: s.note || '', placeholder: 'Add a note: what it is for, when it expires', 'aria-label': `Note for ${s.name}`,
-          onchange: (e) => { s.note = e.target.value.trim().slice(0, 200); commit(); } })),
+          onchange: (e) => { live(s).note = e.target.value.trim().slice(0, 200); commit(); } })),
       h('div.sec-use',
-        check('Terminals', () => s.terminals, (v) => { s.terminals = v; }),
-        check('Agents', () => s.agents, (v) => { s.agents = v; }),
-        check('HPC', () => s.hpc, (v) => { s.hpc = v; if (hpc?.connected) hpcStatus.textContent = `HPC selection changed. Sync to update ${hpc.path}.`; }, undefined, 'The value is stored in plaintext (mode 0600) in the HPC home when synced.'),
-        h('button.btn.small.sec-scope', { title: Array.isArray(s.projects) ? s.projects.map((d) => App.tildify(d)).join('\n') || 'Set in no project' : 'Set in every project', 'aria-label': `Projects for ${s.name}: ${scopeLabel(s)}`, onclick: () => pickProjects(s) }, scopeLabel(s))),
+        check('Terminals', () => live(s).terminals, (v) => { live(s).terminals = v; }),
+        check('Agents', () => live(s).agents, (v) => { live(s).agents = v; }),
+        check('HPC', () => live(s).hpc, (v) => { live(s).hpc = v; if (hpc?.connected) hpcStatus.textContent = `HPC selection changed. Sync to update ${hpc.path}.`; }, undefined, 'The value is stored in plaintext (mode 0600) in the HPC home when synced.'),
+        h('button.btn.small.sec-scope', { title: Array.isArray(s.projects) ? s.projects.map((d) => App.tildify(d)).join('\n') || 'Set in no project' : 'Set in every project', 'aria-label': `Projects for ${s.name}: ${scopeLabel(s)}`, onclick: () => pickProjects(live(s)) }, scopeLabel(s))),
       h('div.sec-acts',
         h('button.btn.small', { disabled: !has[i], onclick: async () => {
           const r = await codeome.secrets.copy(s.name);
@@ -1124,7 +1126,7 @@
         h('button.icon-btn.small', { title: 'Remove', 'aria-label': 'Remove ' + s.name, html: App.icons.trash, onclick: async () => {
           if (!await App.confirm(`Remove ${s.name}?`, 'Its value is deleted from this Mac. Terminals and chats already running keep it until they close.', 'Remove', true)) return;
           await codeome.secrets.remove(s.name);
-          App.cfg.secrets = list().filter((x) => x !== s);
+          App.cfg.secrets = list().filter((x) => x.name !== s.name);
           await App.saveConfig(); flash('Secret removed'); redraw();
         } }))));
 
