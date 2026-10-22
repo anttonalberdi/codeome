@@ -11,6 +11,7 @@ const sftp = require('./sftp');
 const slurm = require('./slurm');
 const zenodo = require('./zenodo');
 const kit = require('./kit');
+const inkscape = require('./inkscape');
 const jobs = require('./jobs');
 const { parseWorktrees } = require('./worktrees');
 const usage = require('./usage');
@@ -419,6 +420,21 @@ ipcMain.handle('project:create', async (_e, { type, name, opts = {} } = {}) => {
 ipcMain.handle('shell:open', (_e, url) => shell.openExternal(url));
 ipcMain.handle('shell:reveal', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
+
+// ---------- Inkscape ----------
+ipcMain.handle('inkscape:detect', () => inkscape.detect({ configured: expandHome((cfg.figures || {}).inkscape || ''), shell: loginShell() }));
+// Opens a figure in Inkscape's own window. Only files Inkscape reads, and only ones that exist.
+ipcMain.handle('inkscape:open', async (_e, file) => {
+  try {
+    if (typeof file !== 'string' || !path.isAbsolute(file) || !inkscape.OPENABLE.test(file)) return { error: 'Inkscape opens SVG, PDF, EPS and EMF files.' };
+    if (!fs.existsSync(file)) return { error: 'That file no longer exists.' };
+    const d = await inkscape.detect({ configured: expandHome((cfg.figures || {}).inkscape || ''), shell: loginShell() });
+    if (!d.path) return { error: 'Inkscape is not installed. Settings → Figures shows how to install it.' };
+    const [cmd, args] = inkscape.openCommand(d.path, file);
+    const r = await run(cmd, args, { timeout: 20000 });
+    return r.code === 0 ? { ok: true } : { error: (r.stderr || 'Inkscape did not start.').trim().split('\n')[0] };
+  } catch (e) { return { error: e.message }; }
+});
 
 // ---------- Google Docs ----------
 // Google Drive sometimes fails the first read of a pointer file it has not fetched yet, so a failure is tried again.

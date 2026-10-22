@@ -5,6 +5,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 ## Unreleased
 
 ### Added
+- **Inkscape in Settings → Figures and the file list**: Settings has a *Figures* section that finds Inkscape (in Applications or on the PATH), shows its version and path, offers to install it with Homebrew when it is missing, and lets you set a path for an unusual installation. Right-clicking an SVG, PDF, EPS or EMF in the file list now offers *Open in Inkscape*.
 - **Figure designer** (agent kit): a new role in the research group, with a `figures` skill, that turns R or Python figures into publication-ready ones with Inkscape's command line. It assembles SVG panels into a multi-panel figure that stays vector (`compose.py`; linked panels would be rasterised by Inkscape's PDF export), exports PDF, PNG or SVG to a journal's size, and checks the result against a pre-submission list. It never changes the data a figure shows: such requests go back to the analyst. Needs Inkscape installed.
 - **Saved project groups**: a menu in the project column saves the open projects as a named project group, and lets you load, rename or delete saved groups. Loading a group opens its projects alongside those already open and skips folders that no longer exist.
 - **Open connected projects**: when you open a project manually and it has connected projects that are not open, a window lists them all, ticked, so you can untick any before they are opened.

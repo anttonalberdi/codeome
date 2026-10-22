@@ -143,6 +143,7 @@ const RECIPES = {
   python3: { formula: 'python', label: 'Python', why: 'Python on this Mac' },
   quarto: { cask: 'quarto', label: 'Quarto', why: 'Rendering reports' },
   R: { cask: 'r', label: 'R', why: 'The R console' },
+  inkscape: { cask: 'inkscape', label: 'Inkscape', why: 'Publication-ready figures' },
   Rscript: { cask: 'r', label: 'R', why: 'Rendering R Markdown' },
   claude: { command: INSTALL_CLI.claude, label: 'Claude Code', why: 'Claude chats, subagents and sign-in' },
   codex: { command: INSTALL_CLI.codex, label: 'Codex', why: 'Codex chats, jobs and sign-in' },

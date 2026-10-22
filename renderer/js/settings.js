@@ -35,7 +35,7 @@
   const ENGINE_NAME = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
   const MODEL_RE = /^(?!-)[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
-    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['policy', 'Agent policy'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'],
+    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['policy', 'Agent policy'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'], ['figures', 'Figures'],
     ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
   const ALIAS = { github: 'git', zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
@@ -180,7 +180,7 @@
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
     hpc: hpcSection, storage: storageSection, transfer: transferSection, agents: agentsSection, policy: policySection, accounts: accountsSection, r: rSection,
-    projects: projectsSection, python: pythonSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
+    projects: projectsSection, python: pythonSection, figures: figuresSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
   };
   let showSeq = 0;
   async function show(id) {
@@ -934,6 +934,25 @@
           const d = await codeome.dialog.folder({ defaultPath: App.cfg.projectsDir || App.cfg.localRoot });
           if (d) { App.cfg.projectsDir = d; input.value = d; commit(); }
         })), 'A project cloned from a git URL gets a new folder here. Empty uses ~/Codeome.')));
+  }
+
+  // Inkscape finishes R and Python figures for publication: the figure-designer agent drives its
+  // command line, and "Open in Inkscape" in the file list opens a figure in its own window.
+  function figuresSection() {
+    const status = h('div.su-list', h('span.hint', 'Looking for Inkscape…'));
+    const look = async () => {
+      const d = await codeome.inkscape.detect();
+      status.replaceChildren(d.path
+        ? stepRow('ok', 'Inkscape' + (d.version ? ' ' + d.version : ''), d.path)
+        : stepRow('todo', 'Inkscape', 'Not found in Applications or on your PATH.', btn('Install…', async () => { if (await App.setup.install(['inkscape'], 'Inkscape finishes figures for publication.')) look(); })));
+    };
+    look();
+    return section('figures', 'Figures', 'Publication-ready figures: R or Python draws the panels as SVG, and Inkscape assembles and exports them to a journal\'s specifications. Ask the agent (the figure-designer role does this), or right-click an SVG or PDF in the file list → Open in Inkscape.',
+      card(null, status,
+        row('Inkscape location', text(() => App.cfg.figures.inkscape, (v) => { App.cfg.figures.inkscape = v.trim(); }, { placeholder: 'Automatic', label: 'Path to Inkscape' }),
+          'Leave empty to use /Applications/Inkscape.app or the inkscape command. Set a path only for an installation somewhere else.'),
+        h('div.sp-foot.row', h('span.grow.hint', 'The agent kit\'s figure-designer and figures skill need the research group installed (Settings → Agents).'),
+          btn('Check again', look))));
   }
 
   function pythonSection(c) {

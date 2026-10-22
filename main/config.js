@@ -30,6 +30,8 @@ const DEFAULTS = {
   // The Plots view: capture plots from R consoles, and the canvas they are drawn and exported at.
   // fit: draw at the size of the panel; otherwise w × h in `unit` (in, cm, mm, px) at dpi.
   plots: { capture: true, show: true, fit: true, w: 7, h: 5, unit: 'in', dpi: 300, bg: 'white', format: 'pdf' },
+  // Inkscape turns figures into publication-ready ones. '' finds it in Applications or on the PATH; set a path to override.
+  figures: { inkscape: '' },
   agents: [
     { name: 'Claude Code', cmd: 'claude' },
     { name: 'Codex', cmd: 'codex' }

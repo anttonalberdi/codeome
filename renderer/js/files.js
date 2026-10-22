@@ -333,6 +333,7 @@
       e.dir ? { label: 'New file here…', run: () => newItem(side, false, full) } : null,
       e.dir ? { label: 'New folder here…', run: () => newItem(side, true, full) } : null,
       !e.dir && ed.isPreviewable(full) ? { label: 'Preview', run: () => ed.preview(full, where(side)) } : null,
+      local && !e.dir && /\.(svg|svgz|pdf|eps|ai|emf|wmf)$/i.test(e.name) ? { label: 'Open in Inkscape', run: async () => { const r = await codeome.inkscape.open(full); if (r.error) App.err(r.error); } } : null,
       remote && isScript ? { label: 'Submit to Slurm', run: () => App.views.slurm.submit(full) } : null,
       '-',
       ...copyItems(side, full),

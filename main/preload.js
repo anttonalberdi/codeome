@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('codeome', {
   scratch: { dir: invoke('scratch:dir'), promote: invoke('scratch:promote') },
   dialog: { folder: invoke('dialog:folder'), files: invoke('dialog:files'), save: invoke('dialog:save'), confirm: invoke('dialog:confirm') },
   shell: { open: invoke('shell:open'), reveal: invoke('shell:reveal'), openPath: invoke('shell:openPath') },
+  inkscape: { detect: invoke('inkscape:detect'), open: invoke('inkscape:open') },
   pty: {
     spawn: invoke('pty:spawn'),
     write: (id, data) => ipcRenderer.send('pty:write', { id, data }),
