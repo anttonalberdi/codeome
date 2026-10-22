@@ -288,18 +288,18 @@
     const s = F[side]; const p = F.panes[side];
     if (side === 'local' && s.searching && p.searchBox?.value.trim()) return;
     p.list.innerHTML = '';
-    if (s.dir && s.dir !== '/') p.list.append(h('div.fitem.updir', { role: 'option', title: 'Parent folder', ondblclick: () => F.go(side, App.dirname(s.dir)) }, h('span', { html: App.icons.folder }), h('span.nm', '..'), h('span.sz')));
+    if (s.dir && s.dir !== '/') p.list.append(h('div.fitem.updir', { role: 'option', title: 'Parent folder', ondblclick: () => F.go(side, App.dirname(s.dir)) }, h('span', { html: App.icons.folder }), h('span.nm', '..'), h('span.sz'), h('span.dt'), h('span.dt')));
     if (!s.entries.length) { p.list.append(h('div.empty', 'This folder is empty.')); return; }
     for (const e of s.entries) {
       const full = App.join(s.dir, e.name);
       const row = h('div.fitem' + (e.dir ? '.dir' : '') + (s.sel === e.name ? '.sel' : ''), {
         draggable: 'true', role: 'option', 'aria-selected': s.sel === e.name ? 'true' : 'false', 'data-name': e.name,
-        title: `${e.name}\n${e.dir ? 'Folder' : App.fmtSize(e.size)} · modified ${App.fmtAgo(e.mtime)}`,
+        title: `${e.name}\n${e.dir ? 'Folder' : App.fmtSize(e.size)} · modified ${App.fmtAgo(e.mtime)}${e.birthtime ? ' · added ' + App.fmtDate(e.birthtime) : ''}`,
         onclick: () => { s.sel = e.name; render(side); },
         ondblclick: () => openEntry(side, e),
         oncontextmenu: (ev) => { ev.preventDefault(); s.sel = e.name; render(side); App.menu(ev.clientX, ev.clientY, itemMenu(side, e, full)); },
         ondragstart: (ev) => { ev.dataTransfer.setData('codeome/' + side, JSON.stringify({ path: full, dir: e.dir })); ev.dataTransfer.effectAllowed = 'copy'; }
-      }, h('span', { html: e.dir ? App.icons.folder : App.icons.file }), h('span.nm', e.name), h('span.sz', e.dir ? '' : App.fmtSize(e.size)));
+      }, h('span', { html: e.dir ? App.icons.folder : App.icons.file }), h('span.nm', e.name), h('span.sz', e.dir ? '' : App.fmtSize(e.size)), h('span.dt', App.fmtDate(e.birthtime)), h('span.dt', App.fmtDate(e.mtime)));
       p.list.append(row);
     }
   }

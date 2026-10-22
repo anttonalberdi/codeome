@@ -461,7 +461,7 @@ ipcMain.handle('local:list', async (_e, dir) => {
     for (const name of names) {
       try {
         const st = await fs.promises.stat(path.join(dir, name));
-        entries.push({ name, dir: st.isDirectory(), size: st.size, mtime: st.mtimeMs });
+        entries.push({ name, dir: st.isDirectory(), size: st.size, mtime: st.mtimeMs, birthtime: st.birthtimeMs });
       } catch { entries.push({ name, dir: false, size: 0, mtime: 0, broken: true }); }
     }
     entries.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));

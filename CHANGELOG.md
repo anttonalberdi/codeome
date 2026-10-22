@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Dates in the file list**: each file and folder in the project's file list shows the date it was added and the date it was last modified next to its size, and the tooltip gives the added date too.
+
 ## 1.2.3
 
 ### Added

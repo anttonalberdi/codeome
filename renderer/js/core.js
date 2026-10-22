@@ -92,6 +92,12 @@ App.fmtAgo = (ms) => {
   if (s < 86400 * 30) return Math.floor(s / 86400) + ' d ago';
   return new Date(ms).toLocaleDateString();
 };
+// 22 Oct 2026
+App.fmtDate = (ms) => {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+};
 // 950, 8.4k, 84k, 1.25M
 App.fmtTokens = (n) => {
   if (n == null || isNaN(n)) return '–';
