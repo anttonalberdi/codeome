@@ -126,6 +126,13 @@ svg { width: 18px; height: 18px; display: block; }
 .proj-foot { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; border-top: 1px solid var(--line); }
 .proj-add { flex: 1 1 calc(50% - 20px); overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 28px; border: 1px dashed var(--line-strong); background: transparent; border-radius: 7px; color: var(--muted); cursor: pointer; font-size: 12px; white-space: nowrap; }
 .proj-add:hover { color: var(--text); border-color: var(--accent); }
+.saved-groups { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 270px; }
+.sg-list { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; }
+.sg-row { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.sg-row button { border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; padding: 5px; }
+.sg-row button:hover { background: var(--surface-2); color: var(--text); }
+.sg-row .sg-load { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; color: var(--text); }
+.sg-row .sg-action { font-size: 11px; }
 .proj-add svg, .proj-fold svg { width: 14px; height: 14px; }
 .proj-fold { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border: 0; background: transparent; color: var(--muted); border-radius: 7px; cursor: pointer; }
 .proj-fold:hover { background: var(--line); color: var(--text); }

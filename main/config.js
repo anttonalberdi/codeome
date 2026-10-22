@@ -66,6 +66,7 @@ const DEFAULTS = {
   projectColors: {},      // project → hue (0–359) of its card and title-bar tag; picked when first opened
   projectGroups: [],      // groups of cards, in order: { id, name, collapsed }
   projectGroup: {},       // project → id of its group; kept when the project is closed
+  savedGroups: {},        // name → project paths to open together
   scratchpads: {},        // project → the text of its scratchpad, shown when no file is open
   projectLinks: {},       // project → [projects connected to it]; both ways, kept when a project is closed
   projectHpc: {},         // project → { paths: [HPC folders] }; first folder is the root

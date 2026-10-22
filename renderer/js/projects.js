@@ -19,6 +19,7 @@
     App.cfg.projectColors = App.cfg.projectColors || {};
     App.cfg.projectGroups = (App.cfg.projectGroups || []).filter((g) => g && g.id);
     App.cfg.projectGroup = App.cfg.projectGroup || {};
+    App.cfg.savedGroups = App.cfg.savedGroups || {};
     App.cfg.projectLinks = App.cfg.projectLinks || {};
     const ideas = App.scratchDir;
     App.cfg.recentFolders = (App.cfg.recentFolders || []).filter((d) => d !== ideas);
@@ -52,14 +53,27 @@
   };
 
   // group: the group the project goes into; without one it returns to the group it was last in.
-  P.open = async (dir, group) => {
+  P.open = async (dir, group, { activate = true, promptLinks = true } = {}) => {
     dir = dir || await chooseProject();
     if (!dir) return;
-    if (!P.list.includes(dir)) P.list.push(dir);
+    const added = !P.list.includes(dir);
+    if (added) P.list.push(dir);
     if (group && !App.isIdeas(dir)) { setGroup(dir, group); group.collapsed = false; }
     P.list = shown();
     if (!App.isIdeas(dir)) colorOf(dir);
-    await P.switchTo(dir);
+    if (activate) await P.switchTo(dir);
+    else { App.cfg.openProjects = P.list.slice(); await App.saveConfig(); render(); }
+    if (!added || !activate || !promptLinks || App.isIdeas(dir)) return;
+    const closed = linksOf(dir).filter((d) => !P.list.includes(d));
+    const available = [];
+    for (const linked of closed) if (!(await codeome.local.list(linked)).error) available.push(linked);
+    if (!available.length) return;
+    const picked = await App.modal({ title: 'Open connected projects?', ok: 'Open selected',
+      text: `Connected to ${App.basename(dir)}:`,
+      fields: available.map((linked, i) => ({ key: 'p' + i, type: 'check', label: App.tildify(linked), value: true })) });
+    if (picked) for (const [i, linked] of available.entries()) {
+      if (picked['p' + i]) await P.open(linked, null, { activate: false, promptLinks: false });
+    }
   };
 
   P.openIdeas = async () => {
@@ -143,7 +157,7 @@
       if (result?.error) App.err(result.error);
       else if (!result?.moved) App.err('Could not move the selected Ideas.');
       if (movedChats.length || movedForums.length) {
-        await P.open(target);
+        await P.open(target, null, { promptLinks: false });
         await App.views.forum.reload();
       } else await App.views.forum.reload();
       if (result?.moved) App.toast(`Moved ${result.moved.chats} chats and ${result.moved.forums} forums to ${App.basename(target)}`);
@@ -250,6 +264,104 @@
     if (g) g.collapsed = false;
     P.switchTo(next);
   };
+
+  // Saved groups reopen a set of projects; column groups only arrange their cards.
+  P.saveGroup = async (name, dirs = P.list) => {
+    name = (name || '').trim();
+    const projects = [...new Set(dirs.filter((d) => P.list.includes(d) && !App.isIdeas(d)))];
+    if (!name || !projects.length) return false;
+    const saved = App.cfg.savedGroups = App.cfg.savedGroups || {};
+    if (Object.hasOwn(saved, name) && !(await App.confirm('Replace project group?', `Replace ${name} with the projects open now?`, 'Replace'))) return false;
+    App.cfg.savedGroups = { ...saved, [name]: projects };
+    await App.saveConfig();
+    return true;
+  };
+
+  P.loadGroup = async (name) => {
+    const dirs = (App.cfg.savedGroups || {})[name];
+    if (!Array.isArray(dirs)) return [];
+    const available = [], skipped = [];
+    for (const dir of dirs) {
+      if (!dir || App.isIdeas(dir) || (await codeome.local.list(dir)).error) skipped.push(dir);
+      else available.push(dir);
+    }
+    for (const dir of available) if (!P.list.includes(dir)) await P.open(dir, null, { activate: false, promptLinks: false });
+    if (available.length) await P.switchTo(available[0]);
+    if (skipped.length) App.toast(`Skipped missing project${skipped.length === 1 ? '' : 's'}: ${skipped.map((d) => App.tildify(d)).join(', ')}`);
+    return available;
+  };
+
+  P.renameGroup = async (oldName, newName) => {
+    newName = (newName || '').trim();
+    const saved = App.cfg.savedGroups || {};
+    if (!newName || !Object.hasOwn(saved, oldName) || (Object.hasOwn(saved, newName) && oldName !== newName)) return false;
+    if (oldName === newName) return true;
+    const renamed = { ...saved, [newName]: saved[oldName] };
+    delete renamed[oldName];
+    App.cfg.savedGroups = renamed;
+    await App.saveConfig();
+    return true;
+  };
+
+  P.deleteGroup = async (name) => {
+    const saved = App.cfg.savedGroups || {};
+    if (!Object.hasOwn(saved, name)) return false;
+    delete saved[name];
+    await App.saveConfig();
+    return true;
+  };
+
+  function askSavedGroupName(title, current = '') {
+    const ov = document.getElementById('overlay');
+    return new Promise((resolve) => {
+      const error = h('div.agent-field-error', { role: 'alert' });
+      const input = h('input', { type: 'text', value: current, autocomplete: 'off', oninput: () => { error.textContent = ''; } });
+      const close = (name) => { ov.hidden = true; ov.replaceChildren(); ov.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(name); };
+      const submit = () => {
+        const name = input.value.trim();
+        if (!name) { error.textContent = 'Enter a group name.'; input.focus(); return; }
+        if (current && name !== current && Object.hasOwn(App.cfg.savedGroups || {}, name)) {
+          error.textContent = 'A group with this name already exists.'; input.focus(); return;
+        }
+        close(name);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); close(null); }
+        else if (e.key === 'Enter' && e.target === input) { e.preventDefault(); submit(); }
+      };
+      ov.replaceChildren(h('div.modal', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+        h('header', h('h2', title)),
+        h('div.body', h('label.field', h('span', 'Group name'), input, error)),
+        h('footer', h('button.btn', { onclick: () => close(null) }, 'Cancel'),
+          h('button.btn.primary', { onclick: submit }, current ? 'Rename' : 'Save'))));
+      ov.hidden = false;
+      ov.onclick = (e) => { if (e.target === ov) close(null); };
+      document.addEventListener('keydown', onKey, true);
+      setTimeout(() => input.focus(), 0);
+    });
+  }
+
+  function savedGroupsPopover(anchor) {
+    const saved = App.cfg.savedGroups || {};
+    const names = Object.keys(saved);
+    const run = (fn) => async () => { App.closePopover(); await fn(); };
+    App.popover(anchor, h('div.saved-groups',
+      h('div.cp-head', 'Project groups'),
+      h('button.btn', { disabled: !P.list.some((d) => !App.isIdeas(d)), onclick: run(async () => {
+        const name = await askSavedGroupName('Save open projects as group');
+        if (name) await P.saveGroup(name);
+      }) }, 'Save open projects as group…'),
+      names.length ? h('div.sg-list', names.map((name) => h('div.sg-row',
+        h('button.sg-load', { title: `Open ${name}`, onclick: run(() => P.loadGroup(name)) }, name),
+        h('button.sg-action', { 'aria-label': `Rename ${name}`, title: `Rename ${name}`, onclick: run(async () => {
+          const next = await askSavedGroupName('Rename project group', name);
+          if (next) await P.renameGroup(name, next);
+        }) }, 'Rename'),
+        h('button.sg-action', { 'aria-label': `Delete ${name}`, title: `Delete ${name}`, onclick: run(async () => {
+          if (await App.confirm('Delete project group?', `Delete ${name}? The projects stay open.`, 'Delete', true)) await P.deleteGroup(name);
+        }) }, 'Delete')))) : h('div.hint', 'No saved groups yet.')),
+      'Project groups');
+  }
 
   // ---------- groups ----------
   // cfg.projectGroups = [{ id, name, collapsed }] in the order shown; cfg.projectGroup maps
@@ -566,6 +678,7 @@
     el.append(list, h('div.proj-foot',
       h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Project')),
       h('button.proj-add', { title: 'New group of projects', 'aria-label': 'New group of projects', onclick: () => P.addGroup(true) }, h('span', { html: collapsed ? GROUP_ICON : App.icons.plus }), collapsed ? null : h('span', 'Group')),
+      h('button.proj-add', { title: 'Project groups', 'aria-label': 'Project groups', onclick: (e) => savedGroupsPopover(e.currentTarget) }, h('span', { html: GROUP_ICON }), collapsed ? null : h('span', 'Saved')),
       h('button.proj-fold', { title: collapsed ? 'Show project names' : 'Hide project names', 'aria-label': collapsed ? 'Expand project column' : 'Collapse project column', onclick: toggleCollapsed },
         h('span', { html: `<svg viewBox="0 0 16 16"><path d="${collapsed ? 'm6 4 4 4-4 4' : 'm10 4-4 4 4 4'}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` }))));
     list.scrollTop = keepTop;
