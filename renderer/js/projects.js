@@ -533,6 +533,8 @@
       h('div.lp-help', 'The agent chat of each project can read and edit the other\'s files. Chats that are running pick this up when they restart.'));
   };
   function pickLinks(dir, anchor) {
+    // A card that has been rebuilt (or is hidden when the list is collapsed) cannot anchor a popover.
+    if (!anchor || !anchor.isConnected || !anchor.getClientRects().length) anchor = document.getElementById('project-btn');
     const body = P.linkPicker(dir);
     const p = App.popover(anchor, body, 'Connected projects');
     p.pop.classList.add('color-pop');
@@ -647,6 +649,7 @@
       { label: 'Project color…', run: () => pickColor(dir, tag) },
       { label: 'Reveal in Finder', run: () => codeome.shell.reveal(dir) },
       { label: 'Copy path', run: () => navigator.clipboard.writeText(dir) },
+      { label: 'Connect to projects…', run: () => pickLinks(dir, tag) },
       App.views.packages.r.detected && !App.views.packages.r.project ? { label: 'Set up as R project…', run: () => App.views.packages.setupRProject() } : null,
       '-',
       { label: 'Open another project…', key: '⌘O', run: () => P.open() },
