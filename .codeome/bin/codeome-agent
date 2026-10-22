@@ -11,6 +11,7 @@ events.jsonl and result.md; Codeome's Agent chat and Jobs list read those folder
   codeome-agent list [--json] [--limit N]
   codeome-agent show ID [--brief | --log]
   codeome-agent cancel ID
+  codeome-agent pause ID
   codeome-agent hook            (Claude Code hook: PreToolUse/SubagentStart/SubagentStop JSON on stdin)
 """
 import argparse
@@ -18,7 +19,9 @@ import json
 import os
 import re
 import secrets
+import select
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -60,7 +63,7 @@ def job_dir(job_id):
 
 def write_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + '.tmp'
+    tmp = path + '.tmp.' + secrets.token_hex(4)
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
@@ -112,8 +115,8 @@ def all_jobs():
     jobs = [j for j in (load_job(n) for n in names) if j]
     for j in jobs:
         # A Codex job whose wrapper died without recording an outcome.
-        if j.get('status') == 'running' and j.get('engine') == 'codex' and not pid_alive(j.get('pid')):
-            j['status'] = 'lost'
+        if j.get('status') in ('running', 'pausing') and j.get('engine') == 'codex' and not pid_alive(j.get('pid')):
+            j['status'] = 'paused' if j.get('status') == 'pausing' and j.get('session') else 'lost'
     jobs.sort(key=lambda j: j.get('startedAt') or '', reverse=True)
     return jobs
 
@@ -297,7 +300,7 @@ def choose_codex_account(a, prev):
     """The Codex account for this job; exits with EX_LIMIT when the job must be held back."""
     u = load_usage()
     if not u:
-        return None
+        return {'name': prev.get('account'), 'dir': prev.get('accountDir') or ''} if prev else None
     now, stop_at = time.time(), u.get('stopAt', 90)
     codex = u.get('codex') or {}
     accounts = codex.get('accounts') or []
@@ -453,6 +456,8 @@ def cmd_codex(a):
         sys.exit('codeome-agent: could not start %s: %s' % (codex, e))
 
     cancelled = {'v': False}
+    paused = {'v': False}
+    state_lock = threading.Lock()
 
     def stop(signum, _frame):
         cancelled['v'] = True
@@ -463,8 +468,68 @@ def cmd_codex(a):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
+    control_path = os.path.join(job_dir(job_id), 'pause.fifo')
+    control_read = control_write = None
+    try:
+        os.mkfifo(control_path, 0o600)
+        control_read = os.open(control_path, os.O_RDONLY | os.O_NONBLOCK)
+        control_write = os.open(control_path, os.O_WRONLY | os.O_NONBLOCK)
+        job['pauseFifo'] = control_path
+    except OSError:
+        if control_read is not None:
+            os.close(control_read)
+        control_read = None
+    control_done = threading.Event()
+
+    def serve_pause():
+        pending = b''
+        while not control_done.is_set():
+            try:
+                ready, _, _ = select.select([control_read], [], [], 0.2)
+                if not ready:
+                    continue
+                pending += os.read(control_read, 4096)
+            except (OSError, ValueError):
+                break
+            while b'\n' in pending:
+                request, pending = pending.split(b'\n', 1)
+                requested_id, _, name = request.decode('ascii', errors='ignore').partition(' ')
+                if requested_id != job_id:
+                    continue
+                if not re.fullmatch(r'pause-reply-[0-9a-f]{16}\.txt', name):
+                    continue
+                with state_lock:
+                    if not job.get('session'):
+                        reply = 'Cannot pause before the Codex session ID is captured.'
+                    elif job['status'] != 'running' or child.poll() is not None:
+                        reply = 'The Codex job has already stopped.'
+                    else:
+                        try:
+                            os.killpg(child.pid, signal.SIGTERM)
+                            paused['v'] = True
+                            job['status'] = 'pausing'
+                            save_job(job)
+                            reply = 'ok'
+                        except OSError:
+                            reply = 'The Codex process has already stopped.'
+                try:
+                    reply_path = os.path.join(job_dir(job_id), name)
+                    with open(reply_path + '.tmp', 'x', encoding='utf-8') as f:
+                        f.write(reply)
+                    os.replace(reply_path + '.tmp', reply_path)
+                except OSError:
+                    pass
+
+    control_thread = None
+    if control_read is not None:
+        control_thread = threading.Thread(target=serve_pause, daemon=True)
+        control_thread.start()
+
     job['childPid'] = child.pid
     save_job(job)
+    if prev and prev.get('status') == 'paused' and not prev.get('resumedBy'):
+        prev['resumedBy'] = job_id
+        save_job(prev)
     seen_thread = {'v': False}
 
     def read_events():
@@ -508,8 +573,17 @@ def cmd_codex(a):
     ok = code == 0 and os.path.exists(result)
     if not ok and (LIMIT_HIT.search(log_text[-4000:]) or LIMIT_HIT.search(read_text(events)[-4000:])):
         job['limitHit'] = True
-    job.update(status='cancelled' if cancelled['v'] else ('done' if ok else 'failed'), endedAt=now_iso(), exitCode=code)
-    save_job(job)
+    with state_lock:
+        was_paused = paused['v'] and not cancelled['v'] and not ok
+        job.update(status='cancelled' if cancelled['v'] else ('paused' if was_paused else ('done' if ok else 'failed')),
+                   endedAt=now_iso(), exitCode=0 if was_paused else code)
+        save_job(job)
+    control_done.set()
+    if control_thread:
+        control_thread.join(1)
+        os.close(control_read)
+        os.close(control_write)
+        os.unlink(control_path)
 
     print('codeome-agent: job %s %s (codex/%s%s, %s)' % (job_id, job['status'], role,
                                                         ', account ' + job['account'] if job.get('account') else '', duration(job)))
@@ -526,7 +600,7 @@ def cmd_codex(a):
         print(read_text(result).strip())
     else:
         print('\n'.join(read_text(log).strip().splitlines()[-30:]))
-    sys.exit(0 if job['status'] == 'done' else (130 if cancelled['v'] else 1))
+    sys.exit(0 if job['status'] in ('done', 'paused') else (130 if cancelled['v'] else 1))
 
 
 # ---------- list / show / cancel ----------
@@ -557,6 +631,46 @@ def cmd_cancel(a):
         sys.exit('codeome-agent: Claude subagents are stopped from their Claude Code session')
     os.kill(j['pid'], signal.SIGTERM)
     print('Cancelling %s' % j['id'])
+
+
+def cmd_pause(a):
+    j = find_job(a.id)
+    if j.get('engine') != 'codex':
+        sys.exit('codeome-agent: only Codex jobs can be paused')
+    if j.get('status') != 'running' or not pid_alive(j.get('pid')):
+        sys.exit('codeome-agent: job %s is %s' % (j['id'], j.get('status')))
+    if not j.get('session'):
+        sys.exit('codeome-agent: cannot pause job %s before its Codex session ID is captured' % j['id'])
+    if not j.get('pauseFifo'):
+        sys.exit('codeome-agent: job %s started with an older wrapper; update the agent kit and start a new job to pause safely' % j['id'])
+    try:
+        if not stat.S_ISFIFO(os.stat(j['pauseFifo']).st_mode):
+            raise OSError('not a FIFO')
+    except OSError:
+        sys.exit('codeome-agent: the original wrapper for job %s is unavailable; refusing to signal its PID' % j['id'])
+    reply_name = 'pause-reply-' + secrets.token_hex(8) + '.txt'
+    reply_path = os.path.join(job_dir(j['id']), reply_name)
+    try:
+        fd = os.open(j['pauseFifo'], os.O_WRONLY | os.O_NONBLOCK)
+        try:
+            os.write(fd, (j['id'] + ' ' + reply_name + '\n').encode('ascii'))
+        finally:
+            os.close(fd)
+    except OSError:
+        sys.exit('codeome-agent: the original wrapper for job %s is unavailable; refusing to signal its PID' % j['id'])
+    reply = None
+    for _ in range(150):
+        reply = read_text(reply_path, None)
+        if reply:
+            break
+        time.sleep(0.02)
+    try:
+        os.unlink(reply_path)
+    except FileNotFoundError:
+        pass
+    if reply != 'ok':
+        sys.exit('codeome-agent: ' + (reply or 'the original wrapper did not acknowledge the pause'))
+    print('Pausing %s' % j['id'])
 
 
 # ---------- Claude Code hook ----------
@@ -696,6 +810,9 @@ def main():
     ca = sub.add_parser('cancel', help='stop a running Codex job')
     ca.add_argument('id')
     ca.set_defaults(fn=cmd_cancel)
+    pa = sub.add_parser('pause', help='pause a running Codex job after its session starts')
+    pa.add_argument('id')
+    pa.set_defaults(fn=cmd_pause)
     sub.add_parser('hook', help='Claude Code hook entry point').set_defaults(fn=cmd_hook)
     a = p.parse_args()
     a.fn(a)

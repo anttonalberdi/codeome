@@ -81,7 +81,7 @@ Several chats run in parallel as tabs. A **context meter** warns past 70%, and t
 
 **size → plan → your approval → specialists implement → orchestrator verifies → cross-review → your approval → commit.**
 
-- 15 roles in four groups: core, research computing (analyst, pipeline-engineer, hpc-operator, report-writer), web stack, release & docs.
+- 16 roles in four groups: core, research computing (analyst, pipeline-engineer, hpc-operator, report-writer, figure-designer), web stack, release & docs.
 - **Routing**: well-specified implementation and debugging go to Codex; planning, docs and anything needing the network or HPC go to Claude. Reviews run on the engine that did *not* write the change.
 - Codex runs in a sandbox with no network, so HPC work goes to Claude roles.
 - `routing.md` in the project lets you change routing per project.

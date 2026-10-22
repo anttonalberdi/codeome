@@ -1,15 +1,17 @@
 {
-  "version": "0.6.4",
+  "version": "0.6.8",
   "groups": [
     "core",
     "research",
     "web",
     "release"
   ],
-  "installedAt": "2026-10-19T09:07:26.401Z",
+  "installedAt": "2026-10-22T10:46:49.772Z",
   "files": {
     ".claude/skills/cross-review/SKILL.md": "fbab9d238b6354be35a6205eb650e6fe84d7a6a40233963c0fc9ccc346ad742b",
     ".claude/skills/delegate/SKILL.md": "967e03bf5f32bc2a990c841442a604bbbb940e40495860053c58a3aac62d67c1",
+    ".claude/skills/figures/SKILL.md": "778c9d126e130c958e62f9d57234731575637e2a9b610850b584f49844d5b8c6",
+    ".claude/skills/figures/compose.py": "20b8dbbe8c231bd5b7d44ec587fae7591e85b854de9d0460ca1c641ec18b61cf",
     ".claude/skills/orchestrate/SKILL.md": "b58c7a76854a500ac5ce22bfade0277dced6c622cdb96adf0735553c89362ba7",
     ".claude/skills/release/SKILL.md": "5dec72fd19bee8c4a67b671fd0c685a9ee417ed95b60fde5f85707aa9e431731",
     ".claude/skills/release/bioconda.md": "174e13b1816ea90bb5831074b0416379f54fd9100bcc1ea0fafa5455ff13262f",
@@ -22,6 +24,7 @@
     ".claude/agents/debugger.md": "15ebffc4a17768a99ccc520a6c4a14807617a30774fd9f083047375c381dfb7b",
     ".claude/agents/docs-writer.md": "04e9aa83e19951ef61ee39d1755a2f53b74e9cb8196afd26def3d3494c340508",
     ".claude/agents/explorer.md": "13604b74e35da923b4484ab7035efd66da12d1303a377b2bfacb5072ba27a95a",
+    ".claude/agents/figure-designer.md": "a592a73f36c172bbe64d6e0993d125be9efd88245e4a764ec397b3073c46bdd4",
     ".claude/agents/frontend.md": "d876ca51124227f4ccfdfc63edef5d37c62e35626c1349f67908122762e4a420",
     ".claude/agents/hpc-operator.md": "3f68d1f25ef3c1fe2ba49b42f0c20677797d5c55976b926bc24a8fef0ec37fe0",
     ".claude/agents/implementer.md": "a5abc005ac5caff3c442fc9d95842825e74d9b8b8c9535ac45cef60e4c5d6044",
@@ -32,7 +35,7 @@
     ".claude/agents/reviewer.md": "25b18c031c0aecdb0ea82a11e33aef03258aeac595c9a8662824d341da81b059",
     ".claude/agents/security-reviewer.md": "44999ded468b2969664f9bb2ffece3150b26be7d63fa2c385fa75e8444531a97",
     ".claude/agents/tester.md": "68b12fcb88fd231ba9c59ff5271cf85b9a90783fc95ef365c0027920c372a8e5",
-    ".claude/skills/orchestrate/routing.md": "9669925980b8e8bfd7d32ec0fb53577ab99f5e6a05d0c9785c68f4657dc12105",
-    ".codeome/bin/codeome-agent": "19805ca3a2729b5b0355d3199d52065cd9f73a68e80b4889e6d5d904fa5acbfc"
+    ".claude/skills/orchestrate/routing.md": "08ff81be3f413d7f90e60ec76954734ca69fa4d1607c100d6a6a377d3b07ac4b",
+    ".codeome/bin/codeome-agent": "56dabd7c1acc40f78310a78e5045b6ad2515ceeb451671e3aacfd1ed6b1244dc"
   }
 }

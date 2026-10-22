@@ -1,8 +1,8 @@
 {
-  "version": "0.6.7",
+  "version": "0.6.8",
   "groups": {
     "core": { "label": "Core dev loop", "description": "planner, explorer, implementer, debugger, tester, reviewer", "required": true },
-    "research": { "label": "Research computing", "description": "analyst, pipeline-engineer, hpc-operator, report-writer" },
+    "research": { "label": "Research computing", "description": "analyst, pipeline-engineer, hpc-operator, report-writer, figure-designer" },
     "web": { "label": "Web stack", "description": "backend, frontend, security-reviewer" },
     "release": { "label": "Release & docs", "description": "docs-writer, release-manager, and playbooks for PyPI, Bioconda, conda-forge, CRAN and Bioconductor" }
   }

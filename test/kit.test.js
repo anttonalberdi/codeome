@@ -745,3 +745,24 @@ test('global agents and skills list apart from the project\'s, with name clashes
   assert.throws(() => kit.setGlobalAgent(g, 'tidy', { claudeEffort: 'minimal' }), /Unknown effort/);
   assert.throws(() => kit.setGlobalAgent(g, '../x', {}), /Bad agent/);
 });
+
+test('the figure-designer role installs with its skill, and compose.py keeps panels vector with unique ids', () => {
+  const p = tmp();
+  kit.install(p, { groups: ['research'] });
+  const role = fs.readFileSync(path.join(p, '.claude/agents/figure-designer.md'), 'utf8');
+  assert.match(role, /\.claude\/skills\/figures\/SKILL\.md/);
+  const dir = path.join(p, '.claude/skills/figures');
+  assert.ok(fs.existsSync(path.join(dir, 'SKILL.md')) && fs.existsSync(path.join(dir, 'compose.py')));
+  const panel = (id) => `<svg xmlns='http://www.w3.org/2000/svg' width='100pt' height='50pt' viewBox='0 0 100 50'><defs><clipPath id='cp'><rect width='100' height='50'/></clipPath></defs><g clip-path='url(#cp)'><rect id='${id}' width='10' height='10'/></g></svg>`;
+  fs.writeFileSync(path.join(p, 'a.svg'), panel('r'));
+  fs.writeFileSync(path.join(p, 'b.svg'), panel('r'));
+  const r = spawnSync('python3', ['-I', path.join(dir, 'compose.py'), path.join(p, 'out.svg'), '--width', '100', '--cols', '2', path.join(p, 'a.svg'), path.join(p, 'b.svg')], { encoding: 'utf8' });
+  if (r.error && r.error.code === 'ENOENT') return; // no python3 on this machine
+  assert.strictEqual(r.status, 0, r.stderr);
+  const out = fs.readFileSync(path.join(p, 'out.svg'), 'utf8');
+  assert.ok(!/<image\b/.test(out));
+  const ids = [...out.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
+  assert.strictEqual(new Set(ids).size, ids.length, ids.join());
+  assert.match(out, /url\(#p1-cp\)/);
+  assert.match(out, />b<\/text>/);
+});
