@@ -1015,6 +1015,8 @@ ipcMain.handle('agents:models', () => {
 ipcMain.handle('jobs:list', (_e, project) => jobs.list(project));
 ipcMain.handle('jobs:read', (_e, { project, id, part }) => jobs.read(project, id, part));
 ipcMain.handle('jobs:cancel', (_e, { project, id }) => jobs.cancel(project, id));
+ipcMain.handle('jobs:pause', (_e, { project, id }) => jobs.pause(project, id));
+ipcMain.handle('jobs:resume', (_e, { project, id }) => jobs.resume(project, id));
 ipcMain.handle('jobs:clear', (_e, project) => jobs.clear(project));
 
 // ---------- agent chat ----------

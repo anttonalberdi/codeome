@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const kit = require('../main/kit');
 const jobs = require('../main/jobs');
 
@@ -112,6 +112,15 @@ function runAgent(project, args, input, env = {}) {
   return spawnSync('python3', [agentBin(project), ...args], { input, encoding: 'utf8', cwd: project, env: { ...process.env, CODEOME_HOME: path.join(project, '.codeome-home'), ...env } });
 }
 
+async function waitFor(fn) {
+  for (let i = 0; i < 100; i++) {
+    const result = await fn();
+    if (result) return result;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('Timed out waiting for the job');
+}
+
 // What Codeome writes to ~/.codeome/usage.json.
 function writeUsage(project, { claude = [], codex = [], stopAt = 90, active = {} }) {
   const now = Date.now() / 1000;
@@ -157,6 +166,239 @@ test('codeome-agent runs a Codex job with the role prompt and records it', async
   assert.match(call2.prompt, /Follow-up from the orchestrator/);
   runAgent(p, ['codex', '--role', 'reviewer'], 'Review git diff.', { CODEOME_CODEX: codex });
   assert.ok(readJson(path.join(p, 'call.json')).argv.includes('read-only'));
+});
+
+test('codeome-agent pauses a captured session and main jobs resumes it as a linked job', async () => {
+  const p = tmp();
+  kit.install(p);
+  const codex = path.join(p, 'slow-codex');
+  fs.writeFileSync(codex, `#!/usr/bin/env python3
+import json, os, sys, time
+argv = sys.argv[1:]
+prompt = sys.stdin.read()
+json.dump({'argv': argv, 'prompt': prompt, 'codexHome': os.environ.get('CODEX_HOME')}, open(os.path.join(${JSON.stringify(p)}, 'call.json'), 'w'))
+if 'resume' in argv:
+    open(argv[argv.index('-o') + 1], 'w').write('## Status\\ndone')
+else:
+    time.sleep(0.5)
+    print(json.dumps({'type': 'thread.started', 'thread_id': 'test-pause-session'}), flush=True)
+    time.sleep(30)
+`);
+  fs.chmodSync(codex, 0o755);
+  const saved = { CODEOME_CODEX: process.env.CODEOME_CODEX, CODEOME_HOME: process.env.CODEOME_HOME, CODEX_HOME: process.env.CODEX_HOME };
+  process.env.CODEOME_CODEX = codex;
+  process.env.CODEOME_HOME = path.join(p, '.codeome-home');
+  const pinnedHome = path.join(p, 'pinned-codex-home');
+  process.env.CODEX_HOME = pinnedHome;
+  const child = spawn('python3', [agentBin(p), 'codex', '--role', 'implementer'], { cwd: p, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdin.end('Pause this job.');
+  try {
+    const running = await waitFor(async () => (await jobs.list(p))[0]);
+    await waitFor(async () => (await jobs.list(p))[0]?.pauseFifo);
+    const early = await jobs.pause(p, running.id);
+    assert.match(early.error, /before (its|the) Codex session ID is captured/);
+    await waitFor(async () => (await jobs.list(p))[0]?.session);
+    const pause = runAgent(p, ['pause', running.id]);
+    assert.strictEqual(pause.status, 0, pause.stderr);
+    const exit = await new Promise((resolve) => child.on('close', resolve));
+    assert.strictEqual(exit, 0);
+    const paused = (await jobs.list(p))[0];
+    assert.strictEqual(paused.status, 'paused');
+    assert.strictEqual(paused.exitCode, 0);
+    assert.strictEqual(paused.session, 'test-pause-session');
+    assert.strictEqual(runAgent(p, ['list', '--json']).status, 0);
+    fs.writeFileSync(path.join(p, '.codeome', 'jobs', paused.id, 'job.json'), JSON.stringify({ ...paused, status: 'pausing', pid: 999999 }));
+    assert.strictEqual((await jobs.list(p))[0].status, 'paused');
+    process.env.CODEX_HOME = path.join(p, 'other-codex-home');
+    const pending = jobs.resume(p, paused.id);
+    assert.match((await jobs.resume(p, paused.id)).error, /already resuming/);
+    const resumed = await pending;
+    assert.strictEqual(resumed.ok, true, resumed.error);
+    const next = await waitFor(async () => (await jobs.list(p)).find((j) => j.id === resumed.id && j.status === 'done'));
+    assert.strictEqual(next.resumedFrom, paused.id);
+    assert.strictEqual((await jobs.list(p)).find((j) => j.id === paused.id).resumedBy, next.id);
+    const call = readJson(path.join(p, 'call.json'));
+    assert.deepStrictEqual(call.argv.slice(0, 3), ['exec', 'resume', 'test-pause-session']);
+    assert.match(call.prompt, /Continue where you left off/);
+    assert.strictEqual(call.codexHome, pinnedHome);
+    assert.match((await jobs.resume(p, paused.id)).error, /cannot be resumed/);
+  } finally {
+    if (child.exitCode === null) child.kill('SIGTERM');
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    fs.rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test('resume finds Codex through the login shell when the app PATH is minimal', async () => {
+  const p = tmp();
+  kit.install(p);
+  const binDir = path.join(p, 'login-bin');
+  fs.mkdirSync(binDir);
+  fs.copyFileSync(fakeCodex(p), path.join(binDir, 'codex'));
+  fs.chmodSync(path.join(binDir, 'codex'), 0o755);
+  const shell = path.join(p, 'login-shell');
+  fs.writeFileSync(shell, '#!/bin/sh\nshift\nshift\nshift\nexport PATH="$FAKE_LOGIN_PATH:$PATH"\nexec "$@"\n');
+  fs.chmodSync(shell, 0o755);
+  const id = 'paused-login-shell';
+  const dir = path.join(p, '.codeome', 'jobs', id);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify({ id, engine: 'codex', role: 'implementer', title: 'Resume',
+    status: 'paused', session: 'login-session', startedAt: new Date().toISOString() }));
+  const saved = Object.fromEntries(['PATH', 'SHELL', 'FAKE_LOGIN_PATH', 'CODEOME_HOME', 'CODEOME_CODEX'].map((key) => [key, process.env[key]]));
+  process.env.PATH = '/usr/bin:/bin';
+  process.env.SHELL = shell;
+  process.env.FAKE_LOGIN_PATH = binDir;
+  process.env.CODEOME_HOME = path.join(p, '.codeome-home');
+  delete process.env.CODEOME_CODEX;
+  try {
+    const r = await jobs.resume(p, id);
+    assert.strictEqual(r.ok, true, r.error);
+    await waitFor(async () => (await jobs.list(p)).find((j) => j.id === r.id && j.status === 'done'));
+    assert.deepStrictEqual(readJson(path.join(p, 'call.json')).argv.slice(0, 3), ['exec', 'resume', 'login-session']);
+  } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    fs.rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test('pause waits for a complete reply and removes an empty reply on timeout', async () => {
+  const p = tmp();
+  try {
+    kit.install(p);
+    const id = 'reply-race';
+    const dir = path.join(p, '.codeome', 'jobs', id);
+    fs.mkdirSync(dir, { recursive: true });
+    const fifo = path.join(dir, 'pause.fifo');
+    assert.strictEqual(spawnSync('mkfifo', [fifo]).status, 0);
+    fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify({ id, engine: 'codex', status: 'running', pid: process.pid,
+      session: 'reply-session', pauseFifo: fifo, startedAt: new Date().toISOString() }));
+    const responder = path.join(p, 'reply-server.py');
+    fs.writeFileSync(responder, `import os, select, sys, time
+fifo, folder, ready, mode = sys.argv[1:]
+read = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+write = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+open(ready, 'w').close()
+select.select([read], [], [], 5)
+request = os.read(read, 1024).decode().strip().split(' ')
+reply = os.path.join(folder, request[1])
+open(reply, 'w').close()
+if mode == 'delayed':
+    time.sleep(0.15)
+    with open(reply, 'w') as f: f.write('ok')
+os.close(read); os.close(write)
+`);
+    for (const mode of ['delayed', 'timeout']) {
+      const ready = path.join(p, mode + '.ready');
+      const child = spawn('python3', [responder, fifo, dir, ready, mode], { stdio: 'ignore' });
+      try {
+        await waitFor(async () => fs.existsSync(ready));
+        const r = runAgent(p, ['pause', id]);
+        if (mode === 'delayed') assert.strictEqual(r.status, 0, r.stderr);
+        else { assert.notStrictEqual(r.status, 0); assert.match(r.stderr, /did not acknowledge/); }
+        assert.deepStrictEqual(fs.readdirSync(dir).filter((name) => /^pause-reply-.*\.txt$/.test(name)), []);
+      } finally {
+        if (child.exitCode === null) child.kill('SIGTERM');
+        if (child.exitCode === null) await new Promise((resolve) => child.once('close', resolve));
+      }
+    }
+  } finally { fs.rmSync(p, { recursive: true, force: true }); }
+});
+
+test('cancel during pausing records cancelled instead of paused', async () => {
+  const p = tmp();
+  kit.install(p);
+  const codex = path.join(p, 'slow-stop-codex');
+  fs.writeFileSync(codex, `#!/usr/bin/env python3
+import json, signal, sys, time
+def stop(_signum, _frame):
+    time.sleep(0.7)
+    sys.exit(143)
+signal.signal(signal.SIGTERM, stop)
+sys.stdin.read()
+print(json.dumps({'type': 'thread.started', 'thread_id': 'cancel-pausing-session'}), flush=True)
+time.sleep(30)
+`);
+  fs.chmodSync(codex, 0o755);
+  const child = spawn('python3', [agentBin(p), 'codex', '--role', 'implementer'], {
+    cwd: p, env: { ...process.env, CODEOME_CODEX: codex, CODEOME_HOME: path.join(p, '.codeome-home') }, stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdin.end('Pause then cancel.');
+  try {
+    const running = await waitFor(async () => (await jobs.list(p)).find((j) => j.session === 'cancel-pausing-session'));
+    assert.strictEqual(runAgent(p, ['pause', running.id]).status, 0);
+    await waitFor(async () => (await jobs.list(p)).find((j) => j.id === running.id && j.status === 'pausing'));
+    assert.deepStrictEqual(jobs.cancel(p, running.id), { ok: true });
+    assert.strictEqual(await new Promise((resolve) => child.on('close', resolve)), 130);
+    assert.strictEqual((await jobs.list(p))[0].status, 'cancelled');
+    assert.match(jobs.cancel(p, running.id).error, /no longer running/);
+  } finally {
+    if (child.exitCode === null) child.kill('SIGTERM');
+    fs.rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test('pause refuses a job started by an older wrapper after the kit is updated', async () => {
+  const p = tmp();
+  try {
+    kit.install(p);
+    const id = 'old-wrapper';
+    const dir = path.join(p, '.codeome', 'jobs', id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify({ id, engine: 'codex', status: 'running', pid: process.pid,
+      session: 'old-session', startedAt: new Date(Date.now() + 60000).toISOString() }));
+    const cli = runAgent(p, ['pause', id]);
+    assert.notStrictEqual(cli.status, 0);
+    assert.match(cli.stderr, /started with an older wrapper/);
+    assert.match((await jobs.pause(p, id)).error, /started with an older wrapper/);
+  } finally { fs.rmSync(p, { recursive: true, force: true }); }
+});
+
+test('pause refuses a reused PID when the original wrapper FIFO has no reader', async () => {
+  const p = tmp();
+  try {
+    kit.install(p);
+    const id = 'reused-pid';
+    const dir = path.join(p, '.codeome', 'jobs', id);
+    fs.mkdirSync(dir, { recursive: true });
+    const staleFifo = path.join(dir, 'pause.fifo');
+    spawnSync('mkfifo', [staleFifo]);
+    fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify({ id, engine: 'codex', status: 'running', pid: process.pid,
+      session: 'old-session', pauseFifo: staleFifo, startedAt: new Date(Date.now() + 60000).toISOString() }));
+    const cli = runAgent(p, ['pause', id]);
+    assert.notStrictEqual(cli.status, 0);
+    assert.match(cli.stderr, /original wrapper.*unavailable/);
+    assert.match((await jobs.pause(p, id)).error, /original wrapper.*unavailable/);
+  } finally { fs.rmSync(p, { recursive: true, force: true }); }
+});
+
+test('pause after Codex exits preserves the completed result', async () => {
+  const p = tmp();
+  kit.install(p);
+  const codex = path.join(p, 'finished-codex');
+  fs.writeFileSync(codex, `#!/usr/bin/env python3
+import json, subprocess, sys
+argv = sys.argv[1:]
+sys.stdin.read()
+print(json.dumps({'type': 'thread.started', 'thread_id': 'finished-session'}), flush=True)
+open(argv[argv.index('-o') + 1], 'w').write('finished')
+subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'], stdout=sys.stdout, start_new_session=True)
+`);
+  fs.chmodSync(codex, 0o755);
+  const child = spawn('python3', [agentBin(p), 'codex', '--role', 'implementer'], {
+    cwd: p, env: { ...process.env, CODEOME_CODEX: codex, CODEOME_HOME: path.join(p, '.codeome-home') }, stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdin.end('Finish first.');
+  try {
+    const job = await waitFor(async () => (await jobs.list(p)).find((j) => j.session === 'finished-session' && fs.existsSync(path.join(p, '.codeome', 'jobs', j.id, 'result.md'))));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.strictEqual((await jobs.list(p))[0].status, 'running');
+    const pause = runAgent(p, ['pause', job.id]);
+    assert.notStrictEqual(pause.status, 0);
+    assert.match(pause.stderr, /already stopped/);
+    assert.strictEqual(await new Promise((resolve) => child.on('close', resolve)), 0);
+    assert.strictEqual((await jobs.list(p))[0].status, 'done');
+  } finally {
+    if (child.exitCode === null) child.kill('SIGTERM');
+    fs.rmSync(p, { recursive: true, force: true });
+  }
 });
 
 test('codeome-agent reports failed jobs and unknown roles', async () => {

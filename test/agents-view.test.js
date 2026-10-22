@@ -12,6 +12,58 @@ class Element {
   all(tag) { return [this, ...this.children.flatMap((child) => child instanceof Element ? child.all(tag) : [])].filter((child) => child.tag === tag || child.tag.startsWith(tag + '.')); }
 }
 
+test('an open paused-job tab hides Resume after its job is resumed elsewhere', async () => {
+  let page, ready, poll;
+  const App = {
+    project: '/project', views: { editor: { active: 'job', openCustom(options) {
+      page = new Element('root'); ready = options.render(page, { id: 'job' });
+    } } },
+    h(tag, attrs, ...children) {
+      if (!(attrs && typeof attrs === 'object' && !Array.isArray(attrs) && !(attrs instanceof Element))) { children.unshift(attrs); attrs = {}; }
+      const el = new Element(tag);
+      Object.assign(el, attrs);
+      el.append(...children);
+      if (tag === 'select') el.value = 'result';
+      return el;
+    }
+  };
+  const codeome = { jobs: { async read() { return { content: '' }; } } };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../renderer/js/agents.js'), 'utf8'), { App, codeome, setInterval: (fn) => { poll = fn; return 1; } });
+  const job = { id: 'j1', role: 'implementer', engine: 'codex', title: 'Test', status: 'paused', startedAt: new Date().toISOString() };
+  App.views.agents.jobs = [job];
+  App.views.agents.openJob(job);
+  await ready;
+  const resume = page.all('button.btn.small').find((button) => button.textContent === 'Resume');
+  assert.strictEqual(resume.hidden, false);
+  App.views.agents.jobs = [{ ...job, resumedBy: 'j2' }];
+  poll(); await new Promise(setImmediate);
+  assert.strictEqual(resume.hidden, true);
+});
+
+test('a pausing Codex job keeps Cancel visible in its job tab', async () => {
+  let page, ready;
+  const App = {
+    project: '/project', views: { editor: { active: 'job', openCustom(options) {
+      page = new Element('root'); ready = options.render(page, { id: 'job' });
+    } } },
+    h(tag, attrs, ...children) {
+      if (!(attrs && typeof attrs === 'object' && !Array.isArray(attrs) && !(attrs instanceof Element))) { children.unshift(attrs); attrs = {}; }
+      const el = new Element(tag);
+      Object.assign(el, attrs);
+      el.append(...children);
+      if (tag === 'select') el.value = 'result';
+      return el;
+    }
+  };
+  const codeome = { jobs: { async read() { return { content: '' }; } } };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../renderer/js/agents.js'), 'utf8'), { App, codeome, setInterval: () => 1 });
+  const job = { id: 'j1', role: 'implementer', engine: 'codex', title: 'Test', status: 'pausing', startedAt: new Date().toISOString() };
+  App.views.agents.jobs = [job];
+  App.views.agents.openJob(job);
+  await ready;
+  assert.strictEqual(page.all('button.btn.small.danger')[0].hidden, false);
+});
+
 test('job result and brief render escaped Markdown; log, raw, placeholders and errors stay plain', async () => {
   const responses = {
     result: { content: '# Result\n<script>alert(1)</script>' },

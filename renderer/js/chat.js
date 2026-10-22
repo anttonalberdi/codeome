@@ -101,7 +101,7 @@
   C.isBusy = (project) => tabsOf(project).some((c) => c.busy);
   C.title = () => { const c = cur(); return c && c.title; };
   const waiting = (c) => Object.keys(c.requests).length > 0;
-  const runningJobs = (c) => c.items.filter((x) => x.t === 'job' && x.status === 'running');
+  const runningJobs = (c) => c.items.filter((x) => x.t === 'job' && (x.status === 'running' || x.status === 'pausing'));
 
   // What the tabs, the summary line and the project cards show.
   C.stats = (project) => {
@@ -770,6 +770,10 @@
     for (const chat of chats) for (const it of chat.items) {
       if (it.t !== 'job') continue;
       let j = it.jobId && jobs.find((x) => x.id === it.jobId);
+      if (j && j.resumedBy) {
+        const next = jobs.find((x) => x.id === j.resumedBy);
+        if (next) { j = next; it.jobId = next.id; it.startedAt = Date.parse(next.startedAt); it.endedAt = null; }
+      }
       if (!j && !it.jobId) {
         j = jobs.find((x) => !claimed.has(x.id) && x.engine === it.engine && (
           (x.toolUseId && x.toolUseId === it.id) ||
@@ -778,10 +782,11 @@
       }
       if (j) {
         const status = j.limitHit ? 'held' : j.status;
-        if (status !== it.status && status !== 'stale') { if (it.status === 'running' && status !== 'running' && status !== 'held') jobFinished(chat); it.status = status; if (status !== 'running') it.endedAt = Date.parse(j.endedAt) || Date.now(); }
+        if (status !== it.status && status !== 'stale') { if ((it.status === 'running' || it.status === 'pausing') && !['running', 'pausing', 'held'].includes(status)) jobFinished(chat); it.status = status; it.endedAt = ['running', 'pausing'].includes(status) ? null : Date.parse(j.endedAt) || Date.now(); }
         it.account = j.account;
+        it.resumedBy = j.resumedBy;
       }
-      if (it.status === 'running' || j) update(chat, it);
+      if (it.status === 'running' || it.status === 'pausing' || j) update(chat, it);
     }
     scheduleTabs();
   };
@@ -934,7 +939,17 @@
     return s < 60 ? s + ' s' : s < 3600 ? Math.floor(s / 60) + ' min' : Math.floor(s / 3600) + ' h ' + Math.floor(s % 3600 / 60) + ' min';
   }
 
-  const STATUS = { running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled', lost: 'lost', held: 'usage limit', stale: 'stale' };
+  const STATUS = { running: 'running', pausing: 'pausing…', paused: 'paused', done: 'done', failed: 'failed', cancelled: 'cancelled', lost: 'lost', held: 'usage limit', stale: 'stale' };
+
+  async function jobAction(chat, it, action) {
+    if (!it.jobId) return;
+    if (action === 'pause') { it.status = 'pausing'; update(chat, it); }
+    else { it.resuming = true; update(chat, it); }
+    const r = await codeome.jobs[action](chat.project, it.jobId);
+    if (r.error) { if (action === 'pause') it.status = 'running'; else it.resuming = false; update(chat, it); return App.err(r.error); }
+    if (action === 'resume') { it.resuming = false; it.resumedBy = r.id; }
+    App.views.agents.refresh();
+  }
 
   function render(chat, it) {
     let el;
@@ -954,14 +969,17 @@
         el = h('div.todo', h('div.todo-h', 'Plan'), it.todos.map((x) => h('div.todo-i.' + x.status, h('span.tk', x.status === 'completed' ? '✓' : x.status === 'in_progress' ? '▸' : '○'), h('span', x.status === 'in_progress' && x.activeForm ? x.activeForm : x.content))));
         break;
       case 'job': {
-        const live = it.status === 'running';
+        const live = it.status === 'running' || it.status === 'pausing';
         el = h('div.jobcard.' + it.status, { tabindex: '0', role: 'button', title: it.jobId ? 'Open the brief, log and result' : 'Waiting for the job record',
-          onclick: () => openJob(it), onkeydown: (e) => { if (e.key === 'Enter') openJob(it); } },
+          onclick: () => openJob(it), onkeydown: (e) => { if (e.target === e.currentTarget && e.key === 'Enter') openJob(it); } },
           h('div.jc-top', h('span.pill' + (it.engine === 'codex' ? '.codex' : '.ok'), ENGINE[it.engine]), h('span.jc-role', it.role), h('span.grow'),
             h('span.state.' + (it.status === 'held' ? 'failed' : it.status), live ? h('span.spinner') : null, ' ', STATUS[it.status] || it.status), h('span.jc-time', elapsed(it))),
           h('div.jc-title', it.title),
           it.activity && live ? h('div.jc-act', it.activity) : null,
-          !live && it.account && App.cfg.accounts[it.engine] && App.cfg.accounts[it.engine].list.length > 1 ? h('div.jc-act', 'on ' + it.account) : null);
+          !live && it.account && App.cfg.accounts[it.engine] && App.cfg.accounts[it.engine].list.length > 1 ? h('div.jc-act', 'on ' + it.account) : null,
+          it.engine === 'codex' && it.jobId && ((it.status === 'running') || (it.status === 'pausing') || (it.status === 'paused' && !it.resumedBy))
+            ? h('button.btn.small.jc-action', { disabled: it.status === 'pausing' || !!it.resuming, onclick: (e) => { e.stopPropagation(); jobAction(chat, it, it.status === 'paused' ? 'resume' : 'pause'); } },
+              it.status === 'running' ? 'Pause' : it.status === 'pausing' ? 'Pausing…' : it.resuming ? 'Resuming…' : 'Resume') : null);
         break;
       }
       case 'perm': el = permCard(chat, it); break;
@@ -1089,7 +1107,7 @@
     logEl.addEventListener('scroll', () => { pinned = atBottom(); });
     new ResizeObserver(() => { if (!host.clientWidth) return; autosize(); if (pinned) scrollEnd(); }).observe(host);
     setInterval(paintThinking, 1000);
-    setInterval(() => { const c = cur(); if (c && logEl.isConnected) for (const it of c.items) if (it.t === 'job' && it.status === 'running') update(c, it); }, 5000);
+    setInterval(() => { const c = cur(); if (c && logEl.isConnected) for (const it of c.items) if (it.t === 'job' && (it.status === 'running' || it.status === 'pausing')) update(c, it); }, 5000);
     paint();
     loadPersonas();
   };

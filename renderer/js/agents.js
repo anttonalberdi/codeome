@@ -8,7 +8,7 @@
   let root, titleEl, tabsEl, kitEl, kitCardEl, usageEl, chatEl, forumEl, jobsEl, listEl, newChatBtn, historyBtn, timer, tick = 0;
 
   const ENGINE = { claude: 'Claude', codex: 'Codex' };
-  const isLive = (j) => j.status === 'running';
+  const isLive = (j) => j.status === 'running' || j.status === 'pausing';
 
   A.init = () => {
     root = document.querySelector('.view[data-view="agents"]');
@@ -272,8 +272,10 @@
       j.session && j.engine === 'codex' ? { label: 'Copy Codex session ID', run: () => navigator.clipboard.writeText(j.session) } : null,
       j.worktree ? { label: 'Show worktree in Files', run: () => App.views.files.show('local', j.worktree) } : null,
       j.transcript ? { label: 'Open transcript', run: () => App.views.editor.openFile(j.transcript.replace(/^~/, App.env.home || '~')) } : null,
-      isLive(j) && j.engine === 'codex' ? '-' : null,
-      isLive(j) && j.engine === 'codex' ? { label: 'Cancel job…', danger: true, run: () => A.cancel(j) } : null
+      j.engine === 'codex' && (isLive(j) || j.status === 'paused' && !j.resumedBy) ? '-' : null,
+      j.engine === 'codex' && j.status === 'running' ? { label: 'Pause job', run: () => A.pause(j) } : null,
+      j.engine === 'codex' && j.status === 'paused' && !j.resumedBy ? { label: 'Resume job', run: () => A.resume(j) } : null,
+      j.engine === 'codex' && isLive(j) ? { label: 'Cancel job…', danger: true, run: () => A.cancel(j) } : null
     ];
   }
 
@@ -283,6 +285,23 @@
     if (r.error) return App.err(r.error);
     App.toast('Cancelling ' + j.role + ' job.');
     setTimeout(() => A.refresh(), 800);
+  };
+
+  A.pause = async (j) => {
+    const r = await codeome.jobs.pause(App.project, j.id);
+    if (r.error) return App.err(r.error);
+    A.jobs = A.jobs.map((x) => x.id === j.id ? { ...x, status: 'pausing' } : x);
+    App.views.chat.syncJobs(App.project, A.jobs);
+    render();
+    setTimeout(() => A.refresh(), 800);
+  };
+
+  A.resume = async (j) => {
+    const r = await codeome.jobs.resume(App.project, j.id);
+    if (r.error) return App.err(r.error);
+    await A.refresh();
+    const next = A.jobs.find((x) => x.id === r.id);
+    if (next) A.openJob(next);
   };
 
   A.clear = async () => {
@@ -315,8 +334,10 @@
         const follow = h('input', { type: 'checkbox', checked: true });
         const raw = h('input', { type: 'checkbox' });
         const rawLabel = h('label.check', raw, 'Raw');
+        const pauseBtn = h('button.btn.small', { onclick: () => A.pause(cur()) }, 'Pause');
+        const resumeBtn = h('button.btn.small', { onclick: () => A.resume(cur()) }, 'Resume');
         const cancelBtn = h('button.btn.small.danger', { onclick: () => A.cancel(cur()) }, 'Cancel job');
-        el.append(h('div.toolbar', which, state, info, h('label.check', follow, 'Follow'), rawLabel, h('button.btn.small', { onclick: () => load() }, 'Refresh'), cancelBtn), pre, md, conversation);
+        el.append(h('div.toolbar', which, state, info, h('label.check', follow, 'Follow'), rawLabel, h('button.btn.small', { onclick: () => load() }, 'Refresh'), pauseBtn, resumeBtn, cancelBtn), pre, md, conversation);
         const cur = () => A.jobs.find((x) => x.id === j.id) || j;
         const openDetails = new Map();
         let detailsByKey = new Map();
@@ -378,6 +399,10 @@
           }
           state.className = 'state ' + job.status; state.textContent = job.status;
           info.textContent = [job.title, elapsed(job), job.branch ? 'branch ' + job.branch : null, job.session && job.engine === 'codex' ? 'session ' + job.session : null].filter(Boolean).join(' · ');
+          pauseBtn.hidden = !(job.engine === 'codex' && isLive(job));
+          pauseBtn.disabled = job.status === 'pausing';
+          pauseBtn.textContent = job.status === 'pausing' ? 'Pausing…' : 'Pause';
+          resumeBtn.hidden = !(job.engine === 'codex' && job.status === 'paused' && !job.resumedBy);
           cancelBtn.hidden = !(isLive(job) && job.engine === 'codex');
           // While a Codex job runs there is no result yet: show its events when available.
           if (which.value === 'result' && isLive(job) && job.engine === 'codex' && pre.dataset.auto !== 'off') { which.value = 'activity'; pre.dataset.auto = 'off'; }
@@ -408,10 +433,14 @@
         await load();
         if (closed) return;
         let wasLive = isLive(cur());
+        let wasResumedBy = cur().resumedBy;
         tab.timer = setInterval(() => {
           if (App.views.editor.active !== tab.id) return;
-          const live = isLive(cur());
-          if (live || wasLive !== live) { if (wasLive && !live && (which.value === 'log' || which.value === 'conversation' || which.value === 'activity')) which.value = 'result'; wasLive = live; load(); }
+          const job = cur(), live = isLive(job);
+          if (live || wasLive !== live || wasResumedBy !== job.resumedBy) {
+            if (wasLive && !live && (which.value === 'log' || which.value === 'conversation' || which.value === 'activity')) which.value = 'result';
+            wasLive = live; wasResumedBy = job.resumedBy; load();
+          }
         }, 3000);
       }
     });

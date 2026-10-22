@@ -3,10 +3,58 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const vm = require('vm');
+const { EventEmitter } = require('events');
 const { parseClaudeTranscript, parseCodexEvents } = require('../main/jobview');
 const jobs = require('../main/jobs');
 
 const line = (type, content, timestamp = '2026-10-10T13:11:00Z') => JSON.stringify({ type, timestamp, message: { content } });
+
+test('pausing Codex jobs settle to paused with a session, or lost without one', () => {
+  const base = { engine: 'codex', pid: 999999, startedAt: new Date().toISOString() };
+  assert.strictEqual(jobs.settle({ ...base, status: 'pausing', session: 'session-1' }).status, 'paused');
+  assert.strictEqual(jobs.settle({ ...base, status: 'pausing' }).status, 'lost');
+  assert.strictEqual(jobs.settle({ ...base, status: 'paused', session: 'session-1' }).status, 'paused');
+});
+
+test('resume timeout keeps its guard until the first wrapper exits or links', async () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-resume-guard-'));
+  try {
+    const id = 'paused-job';
+    const dir = path.join(project, '.codeome', 'jobs', id);
+    fs.mkdirSync(path.join(project, '.codeome', 'bin'), { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(project, '.codeome', 'bin', 'codeome-agent'), '');
+    fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify({ id, engine: 'codex', status: 'paused', session: 'session-1', role: 'implementer' }));
+    let spawned = 0, timeout, poll, child;
+    const module = { exports: {} };
+    const source = fs.readFileSync(path.join(__dirname, '../main/jobs.js'), 'utf8');
+    vm.runInNewContext(source, {
+      module, process, setInterval: (fn) => { poll = fn; return 1; }, clearInterval() {},
+      setTimeout: (fn) => { timeout = fn; return 2; }, clearTimeout() {},
+      require: (name) => {
+        if (name === 'child_process') return { spawn: () => {
+          spawned++;
+          child = new EventEmitter(); child.stdin = { on() {}, end() {} }; child.unref = () => {};
+          return child;
+        } };
+        if (name === './kit') return { status: () => ({ installed: true, outdated: false, missing: [], modified: [] }) };
+        if (name === './jobview') return require('../main/jobview');
+        return require(name);
+      }
+    });
+    const pending = module.exports.resume(project, id);
+    timeout();
+    assert.match((await pending).error, /still starting/);
+    assert.match((await module.exports.resume(project, id)).error, /already resuming/);
+    assert.strictEqual(spawned, 1);
+    fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify({ id, engine: 'codex', status: 'paused', session: 'session-1', resumedBy: 'next' }));
+    poll();
+    assert.match((await module.exports.resume(project, id)).error, /cannot be resumed/);
+    child.emit('exit', 0);
+    assert.strictEqual(spawned, 1);
+  } finally { fs.rmSync(project, { recursive: true, force: true }); }
+});
 
 test('Claude transcript pairs tool results and keeps unfinished calls from the fixture', () => {
   const text = fs.readFileSync(path.join(__dirname, 'fixtures', 'claude-subagent.jsonl'), 'utf8');

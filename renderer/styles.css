@@ -572,6 +572,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .state.FAILED, .state.TIMEOUT, .state.OUT_OF_MEMORY, .state.NODE_FAIL, .state.CANCELLED, .state.BOOT_FAIL, .state.DEADLINE, .state.PREEMPTED { color: var(--fail); }
 .state.COMPLETED { color: var(--done); }
 .state.running { color: var(--run); } .state.done { color: var(--done); }
+.state.pausing { color: var(--run); } .state.paused { color: var(--pend); }
 .state.failed, .state.lost, .state.cancelled { color: var(--fail); } .state.stale { color: var(--pend); }
 .pill.codex { background: var(--sel); color: var(--text); }
 
@@ -671,7 +672,8 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 
 .jobcard { border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: 8px; padding: 6px 10px; cursor: pointer; background: var(--surface); display: flex; flex-direction: column; gap: 1px; }
 .jobcard:hover { border-color: var(--line-strong); }
-.jobcard.running { border-left-color: var(--run); }
+.jobcard.running, .jobcard.pausing { border-left-color: var(--run); }
+.jobcard.paused { border-left-color: var(--pend); }
 .jobcard.done { border-left-color: var(--accent); }
 .jobcard.failed, .jobcard.held, .jobcard.lost, .jobcard.cancelled { border-left-color: var(--fail); }
 .jc-top { display: flex; flex-wrap: wrap; align-items: center; gap: 0 7px; font-size: 11.5px; }
@@ -682,6 +684,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .jc-time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .jc-title { font-weight: 600; }
 .jc-act { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jc-action { align-self: flex-start; margin-top: 5px; }
 .state.held { color: var(--fail); }
 
 .ask-card { border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
