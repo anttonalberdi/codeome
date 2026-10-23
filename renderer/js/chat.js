@@ -1061,7 +1061,7 @@
 
   // ---------- view ----------
   C.mount = (host) => {
-    logEl = h('div.chat-log', { 'aria-live': 'polite', onclick: onLinkClick, oncontextmenu: onLinkMenu });
+    logEl = h('div.chat-log', { 'aria-live': 'polite', onclick: onLinkClick, oncontextmenu: onLinkMenu, oncopy: onLogCopy });
     ta = h('textarea.chat-input', { rows: 1, placeholder: DEFAULT_PLACEHOLDER, 'aria-label': 'Message the agent', oninput: autosize, onkeydown: (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
     } });
@@ -1226,8 +1226,45 @@
   }
   function autosize() { ta.style.height = 'auto'; ta.style.height = Math.min(220, ta.scrollHeight + 2) + 'px'; }
 
+  // Cmd+C copies plain text; the right-click menu offers the formatted copy too.
+  function onLogCopy(e) {
+    const sel = window.getSelection();
+    const text = sel ? sel.toString() : '';
+    if (!text) return;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', text);
+  }
+
+  function selectionHtml(sel) {
+    const box = document.createElement('div');
+    for (let i = 0; i < sel.rangeCount; i++) box.appendChild(sel.getRangeAt(i).cloneContents());
+    return box.innerHTML;
+  }
+
+  async function copyFormatted(html, text) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' })
+      })]);
+    } catch { await navigator.clipboard.writeText(text); }
+  }
+
   function onLinkMenu(e) {
+    const sel = window.getSelection();
+    const text = sel ? sel.toString() : '';
     const a = e.target.closest('a[data-path]');
+    if (text && !sel.isCollapsed) {
+      e.preventDefault();
+      const html = selectionHtml(sel);
+      const items = [
+        { label: 'Copy unformatted', run: () => navigator.clipboard.writeText(text) },
+        { label: 'Copy formatted', run: () => copyFormatted(html, text) }
+      ];
+      if (a) items.push({ label: 'Open', run: () => a.click() });
+      App.menu(e.clientX, e.clientY, items);
+      return;
+    }
     if (!a) return;
     e.preventDefault();
     const name = App.basename(a.dataset.path.replace(/(?:#L\d+(?:-L?\d+)?|:\d+)$/, ''));
