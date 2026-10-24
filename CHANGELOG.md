@@ -5,6 +5,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 ## Unreleased
 
 ### Added
+- **Find in the active block (⌘F)**: ⌘F opens a find bar for whichever block you last clicked in: the agent chat, a preview, the file list, Slurm, Git and the other panels. It highlights every match, steps through them with Enter and ⇧Enter (or ⌘G and ⇧⌘G), follows live content such as a streaming chat, and closes with Esc. Terminals and the code editor keep their own ⌘F. Previews shown in an embedded frame (HTML, PDF) are not searched.
 - **Dates in the file list**: each file and folder in the project's file list shows the date it was added and the date it was last modified next to its size, and the tooltip gives the added date too.
 
 ## 1.2.3

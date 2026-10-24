@@ -538,6 +538,14 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .term-find[hidden] { display: none; }
 .term-find-input { width: 170px; font: 12px var(--ui); color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; outline: none; }
 .term-find-input:focus { border-color: var(--accent); }
+#find-bar { position: fixed; z-index: 60; display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+#find-bar[hidden] { display: none; }
+.find-input { width: 170px; font: 12px var(--ui); color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; outline: none; }
+.find-input:focus { border-color: var(--accent); }
+.find-input.none { border-color: var(--fail); }
+.find-count { min-width: 44px; text-align: right; font: 11px var(--ui); color: var(--muted); }
+::highlight(find-match) { background-color: #f6e27a; color: #1f2630; }
+::highlight(find-current) { background-color: #f2a33a; color: #1f2630; }
 .term-find-count { min-width: 44px; text-align: right; font: 11px var(--ui); color: var(--muted); }
 .term-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
 
