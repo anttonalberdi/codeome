@@ -1280,7 +1280,10 @@
     e.preventDefault();
     const chat = cur();
     const m = a.dataset.path.match(/^(.*?)(?:#L(\d+)(?:-L?\d+)?|:(\d+))?$/);
-    let p = decodeURI(m[1]);
+    let p = m[1];
+    try { p = decodeURI(p); } catch { /* keep the raw text */ }
+    // file:///tmp/x.png (what agents often write for files outside the project) is an absolute path.
+    p = p.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
     if (!p.startsWith('/') && !p.startsWith('~')) {
       const root = chat ? chat.project : App.project;
       // A path that starts with a connected project's folder name belongs to that project.

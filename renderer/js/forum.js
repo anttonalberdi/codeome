@@ -389,7 +389,9 @@
     event.preventDefault();
     const match = anchor.dataset.path.match(/^(.*?)(?:#L(\d+)(?:-L?\d+)?|:(\d+))?$/);
     if (!match) return;
-    let path = decodeURI(match[1]);
+    let path = match[1];
+    try { path = decodeURI(path); } catch { /* keep the raw text */ }
+    path = path.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
     if (!path.startsWith('/') && !path.startsWith('~')) path = App.join(current()?.project || App.project, path);
     const line = Number(match[2] || match[3]) || 0;
     const tab = await App.views.editor.openFile(path.replace(/^~/, App.env.home || '~'));
