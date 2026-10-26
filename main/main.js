@@ -1,5 +1,5 @@
 // Codeome — main process.
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard, ClipboardItem } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard, ClipboardItem, crashReporter } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -33,6 +33,31 @@ const secrets = require('./secrets');
 const secretsSync = require('./secrets-sync');
 const templates = require('./templates');
 const { run, q, expandHome, augmentedEnv } = require('./util');
+const crashlog = require('./crashlog');
+
+let quitting = false;
+let exceptionDialogOpen = false;
+let lastExceptionDialogAt = 0;
+crashReporter.start({ uploadToServer: false, compress: true });
+process.on('uncaughtException', (err) => {
+  crashlog.logError('uncaughtException', err);
+  if (quitting || exceptionDialogOpen || Date.now() - lastExceptionDialogAt < 10000) return;
+  exceptionDialogOpen = true;
+  lastExceptionDialogAt = Date.now();
+  // This listener replaces Electron's default exception dialog, so show it explicitly.
+  try { dialog.showErrorBox('Codeome error', String(err && (err.stack || err.message) || err)); }
+  catch {} finally { exceptionDialogOpen = false; }
+});
+process.on('unhandledRejection', (reason) => crashlog.logError('unhandledRejection', reason));
+app.on('render-process-gone', (_e, wc, details) => {
+  crashlog.log(details.reason === 'clean-exit' ? 'info' : 'error', 'render process gone', { reason: details.reason, exitCode: details.exitCode, type: 'renderer' });
+  if (quitting || !win || win.isDestroyed() || wc !== win.webContents) return;
+  dialog.showMessageBox(win, { type: 'error', message: 'Codeome renderer stopped', detail: `Reason: ${details.reason}`, buttons: ['Reload', 'OK'], defaultId: 0, cancelId: 1 })
+    .then(({ response }) => { if (response === 0 && !wc.isDestroyed()) wc.reload(); });
+});
+app.on('child-process-gone', (_e, details) => {
+  crashlog.log(details.reason === 'clean-exit' ? 'info' : 'error', 'child process gone', { reason: details.reason, exitCode: details.exitCode, type: details.type, name: details.name || details.serviceName });
+});
 
 let pty = null;
 let ptyError = '';
@@ -43,6 +68,38 @@ const ptys = new Map();
 const chats = new Map(); // chat id → chat.Session
 const transfers = new Map();
 let cfg = null;
+let heartbeatTimer = null;
+let rendererLogTimer = null;
+let rendererLogStart = 0;
+let rendererLogCount = 0;
+let rendererSuppressed = 0;
+let rendererLast = '';
+let rendererLastKey = '';
+let rendererLastSource = '';
+const rendererForwarded = new Set();
+
+function flushRendererLogs() {
+  clearTimeout(rendererLogTimer);
+  rendererLogTimer = null;
+  if (rendererSuppressed) crashlog.log('warn', `${rendererSuppressed} renderer log lines suppressed`);
+  rendererLogStart = 0; rendererLogCount = 0; rendererSuppressed = 0; rendererLast = ''; rendererLastKey = ''; rendererLastSource = '';
+  rendererForwarded.clear();
+}
+
+function logRendererLine(message, source) {
+  if (!rendererLogStart || Date.now() - rendererLogStart >= 10000) {
+    if (rendererLogStart) flushRendererLogs();
+    rendererLogStart = Date.now();
+    rendererLogTimer = setTimeout(flushRendererLogs, 10000);
+    rendererLogTimer.unref();
+  }
+  const key = message.split(/\r?\n/, 1)[0].replace(/^Uncaught(?: \(in promise\))?\s*/, '');
+  if ((source === 'renderer console' && rendererForwarded.has(key)) || message === rendererLast || (source !== rendererLastSource && key === rendererLastKey) || rendererLogCount >= 20) { rendererSuppressed++; return; }
+  rendererLast = message; rendererLastKey = key; rendererLastSource = source;
+  rendererLogCount++;
+  if (source === 'renderer') rendererForwarded.add(key);
+  crashlog.log('error', `${source}: ${message}`);
+}
 
 function send(channel, payload) { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); }
 
@@ -63,6 +120,15 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   // Links clicked in previews or panels open in the default browser.
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  win.webContents.on('unresponsive', () => crashlog.log('warn', 'renderer unresponsive'));
+  win.webContents.on('responsive', () => crashlog.log('info', 'renderer responsive'));
+  win.webContents.on('did-fail-load', (_e, code, description, _url, isMainFrame) => {
+    crashlog.log('error', 'renderer load failed', { code, description, isMainFrame });
+  });
+  win.webContents.on('console-message', (event, level, message) => {
+    const details = event.details || event;
+    if (details.level === 'error' || level === 3) logRendererLine(String(details.message || message).slice(0, 2000), 'renderer console');
+  });
   win.on('closed', () => { gdoc.closeAll(win); win = null; });
 }
 
@@ -105,7 +171,8 @@ function buildMenu() {
       { label: 'Preview Current File', accelerator: 'CmdOrCtrl+Shift+V', click: cmd('preview') }
     ] },
     { role: 'viewMenu' },
-    { role: 'windowMenu' }
+    { role: 'windowMenu' },
+    { role: 'help', submenu: [{ label: 'Reveal Logs', click: () => shell.showItemInFolder(crashlog.logPath()) }] }
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -262,7 +329,10 @@ ipcMain.handle('pty:spawn', async (_e, spec) => {
     // The saved password goes from the Keychain into ssh's prompt; the UI never sees it.
     if (spec.kind === 'hpc-login' || spec.kind === 'hpc-copy-key') p.onData(ssh.passwordFiller(config.getSecret('hpc:password'), (s) => p.write(s)));
     if (spec.kind === 'storage-login') p.onData(ssh.passwordFiller(config.getSecret('storage:password'), (s) => p.write(s)));
-    p.onExit(({ exitCode }) => { ptys.delete(spec.id); send('pty:exit', { id: spec.id, code: exitCode }); });
+    p.onExit(({ exitCode, signal }) => {
+      crashlog.log(exitCode === 0 && !signal ? 'info' : 'warn', 'pty exit', { id: spec.id, code: exitCode, signal });
+      ptys.delete(spec.id); send('pty:exit', { id: spec.id, code: exitCode });
+    });
     return { ok: true, pid: p.pid, account: acct && acct.info };
   } catch (e) { return { error: String(e.message || e) }; }
 });
@@ -272,6 +342,14 @@ ipcMain.on('pty:kill', (_e, { id }) => { spawning.delete(id); const p = ptys.get
 
 // ---------- config & secrets ----------
 ipcMain.handle('config:get', () => cfg);
+ipcMain.on('log:renderer', (event, payload) => {
+  if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
+  if (typeof payload !== 'string' && (!payload || typeof payload !== 'object' || Array.isArray(payload))) return;
+  const value = typeof payload === 'string' ? payload : { message: payload.message, stack: payload.stack };
+  if (typeof value !== 'string' && typeof value.message !== 'string' && typeof value.stack !== 'string') return;
+  const message = typeof value === 'string' ? value : [value.message, value.stack].filter((part) => typeof part === 'string').join('\n');
+  logRendererLine(message.slice(0, 2000), 'renderer');
+});
 ipcMain.handle('policy:defaults', () => policy.POLICY_DEFAULTS);
 ipcMain.handle('scratch:dir', () => ({ dir: scratch.dir() }));
 // Codeome's own version. app.getVersion() gives Electron's when the app is started from another script.
@@ -1080,6 +1158,10 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
     s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
+  s.on('exit', (r) => {
+    crashlog.log(r.code === 0 && !r.signal ? 'info' : 'warn', 'chat exit',
+      { id, code: r.code, signal: r.signal, ...(r.stderr ? { stderr: String(r.stderr).trimStart().split(/\r?\n/, 1)[0].slice(0, 200) } : {}) });
+  });
   return { s, acct, dir };
 }
 
@@ -1397,6 +1479,9 @@ ipcMain.handle('env:detect', async () => {
 });
 
 app.whenReady().then(() => {
+  const logDir = process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Logs', 'Codeome') : path.join(app.getPath('userData'), 'logs');
+  const prev = crashlog.previousRun(logDir);
+  crashlog.init({ dir: logDir, version: app.getVersion() });
   cfg = config.load();
   applyProxy();
   app.setName('Codeome');
@@ -1404,8 +1489,38 @@ app.whenReady().then(() => {
   if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png'));
   buildMenu();
   createWindow();
+  if (prev && prev.abnormal) {
+    const previousWindow = win;
+    previousWindow.webContents.once('did-finish-load', async () => {
+      if (previousWindow.isDestroyed()) return;
+      if (!previousWindow.isVisible()) previousWindow.show();
+      const report = `Version: ${prev.version || 'unknown'}\nLast heartbeat: ${prev.lastBeat || 'unknown'}\n\n${(prev.tail || []).slice(-15).join('\n')}`;
+      const { response } = await dialog.showMessageBox(previousWindow, { type: 'warning', title: 'Codeome closed unexpectedly last time',
+        message: 'Codeome closed unexpectedly last time', detail: report, buttons: ['Open log', 'Copy report', 'OK'], defaultId: 2, cancelId: 2 });
+      if (response === 0) shell.showItemInFolder(crashlog.logPath());
+      if (response === 1) clipboard.writeText(report);
+    });
+  }
+  let warnedWorkingSet = 0;
+  heartbeatTimer = setInterval(() => {
+    try {
+      const mem = app.getAppMetrics().map((m) => ({ type: m.type, pid: m.pid, workingSetSize: m.memory.workingSetSize }));
+      crashlog.heartbeat({ mem });
+      const total = mem.reduce((sum, m) => sum + m.workingSetSize, 0);
+      if (total <= 3 * 1024 * 1024) warnedWorkingSet = 0;
+      else if (!warnedWorkingSet || total > warnedWorkingSet + 500 * 1024) {
+        crashlog.log('warn', 'working set exceeds 3 GB', { totalWorkingSetSizeKB: total });
+        warnedWorkingSet = total;
+      }
+    } catch (err) { crashlog.logError('heartbeat', err); }
+  }, 30000);
+  heartbeatTimer.unref();
   startUsage();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => { forumHost.disposeAll(); clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); });
+app.on('before-quit', () => {
+  quitting = true;
+  try { forumHost.disposeAll(); clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); }
+  finally { clearInterval(heartbeatTimer); flushRendererLogs(); try { crashlog.markClean(); } catch {} }
+});
 app.on('window-all-closed', () => { forumHost.disposeAll(); stopLogins(); if (tunnel) tunnel.stop(); for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });

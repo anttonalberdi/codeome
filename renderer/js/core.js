@@ -1,4 +1,12 @@
 // Shared state and small UI helpers. Every module hangs off window.App.
+window.addEventListener('error', (event) => {
+  codeome.logError({ message: event.message, stack: event.error && event.error.stack });
+});
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  codeome.logError({ message: reason && reason.message || String(reason), stack: reason && reason.stack });
+});
+
 window.App = {
   cfg: null,
   env: { tools: {} },

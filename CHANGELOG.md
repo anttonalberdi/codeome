@@ -7,6 +7,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 ### Added
 - **Find in the active block (⌘F)**: ⌘F opens a find bar for whichever block you last clicked in: the agent chat, a preview, the file list, Slurm, Git and the other panels. It highlights every match, steps through them with Enter and ⇧Enter (or ⌘G and ⇧⌘G), follows live content such as a streaming chat, and closes with Esc. Terminals and the code editor keep their own ⌘F. Previews shown in an embedded frame (HTML, PDF) are not searched.
 - **Dates in the file list**: each file and folder in the project's file list shows the date it was added and the date it was last modified next to its size, and the tooltip gives the added date too.
+- **Crash logging and Help → Reveal Logs**: Codeome keeps a rotating log (`main.log`, 1 MB with 3 backups) in `~/Library/Logs/Codeome`. It records uncaught exceptions, unhandled rejections, renderer, GPU and child process crashes, unresponsive windows, renderer errors, and chat and terminal process exits, plus a heartbeat every 30 seconds with memory use that warns above 3 GB. Native crash dumps are saved locally and nothing is uploaded. If the previous run did not end with a clean shutdown, the next launch shows "Codeome closed unexpectedly last time" with the last log lines and *Open log* and *Copy report* buttons. *Reveal Logs* in the Help menu opens the folder.
 
 ## 1.2.3
 

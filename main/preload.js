@@ -7,6 +7,7 @@ const on = (ch) => (cb) => { const h = (_e, p) => cb(p); ipcRenderer.on(ch, h); 
 contextBridge.exposeInMainWorld('codeome', {
   platform: process.platform,
   version: invoke('app:version'),
+  logError: (error) => ipcRenderer.send('log:renderer', error),
   pathForFile: (f) => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
   config: { get: invoke('config:get'), set: invoke('config:set') },
   policy: { defaults: invoke('policy:defaults') },
