@@ -136,7 +136,7 @@ function hpcPrompt(hpc, engine = 'claude') {
 
 // What the orchestrator is told about the user's secrets enabled for this project's agents
 // (Settings → Secrets): names only, never values or notes (a note may hold a credential). secrets:
-// { list: [{ name, local, hpc }], hpcPath } with local false for one that is on the HPC only; with hpcPath the project's env file on the HPC (shown when any secret is on it). '' when none.
+// { list: [{ name, local, hpc, kind }], hpcPath } with local false for one that is on the HPC only; with hpcPath the project's env file on the HPC (shown when any secret is on it). '' when none.
 function secretsPrompt(secrets, engine = 'claude') {
   const list = ((secrets && secrets.list) || []).filter((s) => s && typeof s.name === 'string' && s.name);
   if (!list.length) return '';
@@ -144,7 +144,12 @@ function secretsPrompt(secrets, engine = 'claude') {
   const hpcPath = String((secrets && secrets.hpcPath) || '').trim();
   const out = ['', '## Secrets set for this project', '',
     `These variables are set${engine === 'codex' ? ' (Codex may hide those with KEY, SECRET or TOKEN in the name)' : ''}; their values are never shown to you. Use them by name.`, '',
-    ...list.map((s) => `- \`${s.name}\`${s.local === false ? ' (HPC only: not in your local environment)' : s.hpc ? ' (also on the HPC)' : ''}`)];
+    ...list.map((s) => {
+      const line = `- \`${s.name}\`${s.local === false ? ' (HPC only: not in your local environment)' : s.hpc ? ' (also on the HPC)' : ''}`;
+      if (s.kind !== 'file') return line;
+      const location = s.local === false ? 'on the HPC under `~/.codeome/secrets/files/`' : s.hpc ? 'locally, or on the HPC under `~/.codeome/secrets/files/`' : 'locally';
+      return `${line} — The variable holds the path to a private file ${location}. Pass that path to the program that needs it; never print, cat, copy, log or commit the file contents.`;
+    })];
   if (onHpc.length && hpcPath) out.push('',
     `On the HPC they are in \`${hpcPath}\` (private, in the home folder). Run \`source ${hpcPath}\` in any script or command there that needs them; Codeome's HPC terminals do it already, and \`sbatch\` jobs inherit them.`);
   return out.join('\n') + '\n';

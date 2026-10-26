@@ -15,6 +15,21 @@ All three switches are off for a new secret. The button beside them, *All projec
 
 <Shot bare src="/screens/detail-secrets.webp" alt="Four secret rows: GITHUB_TOKEN on for terminals and agents in all projects, HF_TOKEN on for terminals only for the codeome project, ZENODO_COPY copy only and LOST with no value" caption="GITHUB_TOKEN is set for terminals and agents in all projects, HF_TOKEN only in terminals of codeome, and LOST has no value." width="898" height="247" />
 
+## File secrets
+
+Some credentials are a file, not a string: an Apple `.p8` signing key, for example, is a multi-line text file that a tool expects to read from a path. Add it as a file secret. Values that are short strings, such as the Key ID and Team ID that go with that key, stay in ordinary secrets.
+
+To add one, set *Type* to *File* in the add form, then choose a text file or paste its content. The content must be UTF-8 text of at most 64 KB; binary files are refused. The file's extension (such as `.p8`) is kept, so tools that care about it get it. Nothing else of the original filename is used. *Save* stores the content encrypted, like any other secret, and it is never shown again.
+
+The variable does not hold the content. It holds the path to a private file with the content, which you pass to the tool that needs it:
+
+- On this Mac the file is in a private folder under Codeome's app data folder (mode `0700`, file mode `0600`). It is created when a terminal or agent first needs it, and removed when you quit Codeome, untick its scope or project, or remove the secret. If Codeome crashes, leftovers are swept at the next launch.
+- On the HPC, *Sync to HPC* writes the file to `~/.codeome/secrets/files/<project>/` in your HPC home, and the project's env file exports the variable with that path. Unticking, removing and syncing again deletes files that no longer qualify.
+
+*Replace…* keeps the type: a file secret takes a new file or pasted content, and empty content is refused (use remove to delete). To change a secret from text to file or back, remove it and add it again. *Copy* is not available for file secrets.
+
+Agents see the name and are told it is a file path, and never to print it. That is advisory only: an agent can still read the file, so enable *Agents* for a file secret deliberately.
+
 ## Using a secret
 
 In a local terminal with *Terminals* enabled, refer to a secret as `$NAME`, for example `$GITHUB_TOKEN`. Use the variable in a command or script; avoid printing its value.

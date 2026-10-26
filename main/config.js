@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { app, safeStorage } = require('electron');
+const { kindOf, extError } = require('./secrets');
 
 const DEFAULTS = {
   localRoot: path.join(os.homedir()),
@@ -41,7 +42,7 @@ const DEFAULTS = {
   // Claude Code sessions started by Codeome: leave Claude's co-author trailer and "Generated with
   // Claude Code" line out of commits and pull requests (passed with --settings; your files are untouched).
   claude: { noCoAuthor: true },
-  // Your own secrets, by name: { name, note, terminals, agents, hpc, projects }. The values are in the
+  // Your own secrets, by name: { name, note, terminals, agents, hpc, projects, kind, ext? }. The values are in the
   // Keychain-encrypted store; see secrets.js for where each is set as an environment variable.
   secrets: [],
   editor: { fontSize: 13, theme: 'auto' },
@@ -120,6 +121,18 @@ function projectHpcSettings(value) {
   return out;
 }
 
+function secretSettings(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((s) => s && typeof s === 'object' && !Array.isArray(s)).map((s) => {
+    const entry = {};
+    for (const field of ['name', 'note', 'terminals', 'agents', 'hpc', 'projects'])
+      if (Object.prototype.hasOwnProperty.call(s, field)) entry[field] = s[field];
+    entry.kind = kindOf(s);
+    if (entry.kind === 'file' && s.ext && !extError(s.ext)) entry.ext = s.ext;
+    return entry;
+  });
+}
+
 function load() {
   try {
     const saved = JSON.parse(fs.readFileSync(file('config.json'), 'utf8'));
@@ -128,6 +141,7 @@ function load() {
     const cfg = deepMerge(DEFAULTS, saved);
     cfg.forum = forumSettings(cfg.forum);
     cfg.projectHpc = projectHpcSettings(cfg.projectHpc);
+    cfg.secrets = secretSettings(cfg.secrets);
     return cfg;
   }
   catch { return JSON.parse(JSON.stringify(DEFAULTS)); }
@@ -136,6 +150,7 @@ function load() {
 function save(cfg) {
   cfg.forum = forumSettings(cfg.forum);
   cfg.projectHpc = projectHpcSettings(cfg.projectHpc);
+  cfg.secrets = secretSettings(cfg.secrets);
   fs.mkdirSync(app.getPath('userData'), { recursive: true });
   fs.writeFileSync(file('config.json'), JSON.stringify(cfg, null, 2));
   return cfg;

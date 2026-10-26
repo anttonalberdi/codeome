@@ -47,3 +47,48 @@ test('a secret limited to projects is set only in those', () => {
   assert.deepStrictEqual(Object.keys(secrets.envFor(list, 'agents', get, null)), ['EVERYWHERE']);
   assert.deepStrictEqual(Object.keys(secrets.envFor(list, 'agents', get)), ['EVERYWHERE']);
 });
+
+test('file metadata and content are validated without exposing the content', () => {
+  assert.strictEqual(secrets.MAX_FILE, 65536);
+  assert.strictEqual(secrets.kindOf({}), 'text');
+  assert.strictEqual(secrets.kindOf({ kind: 'file' }), 'file');
+  assert.strictEqual(secrets.kindOf({ kind: 'other' }), 'text');
+  for (const ext of [undefined, '', '.p8', '.A1', '.' + 'x'.repeat(16)]) assert.strictEqual(secrets.extError(ext), '');
+  for (const ext of ['p8', '.', '.a/b', '.a\0b', '../p8', '.' + 'x'.repeat(17), 7]) assert.ok(secrets.extError(ext));
+  for (const value of ['x', 'a\nb', 'é'.repeat(32768)]) assert.strictEqual(secrets.valueError('file', value), '');
+  for (const value of ['', 'a\0b', 'x'.repeat(65537), 'é'.repeat(32769), '\ud800', Buffer.from([0xff]), null]) assert.ok(secrets.valueError('file', value));
+  assert.strictEqual(secrets.valueError('text', 'a\0b'), '');
+});
+
+test('file secrets require a placement callback and never enter the env as content', () => {
+  const list = [
+    { name: 'OLD', terminals: true },
+    { name: 'FILE', kind: 'file', ext: '.p8', terminals: true },
+    { name: 'EMPTY', kind: 'file', terminals: true },
+    { name: 'NUL', kind: 'file', terminals: true },
+    { name: 'LARGE', kind: 'file', terminals: true }
+  ];
+  const store = { 'user:OLD': 'plain', 'user:FILE': 'line 1\nline 2', 'user:EMPTY': '',
+    'user:NUL': 'a\0b', 'user:LARGE': 'x'.repeat(65537) };
+  const get = (k) => store[k];
+  assert.deepStrictEqual(secrets.envFor(list, 'terminals', get), { OLD: 'plain' });
+  const placed = [];
+  const env = secrets.envFor(list, 'terminals', get, null, (s, value) => {
+    placed.push([s.name, value]);
+    return '/private/FILE.p8';
+  });
+  assert.deepStrictEqual(env, { OLD: 'plain', FILE: '/private/FILE.p8' });
+  assert.deepStrictEqual(placed, [['FILE', 'line 1\nline 2']]);
+  assert.deepStrictEqual(secrets.envFor(list, 'terminals', get, null, () => ''), { OLD: 'plain' });
+});
+
+test('a failed file placement skips that variable and keeps the other secrets', () => {
+  const list = [{ name: 'BAD', kind: 'file', agents: true }, { name: 'GOOD', kind: 'file', agents: true }, { name: 'TEXT', agents: true }];
+  const content = 'private content';
+  const env = secrets.envFor(list, 'agents', () => content, '/project', (s) => {
+    if (s.name === 'BAD') throw new Error(content);
+    return '/private/GOOD';
+  });
+  assert.deepStrictEqual(env, { GOOD: '/private/GOOD', TEXT: content });
+  assert.strictEqual(JSON.stringify(env).includes('BAD'), false);
+});

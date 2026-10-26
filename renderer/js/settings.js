@@ -1090,6 +1090,51 @@
   // ---------- secrets ----------
   // Your own tokens and keys, each named as the environment variable it becomes. Values go
   // straight to the Keychain; the page knows the names and where each is used, never a value.
+  function secretFileEntry(ext = '') {
+    let chosen = null;
+    const picked = h('span.hint', { role: 'status', 'aria-live': 'polite' });
+    const error = h('span.hint', { role: 'alert' });
+    const invalid = (message) => { error.textContent = message; return { error: message }; };
+    const paste = h('textarea', { rows: 4, placeholder: 'Paste UTF-8 text instead', 'aria-label': 'Paste file content',
+      oninput: () => { chosen = null; picker.value = ''; picked.textContent = ''; error.textContent = ''; } });
+    const picker = h('input', { type: 'file', 'aria-label': 'Choose a text file', onchange: () => {
+      chosen = picker.files?.[0] || null;
+      error.textContent = '';
+      if (chosen) {
+        paste.value = '';
+        picked.textContent = `${chosen.name} · ${chosen.size.toLocaleString()} bytes`;
+      } else picked.textContent = '';
+    } });
+    const el = h('div.sec-file', h('label.field', h('span', 'Choose a text file'), picker), picked,
+      h('label.field', h('span', 'Or paste file content'), paste), error);
+    const read = async () => {
+      let value;
+      let nextExt = ext;
+      try {
+        if (chosen) {
+          if (chosen.size > 65539) return invalid('File content must be 64 KB or less.');
+          const bytes = await chosen.arrayBuffer();
+          if (bytes.byteLength > 65539) return invalid('File content must be 64 KB or less.');
+          value = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+          const dot = chosen.name.lastIndexOf('.');
+          const suffix = dot > 0 ? chosen.name.slice(dot) : '';
+          nextExt = /^\.[A-Za-z0-9]{1,16}$/.test(suffix) ? suffix : '';
+        } else {
+          value = paste.value || '';
+        }
+        if (value.startsWith('\uFEFF')) value = value.slice(1);
+        const bytes = new TextEncoder().encode(value);
+        if (bytes.byteLength > 65536) return invalid('File content must be 64 KB or less.');
+        if (new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) !== value)
+          return invalid('File content must be valid UTF-8.');
+      } catch { return invalid('Could not read a valid UTF-8 text file.'); }
+      if (!value) return invalid('Choose a non-empty UTF-8 text file or paste its content.');
+      if (value.includes('\0')) return invalid('File content cannot contain NUL bytes.');
+      return { value, ext: nextExt };
+    };
+    return { el, read, focus: () => picker.focus() };
+  }
+
   async function secretsSection() {
     const list = () => (App.cfg.secrets = App.cfg.secrets || []);
     const redraw = async () => { if (current === 'secrets') sections.secrets.replaceWith(await secretsSection()); };
@@ -1122,7 +1167,8 @@
     const live = (s) => list().find((x) => x.name === s.name) || s;
     const rows = list().map((s, i) => h('div.sec-row', { role: 'listitem' },
       h('div.ag-name',
-        h('div.row', h('b.sec-name', s.name), has[i] ? null : h('span.pill.warn', { title: 'Its value is missing from the Keychain. Use Replace… to enter it again.' }, 'no value')),
+        h('div.row', h('b.sec-name', s.name), s.kind === 'file' ? h('span.pill', 'file') : null,
+          has[i] ? null : h('span.pill.warn', { title: 'Its value is missing from the Keychain. Use Replace… to enter it again.' }, 'no value')),
         h('input.sec-note', { type: 'text', value: s.note || '', placeholder: 'Add a note: what it is for, when it expires', 'aria-label': `Note for ${s.name}`,
           onchange: (e) => { live(s).note = e.target.value.trim().slice(0, 200); commit(); } })),
       h('div.sec-use',
@@ -1131,16 +1177,26 @@
         check('HPC', () => live(s).hpc, (v) => { live(s).hpc = v; if (hpc?.connected) hpcStatus.textContent = `HPC selection changed. Sync to update ${hpc.path}.`; }, undefined, 'The value is stored in plaintext (mode 0600) in the HPC home when synced.'),
         h('button.btn.small.sec-scope', { title: Array.isArray(s.projects) ? s.projects.map((d) => App.tildify(d)).join('\n') || 'Set in no project' : 'Set in every project', 'aria-label': `Projects for ${s.name}: ${scopeLabel(s)}`, onclick: () => pickProjects(live(s)) }, scopeLabel(s))),
       h('div.sec-acts',
-        h('button.btn.small', { disabled: !has[i], onclick: async () => {
+        s.kind === 'file' ? null : h('button.btn.small', { disabled: !has[i], onclick: async () => {
           const r = await codeome.secrets.copy(s.name);
           if (r.error) return App.err(r.error);
           flash(`Copied for ${r.seconds} s`);
         } }, 'Copy'),
         h('button.btn.small', { onclick: async () => {
-          const r = await App.modal({ title: `Replace ${s.name}`, text: 'The new value takes the place of the saved one.', ok: 'Replace', fields: [{ key: 'v', label: 'New value', type: 'password', placeholder: 'Paste token' }] });
-          if (!r || !r.v.trim()) return;
-          const res = await codeome.secrets.set(s.name, r.v.trim());
+          const isFile = s.kind === 'file';
+          const file = isFile ? secretFileEntry(s.ext || '') : null;
+          const r = await App.modal({ title: `Replace ${s.name}`, text: 'The new value takes the place of the saved one.', ok: 'Replace',
+            ...(file ? { body: file.el } : { fields: [{ key: 'v', label: 'New value', type: 'password', placeholder: 'Paste token' }] }) });
+          if (!r) return;
+          const entry = file ? await file.read() : { value: r.v.trim() };
+          if (entry.error) return App.err(entry.error);
+          if (!entry.value) return;
+          const res = await codeome.secrets.set(s.name, entry.value, isFile ? 'file' : 'text', entry.ext);
           if (res.error) return App.err(res.error);
+          if (isFile && entry.ext !== (s.ext || '')) {
+            if (entry.ext) live(s).ext = entry.ext; else delete live(s).ext;
+            await App.saveConfig();
+          }
           flash('Secret replaced'); redraw();
         } }, 'Replace…'),
         h('button.icon-btn.small', { title: 'Remove', 'aria-label': 'Remove ' + s.name, html: App.icons.trash, onclick: async () => {
@@ -1152,17 +1208,25 @@
 
     const name = h('input.mono', { type: 'text', placeholder: 'GITHUB_TOKEN', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Name' });
     const value = h('input', { type: 'password', placeholder: 'Paste token', autocomplete: 'off', 'aria-label': 'Value' });
+    const file = secretFileEntry();
+    const fileBox = h('div', { hidden: true }, file.el);
+    const type = select([{ value: 'text', label: 'Text' }, { value: 'file', label: 'File' }], 'text', (kind) => {
+      value.hidden = kind === 'file';
+      fileBox.hidden = kind !== 'file';
+    }, 'Type');
     const add = h('button.btn.small.primary', { onclick: async () => {
-      const n = name.value.trim(), v = value.value.trim();
+      const n = name.value.trim(), kind = type.value;
       if (!n) return name.focus();
-      if (!v) return value.focus();
       if (list().some((x) => x.name === n)) return App.err(`${n} is already saved. Use Replace… to change its value.`);
-      const res = await codeome.secrets.set(n, v);
+      const entry = kind === 'file' ? await file.read() : { value: value.value.trim() };
+      if (entry.error) return App.err(entry.error);
+      if (!entry.value) return kind === 'file' ? file.focus() : value.focus();
+      const res = await codeome.secrets.set(n, entry.value, kind, entry.ext);
       if (res.error) return App.err(res.error);
-      list().push({ name: n, note: '', terminals: false, agents: false });
+      list().push({ name: n, note: '', terminals: false, agents: false, kind, ...(entry.ext ? { ext: entry.ext } : {}) });
       await App.saveConfig(); flash('Secret saved'); redraw();
     } }, 'Save');
-    name.onkeydown = (e) => { if (e.key === 'Enter') value.focus(); };
+    name.onkeydown = (e) => { if (e.key === 'Enter') (type.value === 'file' ? file.focus : () => value.focus())(); };
     value.onkeydown = (e) => { if (e.key === 'Enter') add.click(); };
 
     const skipped = hpc?.skipped?.length ? ` Skipped: ${hpc.skipped.join(', ')}.` : '';
@@ -1190,12 +1254,12 @@
       } finally { sync.disabled = false; }
     } }, 'Sync to HPC');
 
-    return section('secrets', 'Secrets', 'Access tokens, API keys and passwords of your own, encrypted with the macOS Keychain. A value is never shown again: copy it, or have Codeome set it as an environment variable.',
+    return section('secrets', 'Secrets', 'Access tokens, API keys and passwords of your own, encrypted with the macOS Keychain. Content is never shown again. Text secrets can be copied; file secrets become private file paths in the environment.',
       card('Saved secrets',
         rows.length ? h('div', { role: 'list', 'aria-label': 'Saved secrets' }, rows) : h('div.sp-empty', 'None yet. Add one below.'),
-        h('div.sec-add', name, value, add),
+        h('div.sec-add', h('div.sec-add-identity', name, type), h('div.sec-add-value', value, fileBox), add),
         h('div.sp-foot.row.wrap', sync, hpcStatus),
-        h('div.sp-foot.hint', 'The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. HPC: syncs selected secrets to a private file in the HPC home, where they are stored in plaintext (mode 0600). All three are off for a new secret. The project button limits where each enabled scope applies. Copy puts the value on the clipboard for 30 seconds.')));
+        h('div.sp-foot.hint', 'The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. HPC: syncs selected secrets to a private file in the HPC home, where they are stored in plaintext (mode 0600). All three are off for a new secret. The project button limits where each enabled scope applies. Copy puts a text value on the clipboard for 30 seconds.')));
   }
 
   function appearanceSection(c) {

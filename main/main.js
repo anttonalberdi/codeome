@@ -31,6 +31,7 @@ const login = require('./login');
 const gdoc = require('./gdoc');
 const secrets = require('./secrets');
 const secretsSync = require('./secrets-sync');
+const { createStore } = require('./secret-files');
 const templates = require('./templates');
 const { run, q, expandHome, augmentedEnv } = require('./util');
 const crashlog = require('./crashlog');
@@ -68,6 +69,8 @@ const ptys = new Map();
 const chats = new Map(); // chat id → chat.Session
 const transfers = new Map();
 let cfg = null;
+let secretFileStore = null;
+const placedSecrets = new Set();
 let heartbeatTimer = null;
 let rendererLogTimer = null;
 let rendererLogStart = 0;
@@ -299,7 +302,11 @@ function secretEnv(name) {
 // in terminals, tasks and consoles on this Mac, or in agent sessions, of the projects it is open to.
 // HPC sessions get none.
 const SECRET_SCOPE = { shell: 'terminals', task: 'terminals', console: 'terminals', 'agent-local': 'agents' };
-const userSecretEnv = (scope, project) => secrets.envFor(cfg.secrets, scope, config.getSecret, project);
+const userSecretEnv = (scope, project) => secrets.envFor(cfg.secrets, scope, config.getSecret, project, (s, value) => {
+  const file = secretFileStore.place(s, value);
+  placedSecrets.add(s.name);
+  return file;
+});
 
 const HPC_SOURCING = ['hpc-console', 'hpc-task', 'hpc-lane', 'hpc-shell', 'agent-hpc'];
 const spawning = new Set();
@@ -358,7 +365,19 @@ ipcMain.handle('config:set', (_e, c) => {
   for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = a.dir == null ? usage.folderFor(e, a.name) : usage.normDir(e, a.dir); // a new account gets its folder here
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
   const secretsChanged = JSON.stringify(c.secrets) !== JSON.stringify(cfg.secrets);
+  const oldSecrets = cfg.secrets || [];
   cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts });
+  for (const old of oldSecrets) {
+    if (!old || secrets.kindOf(old) !== 'file') continue;
+    const next = (cfg.secrets || []).find((s) => s && s.name === old.name);
+    const narrowed = next && Array.isArray(next.projects) &&
+      (!Array.isArray(old.projects) || old.projects.some((project) => !next.projects.includes(project)));
+    if (!next || secrets.kindOf(next) !== 'file' || (old.ext || '') !== (next.ext || '') ||
+        (!next.terminals && !next.agents) || narrowed) {
+      try { secretFileStore.remove(old.name); } catch {}
+      placedSecrets.delete(old.name);
+    }
+  }
   applyProxy();
   if (secretsChanged) syncAllSecretsQuietly();
   if (accountsChanged) mirrorGeneralQuietly();
@@ -424,17 +443,42 @@ ipcMain.handle('secrets:sync', async (_e, project) => {
   return syncPair(cfg.hpc.host, project);
 });
 ipcMain.handle('secrets:hpcStatus', async (_e, project) => ({ connected: !!cfg.hpc.host && (await ssh.check(cfg.hpc.host)).connected, ...secretsSync.plan(cfg.secrets, project, config.getSecret) }));
-ipcMain.handle('secrets:set', (_e, { name, value }) => {
+ipcMain.handle('secrets:set', (_e, { name, value, kind, ext }) => {
   const bad = secrets.nameError(name);
   if (bad) return { error: bad };
-  if (!value) return { error: 'Enter a value.' };
-  config.setSecret(secrets.key(name), String(value));
+  const existing = (cfg.secrets || []).find((s) => s && s.name === name);
+  const currentKind = existing && secrets.kindOf(existing);
+  const nextKind = kind === undefined ? currentKind || 'text' : kind;
+  if (nextKind !== 'text' && nextKind !== 'file') return { error: 'Choose Text or File.' };
+  if (currentKind && nextKind !== currentKind) return { error: 'Remove the secret before changing its type.' };
+  const nextExt = ext === undefined && existing ? existing.ext : ext;
+  const badExt = secrets.extError(nextExt);
+  if (badExt) return { error: badExt };
+  if (!value) return { error: nextKind === 'file' ? secrets.valueError('file', value) : 'Enter a value.' };
+  const badValue = secrets.valueError(nextKind, value);
+  if (badValue) return { error: badValue };
+  try {
+    config.setSecret(secrets.key(name), String(value));
+    if (nextKind === 'file' && existing && placedSecrets.has(name)) secretFileStore.place({ ...existing, ext: nextExt }, value);
+  } catch { return { error: 'Could not save the secret.' }; }
   syncAllSecretsQuietly();
   return { ok: true };
 });
-ipcMain.handle('secrets:remove', (_e, name) => { if (!secrets.nameError(name)) { config.setSecret(secrets.key(name), ''); syncAllSecretsQuietly(); } return { ok: true }; });
+ipcMain.handle('secrets:remove', (_e, name) => {
+  const bad = secrets.nameError(name);
+  if (bad) return { error: bad };
+  if (placedSecrets.has(name) || (cfg.secrets || []).some((s) => s && s.name === name && secrets.kindOf(s) === 'file')) {
+    try { secretFileStore.remove(name); } catch {}
+  }
+  placedSecrets.delete(name);
+  try { config.setSecret(secrets.key(name), ''); }
+  catch { return { error: 'Could not remove the secret.' }; }
+  syncAllSecretsQuietly();
+  return { ok: true };
+});
 ipcMain.handle('secrets:has', (_e, names) => (Array.isArray(names) ? names : []).map((n) => !secrets.nameError(n) && config.hasSecret(secrets.key(n))));
 ipcMain.handle('secrets:copy', (_e, name) => {
+  if ((cfg.secrets || []).some((s) => s && s.name === name && secrets.kindOf(s) === 'file')) return { error: 'File secrets cannot be copied.' };
   const value = secrets.nameError(name) ? '' : config.getSecret(secrets.key(name));
   if (!value) return { error: 'No value is saved for ' + name + '.' };
   clearCopied();
@@ -1146,7 +1190,7 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
     const local = new Set(Object.keys(userSecretEnv('agents', project)));
     const plan = secretsSync.plan(cfg.secrets, project, config.getSecret);
     const onHpc = new Set(plan.names);
-    const list = (cfg.secrets || []).filter((x) => x && (local.has(x.name) || onHpc.has(x.name))).map((x) => ({ name: x.name, local: local.has(x.name), hpc: onHpc.has(x.name) }));
+    const list = (cfg.secrets || []).filter((x) => x && (local.has(x.name) || onHpc.has(x.name))).map((x) => ({ name: x.name, local: local.has(x.name), hpc: onHpc.has(x.name), kind: secrets.kindOf(x) }));
     return { list, hpcPath: plan.path };
   })();
   let s;
@@ -1479,6 +1523,8 @@ ipcMain.handle('env:detect', async () => {
 });
 
 app.whenReady().then(() => {
+  secretFileStore = createStore(app.getPath('userData'));
+  try { secretFileStore.sweepStale(); } catch {}
   const logDir = process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Logs', 'Codeome') : path.join(app.getPath('userData'), 'logs');
   const prev = crashlog.previousRun(logDir);
   crashlog.init({ dir: logDir, version: app.getVersion() });
@@ -1521,6 +1567,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   quitting = true;
   try { forumHost.disposeAll(); clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); }
-  finally { clearInterval(heartbeatTimer); flushRendererLogs(); try { crashlog.markClean(); } catch {} }
+  finally { try { if (secretFileStore) secretFileStore.cleanupAll(); } catch {} clearInterval(heartbeatTimer); flushRendererLogs(); try { crashlog.markClean(); } catch {} }
 });
+app.on('will-quit', () => { try { if (secretFileStore) secretFileStore.cleanupAll(); } catch {} });
 app.on('window-all-closed', () => { forumHost.disposeAll(); stopLogins(); if (tunnel) tunnel.stop(); for (const p of ptys.values()) { try { p.kill(); } catch {} } for (const c of chats.values()) c.stop(); if (process.platform !== 'darwin') app.quit(); });

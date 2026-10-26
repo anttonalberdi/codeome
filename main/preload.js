@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('codeome', {
   policy: { defaults: invoke('policy:defaults') },
   secret: { set: (key, value) => ipcRenderer.invoke('secret:set', { key, value }), has: invoke('secret:has') },
   secrets: {
-    set: (name, value) => ipcRenderer.invoke('secrets:set', { name, value }), remove: invoke('secrets:remove'),
+    set: (name, value, kind, ext) => ipcRenderer.invoke('secrets:set', { name, value, kind, ext }), remove: invoke('secrets:remove'),
     has: invoke('secrets:has'), copy: invoke('secrets:copy'),
     sync: invoke('secrets:sync'), hpcStatus: invoke('secrets:hpcStatus')
   },

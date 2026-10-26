@@ -94,6 +94,25 @@ test('secretsPrompt lists names only, flags the HPC ones and never needs values'
   assert.ok(chat.codexPrompt({ kitInstalled: true, secrets: s }).endsWith(chat.secretsPrompt(s, 'codex')));
 });
 
+test('secretsPrompt explains file paths without exposing secret contents or notes', () => {
+  const secrets = { list: [
+    { name: 'API_KEY', kind: 'text', note: 'private text note', value: 'private text value' },
+    { name: 'LOCAL_FILE', kind: 'file', note: 'private file note', value: 'private file value' },
+    { name: 'HPC_FILE', kind: 'file', local: false, hpc: true },
+    { name: 'SHARED_FILE', kind: 'file', hpc: true }
+  ] };
+  const prompt = chat.secretsPrompt(secrets);
+  assert.strictEqual(chat.secretsPrompt({ list: [{ name: 'API_KEY', kind: 'text' }] }),
+    '\n## Secrets set for this project\n\nThese variables are set; their values are never shown to you. Use them by name.\n\n- `API_KEY`\n');
+  assert.ok(prompt.includes('- `API_KEY`\n'));
+  assert.ok(prompt.includes('- `LOCAL_FILE` — The variable holds the path to a private file locally.'));
+  assert.ok(prompt.includes('- `HPC_FILE` (HPC only: not in your local environment) — The variable holds the path to a private file on the HPC under `~/.codeome/secrets/files/`.'));
+  assert.ok(prompt.includes('- `SHARED_FILE` (also on the HPC) — The variable holds the path to a private file locally, or on the HPC under `~/.codeome/secrets/files/`.'));
+  assert.ok(prompt.includes('Pass that path to the program that needs it; never print, cat, copy, log or commit the file contents.'));
+  for (const secret of ['private text note', 'private text value', 'private file note', 'private file value']) assert.ok(!prompt.includes(secret));
+  assert.ok(chat.secretsPrompt(secrets, 'codex').includes('Codex may hide those with KEY, SECRET or TOKEN in the name'));
+});
+
 test('the static prompts carry the secrets rules', () => {
   for (const p of [chat.systemPrompt(true), chat.codexPrompt({ kitInstalled: true })]) assert.ok(p.includes('## Secrets') && p.includes('Settings > Secrets') && p.includes('rotate'));
 });

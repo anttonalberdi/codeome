@@ -5,7 +5,7 @@
 
 const path = require('path');
 const crypto = require('crypto');
-const { key, nameError, allows } = require('./secrets');
+const { key, kindOf, extError, valueError, nameError, allows } = require('./secrets');
 
 const DIR = '$HOME/.codeome/secrets';
 
@@ -23,20 +23,27 @@ const remotePath = (project) => `${DIR}/${slug(project)}.env`;
 // Single-quoted for the shell: an embedded ' becomes '\''.
 const quote = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
 
-// The secrets that qualify for the project: hpc on, a valid name, allowed here, a value that fits in
-// an env file (no NUL). get(key) reads a value from the store. Returns the file and the names in it.
+// The secrets that qualify for the project: hpc on, a valid name, allowed here, and valid content.
+// get(key) reads a value from the store. File contents stay separate from the env text.
 function build(list, project, get) {
-  const names = [], skipped = [], lines = [];
+  const names = [], skipped = [], lines = [], files = [];
   for (const s of Array.isArray(list) ? list : []) {
     if (!s || !s.hpc || nameError(s.name) || !allows(s, project)) continue;
     const v = get(key(s.name));
-    if (!v) continue;
-    if (String(v).includes('\0')) { skipped.push(s.name); continue; }
+    if (kindOf(s) === 'file') {
+      if (extError(s.ext) || valueError('file', v)) { skipped.push(s.name); continue; }
+      const filename = s.name + (s.ext || '');
+      files.push({ filename, content: v });
+      lines.push(`export ${s.name}="$HOME/.codeome/secrets/files/${slug(project)}/${filename}"`);
+    } else {
+      if (!v) continue;
+      if (String(v).includes('\0')) { skipped.push(s.name); continue; }
+      lines.push(`export ${s.name}=${quote(v)}`);
+    }
     names.push(s.name);
-    lines.push(`export ${s.name}=${quote(v)}`);
   }
   const text = names.length ? ['# Written by Codeome from your secrets (Settings > Secrets). Do not edit or commit.', ...lines, ''].join('\n') : '';
-  return { text, names, skipped };
+  return { text, names, skipped, files };
 }
 
 // Names only, for showing what a sync would send.
@@ -60,16 +67,45 @@ async function syncNow(project, deps) {
   const { host, list, get, exec, track } = typeof deps === 'function' ? deps() : deps;
   const b = build(list, project, get);
   const f = remotePath(project), tmp = f + '.tmp.$$';
-  const cmd = b.names.length
-    ? `umask 077; mkdir -p "${DIR}" && chmod 700 "$HOME/.codeome" "${DIR}" && cat > "${tmp}" && mv "${tmp}" "${f}" || { rm -f "${tmp}"; exit 1; }`
-    : `rm -f "${f}"`;
+  const filesDir = `${DIR}/files/${slug(project)}`;
+  const prune = `rm -rf "${filesDir}".tmp.* "${filesDir}".old.*`;
+  const fileCmd = [
+    `umask 077; case $- in *x*) set +x;; esac`,
+    `mkdir -p "${DIR}/files" && chmod 700 "$HOME/.codeome" "${DIR}" "${DIR}/files" && ${prune} || exit 1`,
+    `_cx_stage="${filesDir}.tmp.$$"; _cx_old="${filesDir}.old.$$"; _cx_env="${tmp}"; _cx_swapped=`,
+    `mkdir "$_cx_stage" && {`,
+    `_cx_ok=`,
+    `while IFS= read -r _cx_line; do`,
+    `if [ "$_cx_line" = "---" ]; then _cx_ok=1; break; fi`,
+    `case "$_cx_line" in *' '*) ;; *) break;; esac`,
+    `_cx_name=\${_cx_line%% *}; _cx_data=\${_cx_line#* }`,
+    `case "$_cx_name" in ''|.*|*[!A-Za-z0-9_.]*|*..*) break;; esac`,
+    `base64 -d > "$_cx_stage/$_cx_name" <<_CX_B64 || break`,
+    `$_cx_data`,
+    `_CX_B64`,
+    `done`,
+    `[ "$_cx_ok" = 1 ] && rm -f "$_cx_env" && cat > "$_cx_env" && { mv "${filesDir}" "$_cx_old" 2>/dev/null || :; } && [ ! -e "${filesDir}" ] && [ ! -L "${filesDir}" ] && mv "$_cx_stage" "${filesDir}" && _cx_swapped=1 && mv "$_cx_env" "${f}" && { rm -rf "$_cx_old" || :; }`,
+    `} || { if [ -n "$_cx_swapped" ]; then rm -rf "${filesDir}"; fi; if [ -e "$_cx_old" ] || [ -L "$_cx_old" ]; then mv "$_cx_old" "${filesDir}"; fi; rm -rf "$_cx_stage"; rm -f "$_cx_env"; exit 1; }`
+  ].join('\n');
+  const cmd = b.files.length
+    ? fileCmd
+    : b.names.length
+      ? `umask 077; ${prune} && mkdir -p "${DIR}" && chmod 700 "$HOME/.codeome" "${DIR}" && cat > "${tmp}" && mv "${tmp}" "${f}" || { rm -f "${tmp}"; exit 1; } && rm -rf "${filesDir}"`
+      : `${prune} && rm -f "${f}" && rm -rf "${filesDir}"`;
   // Recorded here, in queue order, so a stale completion cannot forget a newer write.
   const note = (on) => { try { if (track) track(host, project, on); } catch {} };
   if (b.names.length) note(true);
   let r;
-  try { r = await exec(host, cmd, b.names.length ? { input: b.text, timeout: 30000 } : { timeout: 30000 }); }
+  const input = b.files.length ? b.files.map((file) => `${file.filename} ${Buffer.from(file.content, 'utf8').toString('base64')}\n`).join('') + `---\n${b.text}` : b.text;
+  try { r = await exec(host, cmd, b.names.length ? { input, timeout: 30000 } : { timeout: 30000 }); }
   catch (e) { return { error: 'Could not reach the HPC.' }; }
-  if (!r || r.code !== 0) return { error: 'The HPC did not accept the secrets file' + (r && r.stderr ? ': ' + String(r.stderr).trim().split('\n')[0].slice(0, 200) : '.') };
+  if (!r || r.code !== 0) {
+    // The first line of the remote's complaint helps, unless it echoes back what was sent.
+    const why = r && r.stderr ? String(r.stderr).trim().split('\n')[0].slice(0, 200) : '';
+    const sent = input + b.files.map((file) => file.content).join('\n');
+    const echoed = why.split(/\s+/).some((w) => w.length >= 8 && sent.includes(w));
+    return { error: 'The HPC did not accept the secrets file' + (why && !echoed ? ': ' + why : '.') };
+  }
   if (!b.names.length) note(false);
   return { ok: true, count: b.names.length, names: b.names, skipped: b.skipped, removed: !b.names.length };
 }
@@ -83,6 +119,11 @@ const hash8 = (project) => crypto.createHash('sha256').update(String(project || 
 
 // A short keyed hash of the project's current secret set (names and values), for naming sessions so
 // that any change starts a new one. Keyed with a per-install salt: never a bare hash of values.
-const tag = (list, project, get, salt) => crypto.createHmac('sha256', salt).update(build(list, project, get).text).digest('hex').slice(0, 8);
+function tag(list, project, get, salt) {
+  const b = build(list, project, get);
+  const h = crypto.createHmac('sha256', salt).update(b.text);
+  for (const file of b.files) h.update('\0').update(file.filename).update('\0').update(file.content);
+  return h.digest('hex').slice(0, 8);
+}
 
 module.exports = { tag, hash8, slug, remotePath, quote, build, plan, sync, sourceCmd };

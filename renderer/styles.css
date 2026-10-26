@@ -1104,6 +1104,10 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .sec-scope { min-width: 96px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sec-hpc-status { min-width: 0; overflow-wrap: anywhere; }
 .sec-add { display: grid; grid-template-columns: minmax(140px, 220px) minmax(140px, 1fr) auto; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
+.sec-add-identity, .sec-add-value, .sec-file { display: grid; gap: 6px; min-width: 0; }
+.sec-file input[type=file] { width: 100%; min-width: 0; font-size: 12px; }
+.sec-file textarea { font-family: var(--mono); font-size: 12px; }
+.sec-file [role=alert] { color: var(--fail); }
 .ag-table { display: flex; flex-direction: column; }
 .ag-row { display: grid; grid-template-columns: minmax(150px, 1fr) 130px minmax(150px, 200px) 90px 55px 130px; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
 .ag-headrow { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding-top: 7px; padding-bottom: 5px; border-top: 0; }
