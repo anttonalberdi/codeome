@@ -1052,10 +1052,14 @@
             } }, h('b', o.label), o.description ? h('span', o.description) : null);
             return b;
           }),
-          (others[k] = h('input', { type: 'text', placeholder: 'Other…', 'aria-label': 'Other answer', onkeydown: (e) => {
-            if (e.key === 'Enter' && single && e.target.value.trim()) answer(chat, it, { [q.question]: e.target.value.trim() });
-            else if (e.key === 'Enter' && submitBtn) submitBtn.click();
-          } }))))),
+          (others[k] = h('textarea.ask-other', { rows: 1, placeholder: 'Other…', 'aria-label': 'Other answer',
+            oninput: (e) => { const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(220, t.scrollHeight + 2) + 'px'; },
+            onkeydown: (e) => {
+              if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+              e.preventDefault();
+              if (single && e.target.value.trim()) answer(chat, it, { [q.question]: e.target.value.trim() });
+              else if (submitBtn) submitBtn.click();
+            } }))))),
       done || single ? null : h('div.row.ask-btns', submitBtn));
   }
 
