@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Changed
+- **Longer answers to agent questions**: the "Other…" field on an agent's question card is now a text area that grows downwards as you type, like the main chat box, instead of scrolling a single line sideways. Enter sends the answer and Shift+Enter starts a new line.
+
 ## 1.2.4
 
 ### Added
