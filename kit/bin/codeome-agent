@@ -282,7 +282,8 @@ def cmd_progress(a):
                 stage['kind'] = 'determinate' if stage['total'] is not None else 'indeterminate'
                 stage['unit'] = str(stage['unit'])[:20] if stage['unit'] is not None else None
                 if not isinstance(stage['baselineSeconds'], (int, float)) or isinstance(stage['baselineSeconds'], bool) or not math.isfinite(stage['baselineSeconds']) or stage['baselineSeconds'] < 0:
-                    stage['baselineSeconds'] = progress_stage(stage_id, stage['label'], stamp, history)['baselineSeconds']
+                    # A finished stage keeps what it had: refilling it from history would give it its own duration.
+                    stage['baselineSeconds'] = progress_stage(stage_id, stage['label'], stamp, history)['baselineSeconds'] if stage['state'] in ('waiting', 'running') else None
                 stages.append(stage)
         for stage_id, label in plan:
             if not any(s['id'] == stage_id for s in stages) and len(stages) < 50:

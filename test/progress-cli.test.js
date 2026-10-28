@@ -254,6 +254,27 @@ test('history keeps five durations, records only a transition to done, and fills
   assert.equal(progress(other).stages[0].baselineSeconds, 4);
 });
 
+test('a stage finished on its first run does not take its own duration as baseline', (t) => {
+  const root = project(t);
+  const dir = job(root);
+  const startedAt = new Date(Date.now() - 3000).toISOString();
+  fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify({ v: 1, stages: [
+    { id: 'first', state: 'running', startedAt }, { id: 'second', state: 'waiting' }
+  ] }));
+  assert.equal(run(root, ['progress', '--job', 'job-1', '--stage', 'first', '--state', 'done']).status, 0);
+  assert.ok(json(path.join(root, '.codeome', 'jobs', '.progress-history.json')).first[0] >= 3);
+  // The next call rebuilds every stage from the file; it must not refill the finished one from history.
+  assert.equal(run(root, ['progress', '--job', 'job-1', '--stage', 'second', '--state', 'running']).status, 0);
+  const stages = progress(dir).stages;
+  assert.equal(stages[0].state, 'done');
+  assert.equal(stages[0].baselineSeconds, null);
+  assert.equal(stages[1].baselineSeconds, null);
+  // A stage that has not run yet still picks up a baseline from earlier runs.
+  const later = job(root, 'job-2');
+  assert.equal(run(root, ['progress', '--job', 'job-2', '--plan', 'first:First']).status, 0);
+  assert.ok(progress(later).stages[0].baselineSeconds >= 3);
+});
+
 test('corrupt history is ignored', (t) => {
   const root = project(t);
   const dir = job(root);
