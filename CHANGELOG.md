@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.3.0
 
 ### Added
 - **Job progress on job cards**: specialists (Codex and Claude) can report the stages of a job with `codeome-agent progress`, and the card shows a collapsible block with an overall bar, `stage N/M`, a row per stage, done/total bars, elapsed time against the usual duration, an estimated time left once the stage has been seen before, and a stall badge after 120 seconds without an update. Cards without progress look as before. The agents report the steps; Codeome does not parse test-suite logs or show a card for background commands yet. Needs agent kit 0.7.0, so update the kit in existing projects.
