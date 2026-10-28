@@ -787,9 +787,9 @@
   function taskEnded(chat, toolUseId, status) {
     const it = chat.tools[toolUseId];
     if (!it) return;
-    if (it.t === 'job' && it.status === 'running') { jobFinished(chat); it.status = status === 'completed' ? 'done' : status === 'killed' ? 'cancelled' : 'failed'; it.endedAt = Date.now(); }
+    if (it.t === 'job' && it.status === 'running') { jobFinished(chat); it.status = status === 'completed' ? 'done' : ['killed', 'stopped'].includes(status) ? 'cancelled' : 'failed'; it.endedAt = Date.now(); }
     if (it.t === 'progress' && it.status !== 'stale') {
-      const next = status === 'completed' ? 'done' : ['killed', 'cancelled', 'canceled'].includes(status) ? 'cancelled' : 'failed';
+      const next = status === 'completed' ? 'done' : ['killed', 'stopped', 'cancelled', 'canceled'].includes(status) ? 'cancelled' : 'failed';
       settleTask(chat, it, next);
     }
     if (it.t === 'tool') it.done = true;

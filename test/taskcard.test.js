@@ -89,7 +89,7 @@ test('unrelated tools and invalid watch keys stay plain tool lines', () => {
 });
 
 test('background result stays running, then task notifications finish the card', async () => {
-  for (const [notification, expected] of [['completed', 'done'], ['killed', 'cancelled'], ['failed', 'failed']]) {
+  for (const [notification, expected] of [['completed', 'done'], ['killed', 'cancelled'], ['stopped', 'cancelled'], ['failed', 'failed']]) {
     const t = harness();
     t.use('watch', 'Bash', 'codeome-agent watch --task suite', { run_in_background: true });
     t.result('watch', 'Command running in background');

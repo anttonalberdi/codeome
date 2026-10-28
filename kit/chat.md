@@ -33,7 +33,7 @@ The Codeome agent kit is installed in this project. The roles and their default 
 
 - Claude specialists: the Agent tool with `subagent_type` set to the role.
 - Codex specialists: `.codeome/bin/codeome-agent codex --role <role> --title "<short title>"` with the brief on stdin, run with Bash in the background. Codeome wakes you when the job ends. To continue the same Codex conversation, pass `--resume <session>` (the job's output prints the session id).
-- For a parseable test suite or command running more than about a minute, start the command in one Bash call, then run `.codeome/bin/codeome-agent watch` in a separate Bash call with `run_in_background: true` and `--task` so the user sees a progress card. Use the printed pid for `<pid>`. The card ends when that background call ends. Use a unique task key with a short random suffix, set `--total` to the test file count for Vitest, and do not poll the log yourself. Skip short commands.
+- For a parseable test suite or command running more than about a minute, start the command in one Bash call, then run `.codeome/bin/codeome-agent watch` in a separate Bash call with `run_in_background: true` and `--task` so the user sees a progress card. Use the printed pid for `<pid>`. The card ends when that background call ends. Do not wrap `watch` in a Monitor: a Monitor expires after its timeout and stops the command with it. Use a unique task key with a short random suffix, set `--total` to the test file count for Vitest, and do not poll the log yourself. Skip short commands.
   First Bash call:
   ```bash
   LOG=$(mktemp); npx vitest run --reporter=verbose > "$LOG" 2>&1 & echo "$LOG $!"
