@@ -1,0 +1,8 @@
+Job stats:
+job     count
+-----  -------
+alpha        1
+total        1
+
+1 of 1 steps (100%) done
+Complete log: .snakemake/log/ansi.log

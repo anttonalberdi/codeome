@@ -1,0 +1,10 @@
+Job stats:
+job     count
+-----  -------
+alpha        1
+total        1
+
+MissingOutputException in rule alpha:
+Finished job 0.
+1 of 1 steps (100%) done
+Complete log: .snakemake/log/missing-retry.log

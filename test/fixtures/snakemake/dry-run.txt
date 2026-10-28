@@ -1,0 +1,8 @@
+Job stats:
+job     count
+-----  -------
+alpha        2
+beta         1
+total        3
+
+This was a dry-run (flag -n). The order of jobs does not reflect the order of execution.

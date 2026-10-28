@@ -1,0 +1,41 @@
+Building DAG of jobs...
+SLURM run ID: cc488927-2f59-4d6b-a541-2b0bac3f03b7
+Using shell: /usr/bin/bash
+Provided remote nodes: 100
+Job stats:
+job                        count
+-----------------------  -------
+all                            1
+fastp                       1305
+total                       1306
+
+Select jobs to execute...
+Execute 1 jobs...
+Finished job 1305.
+1 of 1306 steps (0.1%) done
+Select jobs to execute...
+Execute 1 jobs...
+Finished job 1304.
+2 of 1306 steps (0.2%) done
+Error in rule fastp:
+    message: SLURM-job '45820001' failed, SLURM status is: 'FAILED'.
+    jobid: 1303
+    external_jobid: 45820001
+Trying to restart job 1303.
+Select jobs to execute...
+Execute 1 jobs...
+Finished job 1303.
+3 of 1306 steps (0.2%) done
+10 of 1306 steps (0.8%) done
+25 of 1306 steps (1.9%) done
+50 of 1306 steps (3.8%) done
+100 of 1306 steps (7.7%) done
+200 of 1306 steps (15.3%) done
+400 of 1306 steps (30.6%) done
+600 of 1306 steps (45.9%) done
+800 of 1306 steps (61.3%) done
+1000 of 1306 steps (76.6%) done
+1200 of 1306 steps (91.9%) done
+1305 of 1306 steps (99.9%) done
+1306 of 1306 steps (100%) done
+Complete log: .snakemake/log/2026-10-02T081600.000000.snakemake.log

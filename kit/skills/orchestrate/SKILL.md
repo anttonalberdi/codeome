@@ -66,6 +66,7 @@ Work through tasks in dependency order. For each task:
      Add `--worktree` only when running write jobs in parallel (see below). Add `--resume <session>` to send a follow-up to the same Codex session (the session id is printed when a job ends). Read-only roles automatically run in Codex's read-only sandbox.
 5. **Verify yourself.** When the result comes back, say in one line what came of it. Then run the acceptance check yourself — never accept "done" on the report alone. If the check fails, send the failure output back to the same specialist (Codex: `--resume`) once. If it fails again, switch engine or stop and ask the user.
    - For long parseable background runs, start `.codeome/bin/codeome-agent watch --log <log> --pid <pid> --parser <parser> --total <count> --label "<what>" --task <unique-key>` in the background with the command so its progress appears in chat; do not poll the log.
+   - For HPC work, route through `hpc-operator`; it can start `watch --parser slurm` for submitted jobs or `watch --parser snakemake --remote-log` for workflow logs.
 
 **Parallelism.** Read-only jobs (explorer, reviewers, planner) can run in parallel freely. Write jobs run one at a time in the working tree, unless they touch disjoint files *and* you start each Codex write job with `--worktree`. In that case, merge each job's `codeome/<job-id>` branch back yourself after verifying it, then remove the worktree (`git worktree remove`).
 

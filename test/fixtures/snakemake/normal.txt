@@ -1,0 +1,13 @@
+Job stats:
+job             count
+------------  -------
+alpha                 1
+beta                  1
+gamma                 1
+total                 3
+
+0 of 3 steps (0%) done
+1 of 3 steps (33.33%) done
+2 of 3 steps (66.67%) done
+3 of 3 steps (100%) done
+Complete log: .snakemake/log/normal.log

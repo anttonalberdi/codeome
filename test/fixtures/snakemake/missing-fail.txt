@@ -1,0 +1,9 @@
+Job stats:
+job     count
+-----  -------
+alpha        1
+total        1
+
+MissingOutputException in rule alpha:
+Exiting because a job execution failed. Look above for error message
+Complete log: .snakemake/log/missing-fail.log

@@ -45,14 +45,16 @@ For a long test run or build, the agent starts `watch` once in the background in
 | Option | What |
 |---|---|
 | `--log FILE` | the log to follow |
-| `--parser` | `vitest`, `pytest`, `tsc` or `regex` (below) |
-| `--total N` | the number of units; required for `vitest`, and for `regex` unless the pattern has a `total` group |
+| `--remote-log /ABS/PATH` | a log on the HPC instead of `--log` (kit 0.9.0; see below) |
+| `--jobs ID[,ID...]` | for `--parser slurm`: the Slurm job or array ids to follow (kit 0.9.0; see below) |
+| `--parser` | `vitest`, `pytest`, `tsc`, `snakemake`, `slurm` or `regex` (below) |
+| `--total N` | the number of units; required for `vitest`, and for `regex` unless the pattern has a `total` group; optional for `snakemake` and `slurm`, which learn it themselves |
 | `--label TEXT` | the name on the card |
 | `--task KEY` | the card's key: letters, digits, `.`, `_` or `-`, at most 64 characters; use a short random suffix to keep it unique |
 | `--pid P` | the process that writes the log; the watch ends when it does |
 | `--stage ID` | the stage id, which also keys the duration history; defaults to the parser name |
 | `--regex PATTERN` | for the `regex` parser |
-| `--timeout SECONDS` | give up after this long (default 21600, six hours) |
+| `--timeout SECONDS` | give up after this long (default 21600, six hours; 259200, 72 hours, for `slurm` and `--remote-log`) |
 | `--quiet` | no final line |
 
 | Parser | Reads | Notes |
@@ -60,13 +62,34 @@ For a long test run or build, the agent starts `watch` once in the background in
 | `vitest` | one line per test file | needs `--reporter=verbose`; counts unique test files, so `--total` is the number of test files |
 | `pytest` | the `[ 42%]` markers | pass `--pid`, because `-q` prints no summary line |
 | `tsc` | `tsc -b --verbose` | uses `N of M`, or counts the `Building project` and `is up to date` lines, so `--total` is the number of projects |
+| `snakemake` | the `N of M steps` lines of a Snakemake log | units are steps; `--total` is optional because the log carries it; works for the local and the Slurm executor (below) |
+| `slurm` | `sacct` on the HPC | units are tasks of the jobs in `--jobs`; no log file (below) |
 | `regex` | your pattern | a named group `done` and, optionally, `total`; at most 200 characters, no backreferences or nested quantifiers; matching runs in a separate process that is stopped after 2 seconds |
 
 The run counts as failed when the log shows a failure: a failed or `FAIL` test file or a non-zero `failed` count in the Vitest summary, `failed` or `error` in the pytest summary line, or an `error TS` line from tsc. Only those summary and file lines count, so a passing test whose name contains "failed" does not fail the run. It also fails if the watch times out, is stopped, or ends before reaching the total.
 
 Start the command and the watch in two Bash calls: first the command, with its output going to a temp file and its pid printed, then `watch` in a separate call with `run_in_background: true` (the example is in the project's chat instructions). `watch` never exits non-zero, never signals the process it watches, and prints nothing but one final line (`--quiet` removes it); problems go to stderr as warnings.
 
-Codeome's own task files under `.codeome/jobs/.tasks/` are pruned when a watch starts: folders older than 7 days, or beyond the newest 50, are removed. `.codeome/jobs/` is git-ignored. Slice 1's `progress` command is unchanged. Snakemake and Slurm parsers are not included. Projects with an older kit see it as outdated until updated.
+#### Snakemake logs
+
+`--parser snakemake --log <file>` follows a local Snakemake log: the stdout of the run tee'd to a file, or `.snakemake/log/*.snakemake.log`. It counts the `N of M steps` lines, so `--total` is optional. Retries are followed. A failed run ends failed; a dry run and `Nothing to be done` end done. Pass `--pid` for a local run so the end is certain: text that a rule prints to the log can otherwise imitate a summary line.
+
+#### Slurm jobs and HPC logs
+
+Kit 0.9.0 can also follow work on the HPC. `watch` still runs on the Mac, never on the HPC, and nothing is installed there: it goes through the ssh connection Codeome already holds for the chat.
+
+```
+.codeome/bin/codeome-agent watch --parser slurm --jobs <job-id> --label "Array" --task array-a3f
+.codeome/bin/codeome-agent watch --remote-log /abs/path/run.log --parser snakemake --label "Workflow" --task snake-b4e
+```
+
+`--parser slurm --jobs ID[,ID...]` polls `sacct -X -n -P -j <ids> -o JobID,State` every 30 seconds. An id is digits only, optionally `_<n>` for one array task; a plain array id expands to its tasks. At most 50 ids, and no bracket ranges. Done is the number of `COMPLETED` tasks; the total is `--total`, or the tasks seen so far (collapsed pending rows are counted). The watch ends when every task is in a final state, and the run counts as failed if any task ended `FAILED`, `TIMEOUT`, `OUT_OF_MEMORY`, `NODE_FAIL`, `BOOT_FAIL`, `DEADLINE`, `CANCELLED` or `REVOKED`. `--pid` and `--log` are not used.
+
+`--remote-log /abs/path --parser ...` follows a log on the HPC, read-only, every 5 seconds. The path is absolute and made of plain characters, and must be a regular file. `--pid` is not used, so the watch ends on the parser's summary or on `--timeout`. Pass `--timeout SECONDS` for runs longer than the default.
+
+Problems end the watch with a reason: three failed polls give "lost connection to HPC", three empty `sacct` polls give "no job data", and if the connection is not available it ends at once with "HPC connection not available", without trying to log in. The remote modes need a connected HPC (Settings > HPC). The app gives the Claude agent's shell `CODEOME_HPC_HOST` and `CODEOME_HPC_SOCKET` when a host is configured, so they are for Claude chats and the Claude `hpc-operator`; Codex chats and jobs have no network and use only the local forms. Nextflow and array summaries beyond the card are not included.
+
+Codeome's own task files under `.codeome/jobs/.tasks/` are pruned when a watch starts: folders older than 7 days, or beyond the newest 50, are removed. `.codeome/jobs/` is git-ignored. Slice 1's `progress` command is unchanged. Projects with an older kit see it as outdated until updated.
 
 ## Tools
 

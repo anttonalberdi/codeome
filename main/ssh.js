@@ -12,6 +12,11 @@ const CONTROL_DIR = path.join(os.homedir(), '.ssh', 'codeome-cm');
 try { fs.mkdirSync(CONTROL_DIR, { recursive: true, mode: 0o700 }); } catch {}
 const CONTROL_PATH = path.join(CONTROL_DIR, '%C');
 
+function validHost(value) {
+  const host = String(value || '').trim();
+  return host.length <= 255 && host[0] !== '-' && /^[A-Za-z0-9._@-]+$/.test(host) ? host : '';
+}
+
 // Codeome's VPN tunnel: a ProxyCommand used for one host only (see setup.js).
 let proxy = { host: '', cmd: '' };
 function setProxy(host, cmd) { proxy = { host: host || '', cmd: cmd || '' }; }
@@ -150,4 +155,4 @@ function passwordFiller(password, write) {
   };
 }
 
-module.exports = { colorShell, CONTROL_PATH, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, clearStaleSockets, disconnect, exec, execArgs, list, parseListing, readFile, writeFile, rsyncSshCommand };
+module.exports = { colorShell, CONTROL_PATH, validHost, setProxy, passwordFiller, proxyOpts, testLogin, copyKeyArgs, masterArgs, shellArgs, check, clearStaleSockets, disconnect, exec, execArgs, list, parseListing, readFile, writeFile, rsyncSshCommand };

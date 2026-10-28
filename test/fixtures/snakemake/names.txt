@@ -1,0 +1,12 @@
+Job stats:
+job                    count
+-------------------  -------
+Error_in_metadata           1
+failed_login_report         1
+total                       2
+
+localrule Error_in_metadata:
+1 of 2 steps (50%) done
+rule failed_login_report:
+2 of 2 steps (100%) done
+Complete log: .snakemake/log/names.log

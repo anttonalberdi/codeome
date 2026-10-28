@@ -87,6 +87,9 @@ class CodexSession extends EventEmitter {
   constructor({ id, cwd, shell, bin, args = [], env, autoAllow, meter, instructions = '', resume = false, threadId = null, model = '', effort = '', mode = 'default', addDirs = [], policy }) {
     super();
     Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow, instructions, model, effort, addDirs, projectPolicy: policy });
+    this.env = { ...(env || process.env) };
+    delete this.env.CODEOME_HPC_HOST;
+    delete this.env.CODEOME_HPC_SOCKET;
     this.resume = resume;
     this.threadId = threadId || (typeof resume === 'string' ? resume : null);
     this.mode = POLICIES[mode] ? mode : 'default';

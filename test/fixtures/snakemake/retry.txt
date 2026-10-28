@@ -1,0 +1,14 @@
+Job stats:
+job     count
+-----  -------
+alpha        1
+beta         1
+total        2
+
+1 of 2 steps (50%) done
+Error in rule beta:
+    jobid: 1
+Trying to restart job 1.
+0 of 2 steps (0%) done
+2 of 2 steps (100%) done
+Complete log: .snakemake/log/retry.log

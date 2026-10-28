@@ -13,7 +13,7 @@ events.jsonl and result.md; Codeome's Agent chat and Jobs list read those folder
   codeome-agent cancel ID
   codeome-agent pause ID
   codeome-agent progress [--job ID] [--stage ID] [--label TEXT] [--state waiting|running|done|failed] [--done N --total M --unit U] [--baseline SECONDS] [--plan id:label,id:label,...]
-  codeome-agent watch --log FILE --parser vitest|pytest|tsc|regex --total N --label TEXT --task KEY [--pid P] [--stage ID] [--regex PATTERN] [--timeout SECONDS] [--quiet]
+  codeome-agent watch --parser vitest|pytest|tsc|snakemake|regex|slurm --label TEXT --task KEY [--log FILE | --remote-log /ABS/PATH | --jobs ID[,ID...]] [--total N] [--pid P] [--stage ID] [--regex PATTERN] [--timeout SECONDS] [--quiet]
   codeome-agent hook            (Claude Code hook: PreToolUse/SubagentStart/SubagentStop JSON on stdin)
 """
 import argparse
@@ -350,7 +350,20 @@ WATCH_PERCENT = re.compile(r'\[\s*(\d{1,3})%\]')
 WATCH_TSC_COUNT = re.compile(r'^\D*(\d+) of (\d+)')
 WATCH_TSC_BUILD = re.compile(r"Building project '([^']+)'")
 WATCH_TSC_CURRENT = re.compile(r"Project '([^']+)' is up to date")
+WATCH_SNAKEMAKE_PROGRESS = re.compile(r'^\s*(\d+) of (\d+) steps \((\d+(?:\.\d+)?)%\) done\s*$')
+WATCH_SNAKEMAKE_TOTAL = re.compile(r'^total\s+(\d+)\s*$')
+WATCH_SNAKEMAKE_FINISHED = re.compile(r'^Finished (?:jobid: (\d+)|job (\d+)\.)')
+WATCH_SNAKEMAKE_JOBID = re.compile(r'^\s+jobid: (\d+)\s*$')
+WATCH_SNAKEMAKE_RESTART = re.compile(r'^Trying to restart job (\d+)\.')
+WATCH_SNAKEMAKE_COMPLETE = re.compile(r'^Complete log(?:\(s\))?:')
+WATCH_SNAKEMAKE_FAILURE = re.compile(r'^(?:Error in rule \S+:|MissingOutputException|Exiting because a job execution failed|LockException|IncompleteFilesException|WorkflowError)')
 WATCH_ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+WATCH_SLURM_ID = re.compile(r'[0-9]{1,10}(?:_[0-9]{1,10})?\Z')
+WATCH_SLURM_ROW = re.compile(r'([0-9]{1,10})(?:_([0-9]{1,10}|\[([^]]+)\]))?\Z')
+WATCH_SLURM_RANGE = re.compile(r'([0-9]{1,10})(?:-([0-9]{1,10}))?(?:%[0-9]+)?\Z')
+WATCH_SLURM_FAILURE = {'FAILED', 'OUT_OF_MEMORY', 'TIMEOUT', 'CANCELLED', 'NODE_FAIL',
+                       'BOOT_FAIL', 'DEADLINE', 'REVOKED'}
+WATCH_REMOTE_PATH = re.compile(r'/[A-Za-z0-9._@+=,:/-]{1,1023}\Z')
 
 
 def watch_key_ok(key):
@@ -482,6 +495,20 @@ def watch_pid_start(pid):
         return None
 
 
+def watch_split_lines(chunk, offset, partial):
+    data = partial + chunk
+    pieces = data.split(b'\n')
+    partial = pieces.pop()
+    if len(pieces) > 20000:
+        unread = b'\n'.join(pieces[20000:] + [partial])
+        offset -= len(unread)
+        partial = b''
+        pieces = pieces[:20000]
+    partial = partial[:2048]
+    lines = [WATCH_ANSI.sub('', piece[:2048].decode('utf-8', errors='replace')) for piece in pieces]
+    return offset, partial, lines
+
+
 def watch_lines(fd, offset, partial, limit=1024 * 1024):
     size = os.fstat(fd).st_size
     if size < offset:
@@ -496,17 +523,222 @@ def watch_lines(fd, offset, partial, limit=1024 * 1024):
         chunks.append(chunk)
         remaining -= len(chunk)
         offset += len(chunk)
-    data = partial + b''.join(chunks)
-    pieces = data.split(b'\n')
-    partial = pieces.pop()
-    if len(pieces) > 20000:
-        unread = b'\n'.join(pieces[20000:] + [partial])
-        offset -= len(unread)
-        partial = b''
-        pieces = pieces[:20000]
-    partial = partial[:2048]
-    lines = [WATCH_ANSI.sub('', piece[:2048].decode('utf-8', errors='replace')) for piece in pieces]
-    return offset, partial, lines
+    return watch_split_lines(b''.join(chunks), offset, partial)
+
+
+def watch_ssh_argv(remote, host, socket):
+    argv = ['ssh', '-o', 'ControlPath=' + socket]
+    if remote is None:
+        return argv + ['-O', 'check', host]
+    return argv + ['-o', 'ControlMaster=no', '-o', 'BatchMode=yes', '-o',
+                   'ConnectTimeout=10', host, remote]
+
+
+def watch_ssh(remote, host, socket, timeout, stopped=lambda: False):
+    argv = watch_ssh_argv(remote, host, socket)
+    process = subprocess.Popen(argv, shell=False, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    streams = [process.stdout, process.stderr]
+    output = bytearray()
+    diagnostics = bytearray()
+    deadline = time.monotonic() + timeout
+    try:
+        while streams:
+            if stopped():
+                raise InterruptedError('watch stopped')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            readable, _, _ = select.select(streams, [], [], min(0.2, remaining))
+            for stream in readable:
+                chunk = os.read(stream.fileno(), 65536)
+                if not chunk:
+                    streams.remove(stream)
+                    continue
+                target = output if stream is process.stdout else diagnostics
+                cap = 1024 * 1024 if stream is process.stdout else 200
+                available = cap - len(target)
+                target.extend(chunk[:available])
+                if stream is process.stdout and len(chunk) > available:
+                    return 255, bytes(output), diagnostics.decode('utf-8', errors='replace')[:200]
+        while process.poll() is None:
+            if stopped():
+                raise InterruptedError('watch stopped')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            try:
+                process.wait(timeout=min(0.2, remaining))
+            except subprocess.TimeoutExpired:
+                pass
+        return process.returncode, bytes(output), diagnostics.decode('utf-8', errors='replace')[:200]
+    finally:
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        process.stdout.close()
+        process.stderr.close()
+
+
+def watch_master(host, socket, timeout, stopped):
+    # An unanswered check means no verified master; data timeouts instead count as poll failures.
+    try:
+        code, output, diagnostics = watch_ssh(None, host, socket, timeout, stopped)
+        return code == 0 and b'Master running' in output or code == 0 and 'Master running' in diagnostics
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def watch_interval(name, default, floor):
+    try:
+        value = float(os.environ.get(name, default))
+        if not math.isfinite(value):
+            raise ValueError
+    except ValueError:
+        value = default
+    return max(0.01 if os.environ.get('CODEOME_WATCH_TEST') == '1' else floor, value)
+
+
+def watch_default_timeout(parser, remote_log):
+    return 259200 if parser == 'slurm' or remote_log is not None else 21600
+
+
+def watch_sleep(seconds, stopped):
+    deadline = time.monotonic() + seconds
+    while not stopped():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(0.25, remaining))
+
+
+def watch_remote_path_ok(path):
+    return bool(path and WATCH_REMOTE_PATH.fullmatch(path) and '//' not in path and
+                '..' not in path.split('/'))
+
+
+def watch_hpc_connection():
+    host = os.environ.get('CODEOME_HPC_HOST')
+    socket = os.environ.get('CODEOME_HPC_SOCKET')
+    if not host or not socket:
+        return None, None, 'HPC connection unavailable'
+    if len(host) > 255 or host.startswith('-') or not re.fullmatch(r'[A-Za-z0-9._@-]+', host):
+        return None, None, 'invalid HPC connection'
+    if len(socket) > 4096 or '\n' in socket or '\r' in socket or '\x00' in socket:
+        return None, None, 'invalid HPC connection'
+    return host, socket, None
+
+
+def watch_remote_lines(path, host, socket, timeout, offset, partial, stopped):
+    try:
+        code, raw_size, _stderr = watch_ssh("stat -c '%F|%s' -- " + path, host, socket, timeout, stopped)
+        if code:
+            error = 'connection' if code == 255 else 'missing'
+            return offset, partial, [], 0, error if watch_master(host, socket, timeout, stopped) else 'unavailable'
+        file_type, separator, raw_size = raw_size.strip().partition(b'|')
+        if file_type not in (b'regular file', b'regular empty file') or not separator:
+            return offset, partial, [], 0, 'not_regular'
+        size = int(raw_size)
+        if size < 0:
+            return offset, partial, [], 0, 'connection'
+        if size < offset:
+            offset, partial = 0, b''
+        code, chunk, _stderr = watch_ssh('tail -c +%d -- %s | head -c 1048576' % (offset + 1, path),
+                                         host, socket, timeout, stopped)
+        if code:
+            error = 'connection' if code == 255 else 'missing'
+            return offset, partial, [], size, error if watch_master(host, socket, timeout, stopped) else 'unavailable'
+        offset += len(chunk)
+        offset, partial, lines = watch_split_lines(chunk, offset, partial)
+        return offset, partial, lines, size, None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return offset, partial, [], 0, 'connection' if stopped() or watch_master(host, socket, timeout, stopped) else 'unavailable'
+
+
+def watch_slurm_rows(output):
+    rows = {}
+    for line in output.splitlines():
+        job_id, separator, state = line.partition('|')
+        if not separator or '.' in job_id:
+            continue
+        hit = WATCH_SLURM_ROW.fullmatch(job_id)
+        if not hit:
+            continue
+        state = state.strip().split(' ', 1)[0]
+        if not state:
+            continue
+        count = 1
+        if hit.group(3) is not None:
+            count = 0
+            for part in hit.group(3).split(','):
+                item = WATCH_SLURM_RANGE.fullmatch(part)
+                if not item:
+                    count = 0
+                    break
+                start = int(item.group(1))
+                end = int(item.group(2)) if item.group(2) is not None else start
+                if end < start:
+                    count = 0
+                    break
+                count = min(100000, count + end - start + 1)
+        if count:
+            rows[job_id] = (count, state)
+    return rows.values()
+
+
+def watch_slurm_poll(a, stage, save, stopped):
+    host, socket, reason = watch_hpc_connection()
+    if reason:
+        return reason
+    # Environment overrides tune timing, not access control; model-run code can set them.
+    poll = watch_interval('CODEOME_WATCH_SLURM_POLL', 30, 15)
+    ssh_timeout = watch_interval('CODEOME_WATCH_SSH_TIMEOUT', 15, 5)
+    deadline = time.monotonic() + progress_number(a.timeout, '--timeout')
+    failures = empty = 0
+    if not watch_master(host, socket, ssh_timeout, stopped):
+        return 'stopped' if stopped() else 'HPC connection not available'
+    while not stopped():
+        if time.monotonic() >= deadline:
+            return 'watch timed out'
+        try:
+            remote = 'sacct -X -n -P -j %s -o JobID,State' % a.jobs
+            code, raw_output, _stderr = watch_ssh(remote, host, socket, ssh_timeout, stopped)
+            output = raw_output.decode('utf-8', errors='replace')
+        except (OSError, subprocess.TimeoutExpired):
+            code, output = 1, ''
+        if stopped():
+            break
+        if code:
+            if not watch_master(host, socket, ssh_timeout, stopped):
+                return 'stopped' if stopped() else 'HPC connection not available'
+            empty = 0
+            failures += 1
+            if failures >= 3:
+                return 'lost connection to HPC'
+        else:
+            failures = 0
+            rows = list(watch_slurm_rows(output))
+            if not rows:
+                empty += 1
+                if empty >= 3:
+                    return 'no job data'
+            else:
+                empty = 0
+                counted = sum(count for count, _ in rows)
+                stage['done'] = sum(count for count, state in rows if state == 'COMPLETED')
+                if a.total is None:
+                    stage['total'] = max(stage['total'], counted)
+                failed = any(state in WATCH_SLURM_FAILURE for _, state in rows)
+                save()
+                if all(state == 'COMPLETED' or state in WATCH_SLURM_FAILURE for _, state in rows):
+                    stage['state'] = ('done' if not failed and stage['done'] >= stage['total']
+                                      else 'failed')
+                    return None
+        watch_sleep(min(poll, max(0, deadline - time.monotonic())), stopped)
+    return 'stopped'
 
 
 def cmd_watch(a):
@@ -521,6 +753,16 @@ def cmd_watch(a):
         raise ValueError('--total must be positive')
     if a.parser == 'vitest' and total is None:
         raise ValueError('vitest requires --total')
+    if a.parser == 'slurm':
+        ids = a.jobs.split(',') if a.jobs is not None else []
+        if not ids or len(ids) > 50 or any(not WATCH_SLURM_ID.fullmatch(item) for item in ids):
+            raise ValueError('slurm requires --jobs with 1 to 50 numeric job ids')
+        if a.pid is not None:
+            raise ValueError('--pid is not used with --parser slurm')
+    elif a.jobs is not None:
+        raise ValueError('--jobs requires --parser slurm')
+    elif not a.log and not a.remote_log:
+        raise ValueError('--log or --remote-log is required')
     if a.parser == 'regex':
         if not a.regex:
             raise ValueError('regex parser requires --regex')
@@ -531,12 +773,15 @@ def cmd_watch(a):
         raise ValueError('--regex requires --parser regex')
     if a.pid is not None and not 1 < a.pid < 2 ** 31:
         raise ValueError('--pid must be between 2 and 2147483647')
+    if a.timeout is None:
+        a.timeout = str(watch_default_timeout(a.parser, a.remote_log))
     timeout = progress_number(a.timeout, '--timeout')
     if timeout <= 0:
         raise ValueError('--timeout must be positive')
-    # Short waits are available to CLI tests; normal watches poll every second.
-    poll = max(0.01, float(os.environ.get('CODEOME_WATCH_POLL', '1')))
-    wait = max(0, float(os.environ.get('CODEOME_WATCH_WAIT', '30')))
+    poll = (watch_interval('CODEOME_WATCH_REMOTE_POLL', 5, 2) if a.remote_log else
+            watch_interval('CODEOME_WATCH_POLL', 1, 1))
+    wait = watch_interval('CODEOME_WATCH_WAIT', 30, 30)
+    ssh_timeout = watch_interval('CODEOME_WATCH_SSH_TIMEOUT', 15, 5)
     task_root = os.path.join(JOBS, '.tasks')
     for directory in (os.path.join(ROOT, '.codeome'), JOBS, task_root, os.path.join(task_root, a.task)):
         watch_real_dir(directory)
@@ -545,7 +790,8 @@ def cmd_watch(a):
     stamp = now_progress_iso()
     stage = progress_stage(stage_id, a.label[:120], stamp, progress_history())
     stage.update(state='running', kind='determinate', done=0, total=100 if a.parser == 'pytest' else total or 0,
-                 unit={'vitest': 'files', 'pytest': '%', 'tsc': 'projects', 'regex': None}[a.parser], startedAt=stamp)
+                 unit={'vitest': 'files', 'pytest': '%', 'tsc': 'projects', 'snakemake': 'steps',
+                       'regex': None, 'slurm': 'tasks'}[a.parser], startedAt=stamp)
     path = os.path.join(task_root, a.task, 'progress.json')
     last_written = None
     last_time = 0
@@ -556,10 +802,8 @@ def cmd_watch(a):
         if current == last_written:
             return
         delay = 1 - (time.monotonic() - last_time)
-        if delay > 0:
-            if not force:
-                return
-            time.sleep(delay)
+        if delay > 0 and not force:
+            return
         stamp = now_progress_iso()
         stage['updatedAt'] = stamp
         write_json(path, {'v': 1, 'updatedAt': stamp, 'stages': [stage]})
@@ -577,30 +821,85 @@ def cmd_watch(a):
     reason = None
     try:
         save()
-        pid_start = watch_pid_start(a.pid) if a.pid is not None and pid_alive(a.pid) else None
-        deadline = time.monotonic() + wait
-        while not stopped and fd is None:
-            try:
-                fd = os.open(a.log, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | os.O_NONBLOCK)
-                if not stat.S_ISREG(os.fstat(fd).st_mode):
-                    raise ValueError('log is not a regular file')
-            except FileNotFoundError:
-                if time.monotonic() >= deadline:
-                    reason = 'log file did not appear'
+        if a.remote_log is not None:
+            if a.parser == 'slurm':
+                reason = '--remote-log is not used with --parser slurm'
+            elif a.log is not None:
+                reason = '--log and --remote-log are mutually exclusive'
+            elif a.pid is not None:
+                reason = '--pid is not used with --remote-log'
+            elif not watch_remote_path_ok(a.remote_log):
+                reason = 'invalid remote log path'
+            if reason:
+                return
+        if a.parser == 'slurm':
+            if a.log is not None:
+                reason = '--log is not used with --parser slurm'
+                return
+            reason = watch_slurm_poll(a, stage, save, lambda: stopped)
+            return
+        remote_host = remote_socket = None
+        if a.remote_log is not None:
+            remote_host, remote_socket, reason = watch_hpc_connection()
+            if reason:
+                return
+            if not watch_master(remote_host, remote_socket, ssh_timeout, lambda: stopped):
+                reason = 'stopped' if stopped else 'HPC connection not available'
+                return
+        else:
+            pid_start = watch_pid_start(a.pid) if a.pid is not None and pid_alive(a.pid) else None
+            deadline = time.monotonic() + wait
+            while not stopped and fd is None:
+                try:
+                    fd = os.open(a.log, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | os.O_NONBLOCK)
+                    if not stat.S_ISREG(os.fstat(fd).st_mode):
+                        raise ValueError('log is not a regular file')
+                except FileNotFoundError:
+                    if time.monotonic() >= deadline:
+                        reason = 'log file did not appear'
+                        break
+                    watch_sleep(min(poll, max(0, deadline - time.monotonic())), lambda: stopped)
+                except (OSError, ValueError) as e:
+                    reason = 'cannot watch log: %s' % e
                     break
-                time.sleep(min(poll, max(0, deadline - time.monotonic())))
-            except (OSError, ValueError) as e:
-                reason = 'cannot watch log: %s' % e
-                break
+        if a.remote_log is not None:
+            pid_start = None
         offset, partial, files, projects = 0, b'', set(), set()
+        remote_failures = 0
+        missing_since = None
+        finished_jobs = set()
+        snakemake_stats = False
+        snakemake_progress = False
+        snakemake_pending = False
+        snakemake_fatal = False
+        snakemake_errors = set()
+        snakemake_error_block = False
+        snakemake_summary_at = None
+        snakemake_summary_lines = 0
         matched = False
         log_started = time.monotonic()
         warned = False
         failure = False
         summary = False
 
+        def remote_problem(error):
+            nonlocal remote_failures, missing_since
+            if error == 'unavailable':
+                return 'HPC connection not available'
+            if error == 'not_regular':
+                return 'remote log is not a regular file'
+            if error == 'connection':
+                missing_since = None
+                remote_failures += 1
+                return 'lost connection to HPC' if remote_failures >= 3 else None
+            remote_failures = 0
+            if missing_since is None:
+                missing_since = time.monotonic()
+            return 'log file did not appear' if time.monotonic() - missing_since >= wait else None
+
         def consume(lines):
-            nonlocal matched, failure, summary, reason
+            nonlocal matched, failure, summary, reason, snakemake_stats, snakemake_progress, snakemake_pending, snakemake_fatal
+            nonlocal snakemake_error_block, snakemake_summary_at, snakemake_summary_lines
             if a.parser == 'regex' and lines:
                 result = watch_regex_batch(a.regex, lines)
                 if result is not None:
@@ -633,6 +932,80 @@ def cmd_watch(a):
                     if re.match(r'^=+ .* in [\d.]+s', line):
                         summary = True
                         failure |= bool(re.search(r'\b[1-9]\d*\s+(?:failed|errors?)\b', line, re.I))
+                elif a.parser == 'snakemake':
+                    if line.startswith('Job stats:'):
+                        snakemake_stats = True
+                        snakemake_progress = snakemake_pending = snakemake_fatal = False
+                        snakemake_error_block = False
+                        snakemake_errors.clear()
+                        finished_jobs.clear()
+                        snakemake_summary_at = None
+                        snakemake_summary_lines = 0
+                        failure = summary = matched = False
+                        stage['done'], stage['total'] = 0, total or 0
+                    elif not line.strip():
+                        snakemake_stats = False
+                    hit = WATCH_SNAKEMAKE_TOTAL.match(line) if snakemake_stats and not snakemake_progress else None
+                    if hit and total is None:
+                        stage['total'] = int(hit.group(1))
+                    hit = WATCH_SNAKEMAKE_PROGRESS.match(line)
+                    if hit:
+                        done, parsed_total = int(hit.group(1)), int(hit.group(2))
+                        effective_total = total or parsed_total
+                        if effective_total != stage['total']:
+                            stage['done'], stage['total'] = min(done, effective_total), effective_total
+                            finished_jobs.clear()
+                            snakemake_errors.clear()
+                            snakemake_error_block = False
+                            snakemake_pending = snakemake_fatal = summary = False
+                            snakemake_summary_at = None
+                            snakemake_summary_lines = 0
+                        else:
+                            stage['done'] = max(stage['done'], min(done, effective_total))
+                        snakemake_progress = matched = True
+                        if stage['total'] > 0 and stage['done'] >= stage['total']:
+                            snakemake_pending = bool(snakemake_errors)
+                    elif not snakemake_progress:
+                        hit = WATCH_SNAKEMAKE_FINISHED.match(line)
+                        if hit and stage['total'] > 0:
+                            if len(finished_jobs) < 100000:
+                                finished_jobs.add(hit.group(1) or hit.group(2))
+                            stage['done'] = min(len(finished_jobs), stage['total'])
+                            matched = True
+                            if stage['done'] >= stage['total']:
+                                snakemake_pending = bool(snakemake_errors)
+                    if line.startswith('Error in rule '):
+                        snakemake_errors.add(None)
+                        snakemake_error_block = True
+                    elif snakemake_error_block:
+                        hit = WATCH_SNAKEMAKE_JOBID.match(line)
+                        if hit:
+                            snakemake_errors.discard(None)
+                            snakemake_errors.add(hit.group(1))
+                            snakemake_error_block = False
+                    hit = WATCH_SNAKEMAKE_RESTART.match(line)
+                    if hit:
+                        snakemake_errors.discard(hit.group(1))
+                        snakemake_errors.discard(None)
+                        snakemake_error_block = False
+                        snakemake_pending = bool(snakemake_errors)
+                    if WATCH_SNAKEMAKE_FAILURE.match(line):
+                        snakemake_pending = True
+                    if line.startswith(('LockException', 'IncompleteFilesException', 'Exiting because a job execution failed', 'WorkflowError:')):
+                        snakemake_fatal = summary = True
+                    elif line.startswith('Nothing to be done'):
+                        stage['done'] = stage['total'] = 1
+                        snakemake_pending = False
+                        summary = matched = True
+                    elif line.startswith('This was a dry-run'):
+                        stage['done'] = stage['total']
+                        summary = matched = True
+                    elif WATCH_SNAKEMAKE_COMPLETE.match(line):
+                        summary = True
+                    if summary and snakemake_summary_at is None:
+                        snakemake_summary_at = time.monotonic()
+                    elif snakemake_summary_at is not None:
+                        snakemake_summary_lines += 1
                 else:
                     hit = WATCH_TSC_COUNT.match(line)
                     if hit:
@@ -651,8 +1024,24 @@ def cmd_watch(a):
                                 matched = True
                     failure |= bool(re.search(r'error TS\d+', line))
 
-        while fd is not None and not reason and not stopped:
-            offset, partial, lines = watch_lines(fd, offset, partial)
+        while (fd is not None or a.remote_log is not None) and not reason and not stopped:
+            if a.remote_log is not None:
+                offset, partial, lines, remote_size, remote_error = watch_remote_lines(
+                    a.remote_log, remote_host, remote_socket, ssh_timeout, offset, partial, lambda: stopped)
+                if stopped:
+                    break
+                if remote_error:
+                    reason = remote_problem(remote_error)
+                    if not reason and time.monotonic() - log_started >= timeout:
+                        reason = 'watch timed out'
+                    if reason:
+                        break
+                    watch_sleep(poll, lambda: stopped)
+                    continue
+                remote_failures = 0
+                missing_since = None
+            else:
+                offset, partial, lines = watch_lines(fd, offset, partial)
             try:
                 consume(lines)
             except (TimeoutError, EOFError):
@@ -663,18 +1052,45 @@ def cmd_watch(a):
                 print('codeome-agent: warning: no progress lines matched; %s may need a verbose reporter' % a.parser, file=sys.stderr)
                 warned = True
             ended = a.pid is not None and (not pid_alive(a.pid) or watch_pid_start(a.pid) != pid_start)
-            if summary or ended or (a.pid is None and a.parser in ('tsc', 'regex') and
+            snakemake_settled = (a.parser != 'snakemake' or ended or
+                                 (a.pid is None and snakemake_summary_at is not None and
+                                  (snakemake_summary_lines >= 20 or
+                                   time.monotonic() - snakemake_summary_at >= min(2, max(0.2, 20 * poll)))))
+            if (summary and snakemake_settled) or ended or (a.pid is None and a.parser in ('tsc', 'regex') and
                                     (failure or stage['total'] > 0 and stage['done'] >= stage['total'])):
                 # Drain a large backlog before settling a finished process.
+                drain_retry = False
                 for _ in range(128):
-                    offset, partial, final_lines = watch_lines(fd, offset, partial)
+                    if a.remote_log is not None:
+                        if offset >= remote_size and _ > 0:
+                            break
+                        offset, partial, final_lines, remote_size, remote_error = watch_remote_lines(
+                            a.remote_log, remote_host, remote_socket, ssh_timeout, offset, partial, lambda: stopped)
+                        if stopped:
+                            break
+                        if remote_error:
+                            reason = remote_problem(remote_error)
+                            drain_retry = True
+                            break
+                        remote_failures = 0
+                        missing_since = None
+                    else:
+                        offset, partial, final_lines = watch_lines(fd, offset, partial)
                     try:
                         consume(final_lines)
                     except (TimeoutError, EOFError):
                         reason = 'regex parser timed out'
                         break
-                    if offset >= os.fstat(fd).st_size:
+                    if offset >= (remote_size if a.remote_log is not None else os.fstat(fd).st_size):
                         break
+                if drain_retry:
+                    if reason:
+                        break
+                    if time.monotonic() - log_started >= timeout:
+                        reason = 'watch timed out'
+                        break
+                    watch_sleep(poll, lambda: stopped)
+                    continue
                 if partial:
                     try:
                         consume([WATCH_ANSI.sub('', partial.decode('utf-8', errors='replace'))])
@@ -684,8 +1100,8 @@ def cmd_watch(a):
             if time.monotonic() - log_started >= timeout:
                 reason = 'watch timed out'
                 break
-            time.sleep(poll)
-        stage['state'] = 'done' if not stopped and not reason and not failure and stage['total'] > 0 and stage['done'] >= stage['total'] else 'failed'
+            watch_sleep(poll, lambda: stopped)
+        stage['state'] = 'done' if not stopped and not reason and not failure and not snakemake_pending and not snakemake_fatal and stage['total'] > 0 and stage['done'] >= stage['total'] else 'failed'
     finally:
         if stage['state'] == 'running':
             stage['state'] = 'failed'
@@ -1415,15 +1831,17 @@ def main():
     pr.add_argument('--plan')
     pr.set_defaults(fn=cmd_progress)
     wa = sub.add_parser('watch', help='follow a log and record task progress')
-    wa.add_argument('--log', required=True)
-    wa.add_argument('--parser', required=True, choices=['vitest', 'pytest', 'tsc', 'regex'])
+    wa.add_argument('--log')
+    wa.add_argument('--remote-log')
+    wa.add_argument('--jobs')
+    wa.add_argument('--parser', required=True, choices=['vitest', 'pytest', 'tsc', 'snakemake', 'regex', 'slurm'])
     wa.add_argument('--total')
     wa.add_argument('--label', required=True)
     wa.add_argument('--task', required=True)
     wa.add_argument('--pid', type=int)
     wa.add_argument('--stage')
     wa.add_argument('--regex')
-    wa.add_argument('--timeout', default='21600')
+    wa.add_argument('--timeout')
     wa.add_argument('--quiet', action='store_true')
     wa.set_defaults(fn=cmd_watch)
     sub.add_parser('hook', help='Claude Code hook entry point').set_defaults(fn=cmd_hook)

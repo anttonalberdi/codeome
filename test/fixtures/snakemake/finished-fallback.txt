@@ -1,0 +1,11 @@
+Job stats:
+job     count
+-----  -------
+alpha        1
+beta         1
+total        2
+
+Finished jobid: 3 (Rule: alpha)
+Finished jobid: 3 (Rule: alpha)
+Finished job 4.
+Complete log: .snakemake/log/fallback.log

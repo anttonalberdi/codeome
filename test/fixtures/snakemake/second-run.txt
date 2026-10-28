@@ -1,0 +1,16 @@
+Job stats:
+job     count
+-----  -------
+alpha        2
+total        2
+
+2 of 2 steps (100%) done
+Complete log: .snakemake/log/first.log
+Job stats:
+job     count
+-----  -------
+beta         3
+total        3
+
+1 of 3 steps (33.33%) done
+Complete log: .snakemake/log/second.log

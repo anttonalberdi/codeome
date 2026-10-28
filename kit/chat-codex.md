@@ -40,6 +40,7 @@ The Codeome agent kit is installed in this project. The roles and their default 
   ```bash
   .codeome/bin/codeome-agent watch --log <log-path> --pid <pid> --parser vitest --total 12 --label "Tests" --task vitest-a3f
   ```
+- For long Snakemake runs, `watch --parser snakemake --log <file>` follows local tee'd output or `.snakemake/log/*.snakemake.log` (steps; optional `--total`; local or Slurm executor). Remote modes (`--parser slurm` and `--remote-log`) are for Claude chats and the Claude `hpc-operator`: Slurm arrays use `--jobs <id>`, and HPC Snakemake uses `--remote-log /abs/path/run.log --parser snakemake`. Codex chats and jobs use only local watches. Pass `--timeout SECONDS` for runs longer than the default.
 - pytest `-q` prints no summary line, so always pass `--pid` when watching pytest.
 - Claude specialists are not available from a Codex chat: only a Claude chat can start them. Where the routing table names Claude for a role, give the work to a Codex specialist or do it yourself, and say so in one line. If the work really needs Claude, tell the user to start a Claude chat for it. This applies to anything that needs the network, the HPC or the user's secrets: Codex jobs have none of them, so say so in one line instead of trying. Codex also hides variables whose names contain KEY, SECRET or TOKEN from its commands, so work that needs one of the user's secrets goes to a Claude role too.
 - Give every job a short, specific title, because that's what its card shows.

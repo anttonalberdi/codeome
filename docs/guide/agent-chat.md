@@ -22,9 +22,11 @@ The agents report the steps; Codeome does not guess them from logs. Progress is 
 
 ### Test and build progress
 
-For a long test run or build, the agent can start `codeome-agent watch` in the background. It tails the log and parses Vitest, pytest, `tsc -b` or a custom pattern. The chat then shows a card of its own, but only for a Bash or Monitor call that contains `codeome-agent watch ... --task <key>`; other background commands get no card. The card has the same block as a job card: a bar, the time left estimated from past runs, and a stall badge after 120 seconds without an update. The progress file decides the outcome, so a run with failed tests ends the card as failed even though the command itself exits 0. A finished card stays in the chat history as its last snapshot.
+For a long test run or build, the agent can start `codeome-agent watch` in the background. It tails the log and parses Vitest, pytest, `tsc -b`, Snakemake or a custom pattern. The chat then shows a card of its own, but only for a Bash or Monitor call that contains `codeome-agent watch ... --task <key>`; other background commands get no card. The card has the same block as a job card: a bar, the time left estimated from past runs, and a stall badge after 120 seconds without an update. The progress file decides the outcome, so a run with failed tests ends the card as failed even though the command itself exits 0. A finished card stays in the chat history as its last snapshot.
 
-It needs agent kit 0.8.0; projects with an older kit see it as outdated. Snakemake and Slurm logs are not parsed, and the parsers and options are in [Agent kit](/reference/agent-kit#watching-a-log).
+The same card follows a Snakemake run (steps, local or Slurm executor) and, on the HPC, Slurm jobs and arrays or a Snakemake log. The HPC forms go through the ssh connection Codeome already has open, so they need a connected HPC (Settings > HPC) and are for Claude chats and the Claude `hpc-operator`; Codex chats use only local logs. Nothing is installed on the HPC.
+
+It needs agent kit 0.9.0 (0.8.0 for the local Vitest, pytest and tsc parsers); projects with an older kit see it as outdated. The parsers and options are in [Agent kit](/reference/agent-kit#watching-a-log).
 
 ## Attachments and saved messages
 

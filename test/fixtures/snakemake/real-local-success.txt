@@ -1,0 +1,26 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 2
+Job stats:
+job                        count
+-----------------------  -------
+all                            1
+download_bin_map               1
+prepare_database               1
+total                         66
+
+Select jobs to execute...
+Execute 1 jobs...
+[Sat Sep 26 09:36:09 2026]
+Finished jobid: 22 (Rule: download_bin_map)
+3 of 66 steps (5%) done
+64 of 66 steps (97%) done
+65 of 66 steps (98%) done
+localrule all:
+    input: release/test/checksums.sha256
+    jobid: 0
+[Sat Sep 26 09:36:09 2026]
+Finished jobid: 0 (Rule: all)
+66 of 66 steps (100%) done
+Complete log(s): /p/.snakemake/log/2026-09-26T093536.817881.snakemake.log
+Elapsed time: 0:00:32.417793

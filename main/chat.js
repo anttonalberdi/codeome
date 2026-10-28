@@ -20,6 +20,7 @@ const { EventEmitter } = require('events');
 const usage = require('./usage');
 const scratch = require('./scratch');
 const ssh = require('./ssh');
+const config = require('./config');
 const { Meter } = require('./stats');
 const { parseFrontmatter } = require('./kit');
 const projectPolicy = require('./policy');
@@ -265,6 +266,14 @@ class Session extends EventEmitter {
   constructor({ id, cwd, shell, bin, args, env, autoAllow, meter, policy }) {
     super();
     Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow, policy });
+    this.env = { ...(env || process.env) };
+    delete this.env.CODEOME_HPC_HOST;
+    delete this.env.CODEOME_HPC_SOCKET;
+    const host = ssh.validHost((config.load().hpc || {}).host);
+    if (host) {
+      this.env.CODEOME_HPC_HOST = host;
+      this.env.CODEOME_HPC_SOCKET = ssh.CONTROL_PATH;
+    }
     this.seq = 0; this.waiting = new Map(); this.stderr = ''; this.stream = {};
     this.meter = new Meter(meter);
   }

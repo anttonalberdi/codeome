@@ -1,0 +1,46 @@
+Building DAG of jobs...
+SLURM run ID: 4bc71f95-2a71-4cf7-99ab-01116afd442c
+Using shell: /usr/bin/bash
+Provided remote nodes: 100
+Job stats:
+job                        count
+-----------------------  -------
+all                            1
+prepare_database               1
+write_database_versions        1
+total                          3
+
+Select jobs to execute...
+Execute 1 jobs...
+[Fri Oct  2 08:16:15 2026]
+rule prepare_database:
+    jobid: 2
+Job 2 has been submitted with SLURM jobid 45813767 (log: /p/.snakemake/slurm_logs/rule_prepare_database/45813767.log).
+Touching output file /p/tigrfam.done.
+[Fri Oct  2 08:17:46 2026]
+Finished job 2.
+1 of 3 steps (33%) done
+Select jobs to execute...
+Execute 1 jobs...
+rule write_database_versions:
+    jobid: 1
+Job 1 has been submitted with SLURM jobid 45813777 (log: /p/.snakemake/slurm_logs/rule_write_database_versions/45813777.log).
+[Fri Oct  2 08:22:46 2026]
+Error in rule write_database_versions:
+    message: SLURM-job '45813777' failed, SLURM status is: 'CANCELLED'. For further error details see the cluster/cloud log and the log files of the involved rule(s).
+    jobid: 1
+    external_jobid: 45813777
+
+Trying to restart job 1.
+Select jobs to execute...
+Execute 1 jobs...
+rule write_database_versions:
+    jobid: 1
+Job 1 has been submitted with SLURM jobid 45813816 (log: /p/.snakemake/slurm_logs/rule_write_database_versions/45813816.log).
+[Fri Oct  2 08:25:01 2026]
+Finished job 1.
+2 of 3 steps (67%) done
+[Fri Oct  2 08:25:02 2026]
+Finished job 0.
+3 of 3 steps (100%) done
+Complete log: .snakemake/log/2026-10-02T081600.000000.snakemake.log

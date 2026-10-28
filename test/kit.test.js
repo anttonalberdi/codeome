@@ -18,7 +18,7 @@ const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const agentBin = (project) => path.join(project, '.codeome', 'bin', 'codeome-agent');
 
 test('every role has the metadata the installer and router need', () => {
-  assert.strictEqual(kit.MANIFEST.version, '0.8.3');
+  assert.strictEqual(kit.MANIFEST.version, '0.9.0');
   assert.match(fs.readFileSync(path.join(__dirname, '../kit/roles/_report.md'), 'utf8'), /^## Progress$/m);
   const groups = Object.keys(kit.MANIFEST.groups);
   for (const r of kit.roles()) {
@@ -33,6 +33,15 @@ test('chat and delegation instructions describe log progress watches', () => {
   for (const file of ['chat.md', 'chat-codex.md', 'skills/orchestrate/SKILL.md', 'skills/delegate/SKILL.md']) {
     assert.match(fs.readFileSync(path.join(__dirname, '../kit', file), 'utf8'), /codeome-agent watch/, file);
   }
+  for (const file of ['chat.md', 'chat-codex.md']) {
+    const body = fs.readFileSync(path.join(__dirname, '../kit', file), 'utf8');
+    assert.match(body, /--parser slurm/, file);
+    assert.match(body, /--remote-log/, file);
+    assert.match(body, /Codex chats and jobs use only local watches/, file);
+    assert.match(body, /--timeout SECONDS/, file);
+  }
+  assert.match(fs.readFileSync(path.join(__dirname, '../kit/chat.md'), 'utf8'), /Pass `--pid` for local Snakemake runs/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../kit/roles/_report.md'), 'utf8'), /not Codex roles/);
 });
 
 test('install writes roles, skills, routing, runner, hooks and gitignore', () => {
