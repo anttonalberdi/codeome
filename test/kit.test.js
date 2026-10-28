@@ -18,7 +18,7 @@ const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const agentBin = (project) => path.join(project, '.codeome', 'bin', 'codeome-agent');
 
 test('every role has the metadata the installer and router need', () => {
-  assert.strictEqual(kit.MANIFEST.version, '0.8.0');
+  assert.strictEqual(kit.MANIFEST.version, '0.8.1');
   assert.match(fs.readFileSync(path.join(__dirname, '../kit/roles/_report.md'), 'utf8'), /^## Progress$/m);
   const groups = Object.keys(kit.MANIFEST.groups);
   for (const r of kit.roles()) {

@@ -30,7 +30,7 @@ Specialists report the stages of a job with `.codeome/bin/codeome-agent progress
 | `--state` | `waiting`, `running`, `done` or `failed` |
 | `--done N --total M --unit U` | countable work, shown as a bar |
 | `--baseline SECONDS` | expected duration, if the agent knows it |
-| `--plan id:Label,...` | declare all stages up front |
+| `--plan id:Label,...` | declare all stages up front; quote the whole value when a label has spaces |
 
 The command never fails the job: bad input prints a warning and exits 0. It writes `.codeome/jobs/<id>/progress.json` (schema version 1) and keeps the last five durations of each stage in `.codeome/jobs/.progress-history.json`, which give the baseline and the time-left estimate. With no history there is no estimate. The chat shows the result on the job card (see [Agent chat](/guide/agent-chat)). Existing projects see the kit as outdated until updated.
 
