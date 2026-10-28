@@ -147,7 +147,11 @@
     if (!chat.started && !chat.items.length) return;
     clearTimeout(saveTimers[chat.id]);
     const run = () => {
-      const items = chat.items.map((it) => (it.result && it.result.length > 4000 ? { ...it, result: it.result.slice(0, 4000) + '\n…' } : it));
+      const items = chat.items.map((it) => {
+        const item = Object.hasOwn(it, 'progress') ? { ...it } : it;
+        if (item !== it) delete item.progress;
+        return item.result && item.result.length > 4000 ? { ...item, result: item.result.slice(0, 4000) + '\n…' } : item;
+      });
       return codeome.chat.save(chat.project, { id: chat.id, title: chat.title, engine: engineOf(chat), role: chat.role || '', account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
     };
     if (now) return run(); else saveTimers[chat.id] = setTimeout(run, 800);
@@ -785,6 +789,7 @@
         if (status !== it.status && status !== 'stale') { if ((it.status === 'running' || it.status === 'pausing') && !['running', 'pausing', 'held'].includes(status)) jobFinished(chat); it.status = status; it.endedAt = ['running', 'pausing'].includes(status) ? null : Date.parse(j.endedAt) || Date.now(); }
         it.account = j.account;
         it.resumedBy = j.resumedBy;
+        if (j.progress) it.progress = j.progress; else delete it.progress;
       }
       if (it.status === 'running' || it.status === 'pausing' || j) update(chat, it);
     }
@@ -939,6 +944,56 @@
     return s < 60 ? s + ' s' : s < 3600 ? Math.floor(s / 60) + ' min' : Math.floor(s / 3600) + ' h ' + Math.floor(s % 3600 / 60) + ' min';
   }
 
+  function formatProgressDuration(seconds) {
+    const s = Math.max(0, Math.round(seconds));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm' + (s % 60 ? ' ' + s % 60 + 's' : '');
+    return Math.floor(s / 3600) + 'h ' + String(Math.floor(s % 3600 / 60)).padStart(2, '0') + 'm';
+  }
+
+  function progressBar(pct, label, small = false) {
+    return h('div.jc-prog-bar' + (small ? '.small' : ''), {
+      role: 'progressbar', 'aria-label': label, 'aria-valuenow': Math.round(pct), 'aria-valuemin': 0, 'aria-valuemax': 100
+    }, h('span', { style: { width: pct + '%' }, 'aria-hidden': 'true' }));
+  }
+
+  function jobProgress(chat, it, view, nowMs) {
+    const allDone = view.doneCount === view.total;
+    const open = it.progressOpen === undefined ? !allDone : !!it.progressOpen;
+    const current = view.current >= 0 ? view.current : view.stages.findIndex((stage) => stage.state === 'failed');
+    const index = current >= 0 ? current : allDone ? view.total - 1 : Math.max(0, view.stages.findIndex((stage) => stage.state !== 'done'));
+    const active = view.stages[index];
+    const stageLabel = (stage, n) => stage.label || stage.id || 'Stage ' + (n + 1);
+    return h('div.jc-prog',
+      h('button.jc-prog-toggle', { type: 'button', 'aria-expanded': String(open),
+        onclick: (e) => { e.stopPropagation(); it.progressOpen = !open; update(chat, it); }
+      }, h('span.jc-prog-heading', `stage ${index + 1}/${view.total} · ${stageLabel(active, index)}`),
+      progressBar(view.overallPct, 'Overall job progress'),
+      h('span.jc-prog-chevron', { 'aria-hidden': 'true' }, open ? '⌄' : '›')),
+      open ? h('div.jc-prog-stages', view.stages.map((stage, n) => {
+        const state = ['done', 'running', 'failed', 'stopped'].includes(stage.state) ? stage.state : 'waiting';
+        const icon = { done: '✓', running: '●', waiting: '○', failed: '×', stopped: '■' }[state];
+        const label = stageLabel(stage, n);
+        const details = [];
+        if (stage.state !== 'waiting' && stage.pct !== null) details.push(`${stage.done}/${stage.total}${stage.unit ? ' ' + stage.unit : ''}`);
+        if (stage.state === 'running' && stage.pct === null && stage.elapsedSeconds !== null) {
+          details.push('elapsed ' + formatProgressDuration(stage.elapsedSeconds) +
+            (stage.baselineSeconds !== null ? ' / ~' + formatProgressDuration(stage.baselineSeconds) : ''));
+        }
+        if (stage.state === 'done' && stage.elapsedSeconds !== null) details.push(formatProgressDuration(stage.elapsedSeconds));
+        if (stage.etaSeconds !== null) details.push('~' + formatProgressDuration(stage.etaSeconds) + ' left');
+        const source = it.progress.stages[n];
+        const updatedAt = source && source.updatedAt != null ? source.updatedAt : it.progress.updatedAt;
+        const updateMs = typeof updatedAt === 'number' ? updatedAt : Date.parse(updatedAt);
+        const stalledSeconds = Number.isFinite(updateMs) ? Math.max(0, Math.floor((nowMs - updateMs) / 1000)) : 0;
+        return h('div.jc-prog-row.' + state,
+          h('span.jc-prog-icon', { role: 'img', 'aria-label': state }, icon),
+          h('span.jc-prog-label', h('span', label), stage.stalled ? h('span.jc-prog-stall', `no update for ${stalledSeconds}s`) : null),
+          h('span.jc-prog-meta', details.length ? h('span.jc-prog-detail', details.join(' · ')) : null,
+            stage.state !== 'waiting' && stage.pct !== null ? progressBar(stage.pct, label + ' progress', true) : null));
+      })) : null);
+  }
+
   const STATUS = { running: 'running', pausing: 'pausing…', paused: 'paused', done: 'done', failed: 'failed', cancelled: 'cancelled', lost: 'lost', held: 'usage limit', stale: 'stale' };
 
   async function jobAction(chat, it, action) {
@@ -970,6 +1025,8 @@
         break;
       case 'job': {
         const live = it.status === 'running' || it.status === 'pausing';
+        const nowMs = Date.now();
+        const progress = Progress.progressView(it.progress, nowMs, { status: it.status });
         el = h('div.jobcard.' + it.status, { tabindex: '0', role: 'button', title: it.jobId ? 'Open the brief, log and result' : 'Waiting for the job record',
           onclick: () => openJob(it), onkeydown: (e) => { if (e.target === e.currentTarget && e.key === 'Enter') openJob(it); } },
           h('div.jc-top', h('span.pill' + (it.engine === 'codex' ? '.codex' : '.ok'), ENGINE[it.engine]), h('span.jc-role', it.role), h('span.grow'),
@@ -977,6 +1034,7 @@
           h('div.jc-title', it.title),
           it.activity && live ? h('div.jc-act', it.activity) : null,
           !live && it.account && App.cfg.accounts[it.engine] && App.cfg.accounts[it.engine].list.length > 1 ? h('div.jc-act', 'on ' + it.account) : null,
+          progress ? jobProgress(chat, it, progress, nowMs) : null,
           it.engine === 'codex' && it.jobId && ((it.status === 'running') || (it.status === 'pausing') || (it.status === 'paused' && !it.resumedBy))
             ? h('button.btn.small.jc-action', { disabled: it.status === 'pausing' || !!it.resuming, onclick: (e) => { e.stopPropagation(); jobAction(chat, it, it.status === 'paused' ? 'resume' : 'pause'); } },
               it.status === 'running' ? 'Pause' : it.status === 'pausing' ? 'Pausing…' : it.resuming ? 'Resuming…' : 'Resume') : null);

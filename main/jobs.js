@@ -7,6 +7,7 @@ const kit = require('./kit');
 
 const jobsDir = (project) => path.join(project, '.codeome', 'jobs');
 const STALE_MS = 24 * 3600 * 1000;
+const RECENT_MS = 3600 * 1000;
 const resuming = new Set();
 
 function alive(pid) {
@@ -28,11 +29,65 @@ function settle(j) {
   return j;
 }
 
+function progress(project, id) {
+  try {
+    const file = path.join(jobsDir(project), id, 'progress.json');
+    const info = fs.lstatSync(file);
+    const max = 256 * 1024;
+    if (!info.isFile() || info.size > max) return null;
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    let raw;
+    try {
+      const opened = fs.fstatSync(fd);
+      if (!opened.isFile() || opened.size > max) return null;
+      const buffer = Buffer.alloc(opened.size);
+      let size = 0;
+      while (size < buffer.length) {
+        const read = fs.readSync(fd, buffer, size, buffer.length - size, size);
+        if (!read) break;
+        size += read;
+      }
+      raw = buffer.toString('utf8', 0, size);
+    } finally { fs.closeSync(fd); }
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object' || Array.isArray(data) || data.v !== 1 || !Array.isArray(data.stages)) return null;
+    const clip = (value, max) => typeof value === 'string' ? value.slice(0, max) : undefined;
+    const nullable = (value, max) => value === null ? null : clip(value, max);
+    const number = (value) => value === null ? null : typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    const stages = data.stages.slice(0, 50).filter((s) => s && typeof s === 'object' && !Array.isArray(s) &&
+      typeof s.id === 'string' && s.id && ['waiting', 'running', 'done', 'failed'].includes(s.state)).map((s) => ({
+      id: clip(s.id, 40),
+      ...(clip(s.label, 120) !== undefined ? { label: clip(s.label, 120) } : {}),
+      state: s.state,
+      ...(['determinate', 'indeterminate'].includes(s.kind) ? { kind: s.kind } : {}),
+      ...(number(s.done) !== undefined ? { done: number(s.done) } : {}),
+      ...(number(s.total) !== undefined ? { total: number(s.total) } : {}),
+      ...(nullable(s.unit, 20) !== undefined ? { unit: nullable(s.unit, 20) } : {}),
+      ...(nullable(s.startedAt, 64) !== undefined ? { startedAt: nullable(s.startedAt, 64) } : {}),
+      ...(nullable(s.endedAt, 64) !== undefined ? { endedAt: nullable(s.endedAt, 64) } : {}),
+      ...(clip(s.updatedAt, 64) !== undefined ? { updatedAt: clip(s.updatedAt, 64) } : {}),
+      ...(number(s.baselineSeconds) !== undefined ? { baselineSeconds: number(s.baselineSeconds) } : {})
+    }));
+    return { ...(clip(data.updatedAt, 64) !== undefined ? { updatedAt: clip(data.updatedAt, 64) } : {}), stages };
+  } catch { return null; }
+}
+
 async function list(project) {
   if (!project) return [];
   let names;
   try { names = await fs.promises.readdir(jobsDir(project)); } catch { return []; }
-  const jobs = names.filter((n) => !n.startsWith('.')).map((n) => load(project, n)).filter(Boolean).map(settle);
+  const now = Date.now();
+  const jobs = names.filter((n) => !n.startsWith('.')).map((n) => {
+    const loaded = load(project, n);
+    if (!loaded) return null;
+    const job = settle(loaded);
+    const age = now - Date.parse(job.endedAt);
+    if (!['running', 'pausing', 'paused', 'held'].includes(job.status) &&
+        (['done', 'failed', 'cancelled', 'lost', 'stale'].includes(job.status) || Number.isFinite(age)) &&
+        !(age >= 0 && age <= RECENT_MS)) return job;
+    const summary = progress(project, n);
+    return summary ? { ...job, progress: summary } : job;
+  }).filter(Boolean);
   return jobs.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
 }
 

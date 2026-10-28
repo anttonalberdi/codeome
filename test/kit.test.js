@@ -12,6 +12,8 @@ const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const agentBin = (project) => path.join(project, '.codeome', 'bin', 'codeome-agent');
 
 test('every role has the metadata the installer and router need', () => {
+  assert.strictEqual(kit.MANIFEST.version, '0.7.0');
+  assert.match(fs.readFileSync(path.join(__dirname, '../kit/roles/_report.md'), 'utf8'), /^## Progress$/m);
   const groups = Object.keys(kit.MANIFEST.groups);
   for (const r of kit.roles()) {
     assert.ok(r.name && r.description && r.tools, r.name);
@@ -97,7 +99,7 @@ import json, sys, os
 argv = sys.argv[1:]
 prompt = sys.stdin.read()
 out = argv[argv.index('-o') + 1]
-json.dump({'argv': argv, 'cwd': os.getcwd(), 'prompt': prompt, 'codexHome': os.environ.get('CODEX_HOME')}, open(os.path.join(${JSON.stringify(dir)}, 'call.json'), 'w'))
+json.dump({'argv': argv, 'cwd': os.getcwd(), 'prompt': prompt, 'codexHome': os.environ.get('CODEX_HOME'), 'jobId': os.environ.get('CODEOME_JOB_ID')}, open(os.path.join(${JSON.stringify(dir)}, 'call.json'), 'w'))
 print('session id: 0199-test-session', file=sys.stderr)
 if ${exitCode} == 0:
     open(out, 'w').write('## Status\\ndone — fake')
@@ -147,12 +149,14 @@ test('codeome-agent runs a Codex job with the role prompt and records it', async
   assert.match(call.prompt, /You are the implementer/);
   assert.match(call.prompt, /# Your job\nAdd a --threads flag\./);
   assert.match(call.prompt, /## Report/);
+  assert.match(call.prompt, /codeome-agent progress/);
 
   const list = await jobs.list(p);
   assert.strictEqual(list.length, 1);
   assert.strictEqual(list[0].status, 'done');
   assert.strictEqual(list[0].session, '0199-test-session');
   assert.strictEqual(list[0].title, 'Add flag');
+  assert.strictEqual(call.jobId, list[0].id);
   assert.match((await jobs.read(p, list[0].id, 'result')).content, /done — fake/);
   assert.match((await jobs.read(p, list[0].id, 'brief')).content, /--threads/);
   assert.match((await jobs.read(p, list[0].id, 'log')).content, /session id/);
@@ -430,10 +434,11 @@ test('codeome-agent --worktree runs the job on its own branch', async () => {
 test('hooks record a Claude subagent job from Agent call to stop', async () => {
   const p = tmp();
   kit.install(p);
-  const hook = (ev) => { const r = runAgent(p, ['hook'], JSON.stringify(ev)); assert.strictEqual(r.status, 0); assert.strictEqual(r.stdout, ''); };
+  const hook = (ev) => { const r = runAgent(p, ['hook'], JSON.stringify(ev)); assert.strictEqual(r.status, 0); return r.stdout; };
   hook({ hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_use_id: 'toolu_1', tool_input: { subagent_type: 'planner', description: 'Plan threads flag', prompt: 'Plan it.' } });
-  hook({ hook_event_name: 'SubagentStart', agent_id: 'agent-1', agent_type: 'planner', session_id: 's1', cwd: p });
+  const startOutput = hook({ hook_event_name: 'SubagentStart', agent_id: 'agent-1', agent_type: 'planner', session_id: 's1', cwd: p });
   let [j] = await jobs.list(p);
+  assert.match(JSON.parse(startOutput).hookSpecificOutput.additionalContext, new RegExp(`progress --job ${j.id} --stage`));
   assert.strictEqual(j.engine, 'claude');
   assert.strictEqual(j.status, 'running');
   assert.strictEqual(j.title, 'Plan threads flag');

@@ -49,6 +49,7 @@ Work through tasks in dependency order. For each task:
    - Context: the relevant files with `path:line`, the conventions to follow, what earlier tasks changed.
    - Constraints: what not to touch, no new dependencies unless named, no commits.
    - Acceptance check: the exact command or observable result.
+   - Progress: ask specialists to report progress for measurable steps; for long multi-stage work, you may mirror the stages yourself.
    - Out of scope.
    - Connected projects: when a task reads or changes a folder of a connected project (the chat's instructions list them), name the folder in the brief. Codex jobs can write to those folders as well as to this project; Claude subagents reach them only when the brief names them.
    - The HPC: for work on the cluster, copy in the connection command and the project folder from the chat's instructions ("Reaching the HPC", "Projects on the HPC"), so the specialist uses the open connection and does not start a login of its own.

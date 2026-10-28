@@ -12,21 +12,28 @@ events.jsonl and result.md; Codeome's Agent chat and Jobs list read those folder
   codeome-agent show ID [--brief | --log]
   codeome-agent cancel ID
   codeome-agent pause ID
+  codeome-agent progress [--job ID] [--stage ID] [--label TEXT] [--state waiting|running|done|failed] [--done N --total M --unit U] [--baseline SECONDS] [--plan id:label,id:label,...]
   codeome-agent hook            (Claude Code hook: PreToolUse/SubagentStart/SubagentStop JSON on stdin)
 """
 import argparse
 import json
+import math
 import os
 import re
 import secrets
 import select
 import signal
 import stat
+import statistics
 import subprocess
 import sys
 import threading
 import time
 from datetime import datetime, timezone
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 JOBS = os.path.join(ROOT, '.codeome', 'jobs')
@@ -136,6 +143,193 @@ def duration(job):
     return '%dh%02dm' % (s // 3600, s % 3600 // 60) if s >= 3600 else '%dm%02ds' % (s // 60, s % 60)
 
 
+# ---------- stage progress ----------
+def progress_text(path):
+    try:
+        info = os.stat(path, follow_symlinks=False)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 256 * 1024:
+            return ''
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | os.O_NONBLOCK)
+        try:
+            opened = os.fstat(fd)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_size > 256 * 1024:
+                return ''
+            chunks, remaining = [], 256 * 1024 + 1
+            while remaining:
+                chunk = os.read(fd, remaining)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            content = b''.join(chunks)
+            return content.decode('utf-8') if len(content) <= 256 * 1024 else ''
+        finally:
+            os.close(fd)
+    except (OSError, UnicodeError):
+        return ''
+
+
+def progress_lock(path):
+    fd = None
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        if fcntl is not None:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        return fd
+    except OSError:
+        if fd is not None:
+            os.close(fd)
+        return None
+
+
+def progress_unlock(fd):
+    if fd is not None:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def progress_history():
+    try:
+        data = json.loads(progress_text(os.path.join(JOBS, '.progress-history.json')))
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: [v for v in values[-5:] if isinstance(v, (int, float)) and not isinstance(v, bool)
+                and math.isfinite(v) and v >= 1]
+            for k, values in list(data.items())[-500:] if isinstance(k, str) and isinstance(values, list)}
+
+
+def progress_stage(stage_id, label, stamp, history):
+    values = history.get(stage_id) or []
+    return {'id': stage_id, 'label': label, 'state': 'waiting', 'kind': 'indeterminate',
+            'done': 0, 'total': None, 'unit': None, 'startedAt': None, 'endedAt': None,
+            'updatedAt': stamp, 'baselineSeconds': statistics.median(values) if values else None}
+
+
+def progress_number(value, name, integer=False):
+    try:
+        number = int(value) if integer else float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError('%s must be a number' % name)
+    if not math.isfinite(number) or (name != '--done' and number < 0):
+        raise ValueError('%s must be non-negative and finite' % name)
+    return number
+
+
+def cmd_progress(a):
+    job_id = a.job if a.job is not None else os.environ.get('CODEOME_JOB_ID')
+    if not job_id or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', job_id) or '..' in job_id or not os.path.isfile(os.path.join(job_dir(job_id), 'job.json')):
+        print('codeome-agent: warning: missing or invalid progress job id', file=sys.stderr)
+        return
+    lock_fd = progress_lock(os.path.join(job_dir(job_id), '.progress.lock'))
+    try:
+        if not a.stage and not a.plan:
+            raise ValueError('--stage or --plan is required')
+        if a.state is not None and a.state not in ('waiting', 'running', 'done', 'failed'):
+            raise ValueError('--state must be waiting, running, done or failed')
+        done = progress_number(a.done, '--done', True) if a.done is not None else None
+        total = progress_number(a.total, '--total', True) if a.total is not None else None
+        baseline = progress_number(a.baseline, '--baseline') if a.baseline is not None else None
+        if not a.stage and any(x is not None for x in (a.label, a.state, a.done, a.total, a.unit, a.baseline)):
+            raise ValueError('stage options require --stage')
+        plan = []
+        if a.plan:
+            for item in a.plan.split(','):
+                if ':' not in item or not item.split(':', 1)[0]:
+                    raise ValueError('--plan requires id:label entries')
+                stage_id, label = item.split(':', 1)
+                plan.append((stage_id[:40], label[:120] or stage_id[:40]))
+        stamp = now_iso()
+        history = progress_history()
+        progress_path = os.path.join(job_dir(job_id), 'progress.json')
+        try:
+            old = json.loads(progress_text(progress_path))
+        except ValueError:
+            old = None
+        stages = []
+        if isinstance(old, dict) and old.get('v') == 1 and isinstance(old.get('stages'), list):
+            for item in old['stages']:
+                if not isinstance(item, dict) or not isinstance(item.get('id'), str) or not item['id']:
+                    continue
+                stage_id = item['id'][:40]
+                if any(s['id'] == stage_id for s in stages) or len(stages) >= 50:
+                    continue
+                stage = progress_stage(stage_id, str(item.get('label') or stage_id)[:120], stamp, history)
+                stage.update({k: item[k] for k in stage if k in item})
+                stage['id'], stage['label'] = stage_id, str(stage['label'])[:120]
+                if stage['state'] not in ('waiting', 'running', 'done', 'failed'):
+                    stage['state'] = 'waiting'
+                if not isinstance(stage['total'], int) or isinstance(stage['total'], bool) or stage['total'] < 0:
+                    stage['total'] = None
+                if not isinstance(stage['done'], int) or isinstance(stage['done'], bool):
+                    stage['done'] = 0
+                stage['done'] = max(0, min(stage['done'], stage['total'])) if stage['total'] is not None else max(0, stage['done'])
+                stage['kind'] = 'determinate' if stage['total'] is not None else 'indeterminate'
+                stage['unit'] = str(stage['unit'])[:20] if stage['unit'] is not None else None
+                if not isinstance(stage['baselineSeconds'], (int, float)) or isinstance(stage['baselineSeconds'], bool) or not math.isfinite(stage['baselineSeconds']) or stage['baselineSeconds'] < 0:
+                    stage['baselineSeconds'] = progress_stage(stage_id, stage['label'], stamp, history)['baselineSeconds']
+                stages.append(stage)
+        for stage_id, label in plan:
+            if not any(s['id'] == stage_id for s in stages) and len(stages) < 50:
+                stages.append(progress_stage(stage_id, label, stamp, history))
+        if a.stage:
+            stage_id = a.stage[:40]
+            if not stage_id:
+                raise ValueError('--stage must not be empty')
+            stage = next((s for s in stages if s['id'] == stage_id), None)
+            if stage is None:
+                if len(stages) >= 50:
+                    raise ValueError('progress is limited to 50 stages')
+                stage = progress_stage(stage_id, (a.label or stage_id)[:120], stamp, history)
+                stages.append(stage)
+            previous = stage['state']
+            if a.label is not None:
+                stage['label'] = a.label[:120]
+            if a.state is not None:
+                stage['state'] = a.state
+            elif previous == 'waiting':
+                stage['state'] = 'running'
+            if total is not None:
+                stage['total'] = total
+            if done is not None:
+                stage['done'] = done
+            stage['done'] = max(0, min(stage['done'], stage['total'])) if stage['total'] is not None else max(0, stage['done'])
+            stage['kind'] = 'determinate' if stage['total'] is not None else 'indeterminate'
+            if a.unit is not None:
+                stage['unit'] = a.unit[:20]
+            if baseline is not None:
+                stage['baselineSeconds'] = baseline
+            if stage['baselineSeconds'] is None and history.get(stage_id):
+                stage['baselineSeconds'] = statistics.median(history[stage_id])
+            if stage['state'] == 'running':
+                if previous in ('done', 'failed') or not stage['startedAt']:
+                    stage['startedAt'] = stamp
+                stage['endedAt'] = None
+            if stage['state'] == 'done' or (stage['state'] == 'failed' and not stage['endedAt']):
+                stage['endedAt'] = stamp
+            stage['updatedAt'] = stamp
+            if stage['state'] == 'done' and previous != 'done':
+                start, end = parse_iso(stage['startedAt']), parse_iso(stage['endedAt'])
+                if start is not None and end is not None and end - start >= 1:
+                    history_fd = progress_lock(os.path.join(JOBS, '.progress-history.lock'))
+                    try:
+                        history = progress_history()
+                        if stage_id not in history and len(history) >= 500:
+                            history.pop(next(iter(history)))
+                        history[stage_id] = (history.get(stage_id) or [])[-4:] + [end - start]
+                        write_json(os.path.join(JOBS, '.progress-history.json'), history)
+                    finally:
+                        progress_unlock(history_fd)
+        write_json(progress_path, {'v': 1, 'updatedAt': stamp, 'stages': stages})
+    except (OSError, ValueError, TypeError) as e:
+        print('codeome-agent: warning: progress: %s' % e, file=sys.stderr)
+    finally:
+        progress_unlock(lock_fd)
+
+
 # ---------- roles ----------
 def read_role(role):
     path = os.path.join(ROOT, '.claude', 'agents', role + '.md')
@@ -181,6 +375,8 @@ def configured_effort(role):
 
 
 PREAMBLE = """You are the "{role}" specialist in a development team. An orchestrator (Claude Code) planned the work and sent you one job; it will verify your result and decide what happens next. You have no other context than what is below.
+
+For measurable work, follow your role's Progress section and use `.codeome/bin/codeome-agent progress`. This Codex job's id is available as `$CODEOME_JOB_ID`.
 
 # Your role
 {body}
@@ -426,6 +622,7 @@ def cmd_codex(a):
     argv.append('-')
 
     env = dict(os.environ)
+    env['CODEOME_JOB_ID'] = job_id
     if account:
         env.pop('CODEX_HOME', None)
         if account.get('dir'):
@@ -696,7 +893,7 @@ def claude_gate():
 
 def cmd_hook(_a):
     # A hook must never disturb the session: swallow every error, print nothing,
-    # except to refuse a new subagent when the account is past its usage limit.
+    # except for a usage-limit refusal or a new subagent's job id.
     try:
         ev = json.load(sys.stdin)
         name = ev.get('hook_event_name')
@@ -712,7 +909,12 @@ def cmd_hook(_a):
                 'toolUseId': ev.get('tool_use_id'),
                 'prompt': inp.get('prompt') or '', 'model': inp.get('model'), 'at': time.time()})
         elif name == 'SubagentStart' and ev.get('agent_type'):
-            start_claude_job(ev)
+            job_id = start_claude_job(ev)
+            if job_id:
+                context = ('Your Codeome job id is %s. To report progress run: '
+                           '.codeome/bin/codeome-agent progress --job %s --stage <id> --state running --done N --total M'
+                           % (job_id, job_id))
+                print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SubagentStart', 'additionalContext': context}}))
         elif name == 'SubagentStop' and ev.get('agent_type'):
             stop_claude_job(ev)
     except Exception:
@@ -760,6 +962,7 @@ def start_claude_job(ev):
     if pend.get('prompt'):
         write_text(os.path.join(job_dir(job_id), 'brief.md'), pend['prompt'])
     write_text(agent_index(ev.get('agent_id') or job_id), job_id)
+    return job_id
 
 
 def stop_claude_job(ev):
@@ -813,9 +1016,31 @@ def main():
     pa = sub.add_parser('pause', help='pause a running Codex job after its session starts')
     pa.add_argument('id')
     pa.set_defaults(fn=cmd_pause)
+    pr = sub.add_parser('progress', help='record progress for a job stage')
+    pr.add_argument('--job')
+    pr.add_argument('--stage')
+    pr.add_argument('--label')
+    pr.add_argument('--state')
+    pr.add_argument('--done')
+    pr.add_argument('--total')
+    pr.add_argument('--unit')
+    pr.add_argument('--baseline')
+    pr.add_argument('--plan')
+    pr.set_defaults(fn=cmd_progress)
     sub.add_parser('hook', help='Claude Code hook entry point').set_defaults(fn=cmd_hook)
+    if sys.argv[1:2] == ['progress']:
+        def progress_error(message):
+            print('codeome-agent: warning: progress: %s' % message, file=sys.stderr)
+            raise SystemExit(0)
+        p.error = pr.error = progress_error
     a = p.parse_args()
-    a.fn(a)
+    if a.cmd == 'progress':
+        try:
+            a.fn(a)
+        except Exception as e:
+            print('codeome-agent: warning: progress: %s' % e, file=sys.stderr)
+    else:
+        a.fn(a)
 
 
 if __name__ == '__main__':

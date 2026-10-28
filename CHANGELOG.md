@@ -4,6 +4,9 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+### Added
+- **Job progress on job cards**: specialists (Codex and Claude) can report the stages of a job with `codeome-agent progress`, and the card shows a collapsible block with an overall bar, `stage N/M`, a row per stage, done/total bars, elapsed time against the usual duration, an estimated time left once the stage has been seen before, and a stall badge after 120 seconds without an update. Cards without progress look as before. The agents report the steps; Codeome does not parse test-suite logs or show a card for background commands yet. Needs agent kit 0.7.0, so update the kit in existing projects.
+
 ### Changed
 - **Longer answers to agent questions**: the "Other…" field on an agent's question card is now a text area that grows downwards as you type, like the main chat box, instead of scrolling a single line sideways. Enter sends the answer and Shift+Enter starts a new line.
 

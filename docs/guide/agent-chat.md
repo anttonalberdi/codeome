@@ -14,6 +14,12 @@ The mode a new chat starts in, and the model, effort and engine, can be set for 
 
 <Shot bare src="/screens/detail-job-cards.webp" alt="Two running job cards: a Codex debugger job and a Claude explorer job" caption="Each job card shows the engine, the specialist, the job title, its status and how long it has run." width="520" height="158" />
 
+### Job progress
+
+When a specialist reports its steps, the job card gets a collapsible progress block: an overall bar with `stage N/M`, a row per stage, a done/total bar for countable work (such as files), the time elapsed against the usual duration for that stage, and an estimated time left once Codeome has seen the stage before. A stage that is running but has not reported for 120 seconds gets a stall badge. Cards without progress look as before.
+
+The agents report the steps; Codeome does not guess them from logs. Progress is read from the job's `progress.json` rather than saved in the chat history, and shows for running, paused and held jobs and for jobs that ended within the last hour. It needs agent kit 0.7.0, so update the kit in projects that have it installed (see [Agent kit](/reference/agent-kit)). Test-suite output is not parsed yet, and background commands do not get a card of their own.
+
 ## Attachments and saved messages
 
 The `+` to the left of the message box attaches files: they show as chips above the box and go to the agent as paths with your next message. The bolt to the right lists the messages you send often (*Commit, push and deploy* to start with); picking one sends it at once. The same menu saves what you have typed and edits the list.
