@@ -3,6 +3,8 @@
 
 For jobs with clear steps (several files, a test suite, or a pipeline), declare stages once with `.codeome/bin/codeome-agent progress --plan inspect:Inspect,edit:Edit,test:Test`. Mark each stage with `progress --stage ID --state running` and then `progress --stage ID --state done`; add `--done N --total M --unit files` for countable work. Use stable lowercase ids because they key duration history. Codex uses `$CODEOME_JOB_ID`; Claude subagents pass `--job <id>` from SubagentStart. Skip one-step jobs, call no more than every few seconds, and ignore warnings (progress never fails the job).
 
+For a long parseable background command inside a job, start `.codeome/bin/codeome-agent watch` with `--task` to show its progress in chat; continue to use the job's own `progress` stages.
+
 ## Report
 
 You work for an orchestrator that reads only your final message. End with exactly this shape, and keep it short:

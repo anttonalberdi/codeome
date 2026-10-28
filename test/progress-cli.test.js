@@ -24,13 +24,24 @@ function job(root, id = 'job-1') {
 }
 
 function run(root, args, input, env = {}) {
-  return spawnSync('python3', [path.join(root, '.codeome', 'bin', 'codeome-agent'), ...args], {
+  return spawnSync('python3', ['-B', path.join(root, '.codeome', 'bin', 'codeome-agent'), ...args], {
     cwd: root, input, encoding: 'utf8', env: { ...process.env, CODEOME_HOME: path.join(root, 'home'), ...env }
   });
 }
 
 const json = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const progress = (dir) => json(path.join(dir, 'progress.json'));
+const epochMicros = (stamp) => {
+  const [seconds, fraction = ''] = stamp.slice(0, -1).split('.');
+  return Date.parse(`${seconds}Z`) * 1000 + Number(fraction.padEnd(6, '0'));
+};
+
+test('codeome-agent help lists progress and watch', () => {
+  const r = spawnSync('python3', ['-B', source, '--help'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^    progress\s+record progress for a job stage$/m);
+  assert.match(r.stdout, /^    watch\s+follow a log and record task progress$/m);
+});
 
 test('progress writes and merges stages in first-seen order', (t) => {
   const root = project(t);
@@ -39,7 +50,7 @@ test('progress writes and merges stages in first-seen order', (t) => {
   assert.equal(r.status, 0, r.stderr);
   const first = progress(dir);
   assert.equal(first.v, 1);
-  assert.match(first.updatedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+  assert.match(first.updatedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/);
   assert.deepEqual(first.stages[0], {
     id: 'build', label: 'Build files', state: 'running', kind: 'determinate', done: 2, total: 10,
     unit: 'files', startedAt: first.stages[0].updatedAt, endedAt: null,
@@ -167,7 +178,7 @@ test('progress ignores unsafe existing files and oversized history', (t) => {
   }
 });
 
-test('stage transitions reset timestamps and short samples do not enter history', (t) => {
+test('stage transitions reset timestamps and history uses elapsed time', (t) => {
   const root = project(t);
   const dir = job(root);
   const file = path.join(dir, 'progress.json');
@@ -180,7 +191,8 @@ test('stage transitions reset timestamps and short samples do not enter history'
   assert.equal(run(root, ['progress', '--job', 'job-1', '--stage', 'x', '--state', 'done']).status, 0);
   const done = progress(dir).stages[0];
   assert.equal(done.endedAt, done.updatedAt);
-  assert.equal(fs.existsSync(path.join(root, '.codeome', 'jobs', '.progress-history.json')), false);
+  const elapsedMicros = epochMicros(done.endedAt) - epochMicros(running.startedAt);
+  assert.equal(fs.existsSync(path.join(root, '.codeome', 'jobs', '.progress-history.json')), elapsedMicros >= 1000000);
   fs.writeFileSync(file, JSON.stringify({ v: 1, stages: [{ ...done, endedAt: old }] }));
   assert.equal(run(root, ['progress', '--job', 'job-1', '--stage', 'x', '--state', 'done']).status, 0);
   assert.equal(progress(dir).stages[0].endedAt, progress(dir).stages[0].updatedAt);
@@ -203,7 +215,7 @@ test('parallel stage updates both survive', async (t) => {
   const root = project(t);
   const dir = job(root);
   const launch = (stage) => new Promise((resolve, reject) => {
-    const child = spawn('python3', [path.join(root, '.codeome', 'bin', 'codeome-agent'), 'progress', '--job', 'job-1', '--stage', stage],
+    const child = spawn('python3', ['-B', path.join(root, '.codeome', 'bin', 'codeome-agent'), 'progress', '--job', 'job-1', '--stage', stage],
       { cwd: root, env: { ...process.env, CODEOME_HOME: path.join(root, 'home') }, stdio: 'ignore' });
     child.on('error', reject);
     child.on('exit', (code) => resolve(code));
@@ -226,13 +238,14 @@ test('history keeps five durations, records only a transition to done, and fills
   const dir = job(root);
   const historyPath = path.join(root, '.codeome', 'jobs', '.progress-history.json');
   fs.writeFileSync(historyPath, JSON.stringify({ build: [1, 2, 3, 4, 5] }));
-  const startedAt = new Date(Date.now() - 7000).toISOString().slice(0, 19) + 'Z';
+  const startedAt = new Date(Date.now() - 7000).toISOString();
   fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify({ v: 1, stages: [{ id: 'build', state: 'running', startedAt }] }));
   assert.equal(run(root, ['progress', '--job', 'job-1', '--stage', 'build', '--state', 'done']).status, 0);
   const durations = json(historyPath).build;
   assert.equal(durations.length, 5);
   assert.deepEqual(durations.slice(0, 4), [2, 3, 4, 5]);
-  assert.ok(durations[4] >= 7 && durations[4] <= 9);
+  assert.ok(durations[4] >= 7);
+  assert.ok(Math.abs(durations[4] - (Date.parse(progress(dir).stages[0].endedAt) - Date.parse(startedAt)) / 1000) < 0.002);
   assert.equal(progress(dir).stages[0].baselineSeconds, 3);
   assert.equal(run(root, ['progress', '--job', 'job-1', '--stage', 'build', '--state', 'done']).status, 0);
   assert.deepEqual(json(historyPath).build, durations);

@@ -13,13 +13,19 @@ events.jsonl and result.md; Codeome's Agent chat and Jobs list read those folder
   codeome-agent cancel ID
   codeome-agent pause ID
   codeome-agent progress [--job ID] [--stage ID] [--label TEXT] [--state waiting|running|done|failed] [--done N --total M --unit U] [--baseline SECONDS] [--plan id:label,id:label,...]
+  codeome-agent watch --log FILE --parser vitest|pytest|tsc|regex --total N --label TEXT --task KEY [--pid P] [--stage ID] [--regex PATTERN] [--timeout SECONDS] [--quiet]
   codeome-agent hook            (Claude Code hook: PreToolUse/SubagentStart/SubagentStop JSON on stdin)
 """
 import argparse
 import json
 import math
+import multiprocessing
 import os
 import re
+try:
+    import resource
+except ImportError:
+    resource = None
 import secrets
 import select
 import signal
@@ -49,11 +55,17 @@ def now_iso():
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def now_progress_iso():
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
+
 def parse_iso(s):
-    try:
-        return datetime.strptime(s, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp()
-    except (TypeError, ValueError):
-        return None
+    for format in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ'):
+        try:
+            return datetime.strptime(s, format).replace(tzinfo=timezone.utc).timestamp()
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 def safe(s):
@@ -108,7 +120,7 @@ def pid_alive(pid):
     try:
         os.kill(pid, 0)
         return True
-    except ProcessLookupError:
+    except (ProcessLookupError, OverflowError):
         return False
     except PermissionError:
         return True
@@ -242,7 +254,7 @@ def cmd_progress(a):
                     raise ValueError('--plan requires id:label entries')
                 stage_id, label = item.split(':', 1)
                 plan.append((stage_id[:40], label[:120] or stage_id[:40]))
-        stamp = now_iso()
+        stamp = now_progress_iso()
         history = progress_history()
         progress_path = os.path.join(job_dir(job_id), 'progress.json')
         try:
@@ -328,6 +340,380 @@ def cmd_progress(a):
         print('codeome-agent: warning: progress: %s' % e, file=sys.stderr)
     finally:
         progress_unlock(lock_fd)
+
+
+# ---------- log progress watcher ----------
+WATCH_KEY = re.compile(r'[A-Za-z0-9][\w.-]{0,63}\Z')
+WATCH_VITEST = re.compile(r'^\s*([✓✗×↓-])\s+([A-Za-z0-9_./@-]+\.(?:test|spec)\.[cm]?[jt]sx?)')
+WATCH_PERCENT = re.compile(r'\[\s*(\d{1,3})%\]')
+WATCH_TSC_COUNT = re.compile(r'^\D*(\d+) of (\d+)')
+WATCH_TSC_BUILD = re.compile(r"Building project '([^']+)'")
+WATCH_TSC_CURRENT = re.compile(r"Project '([^']+)' is up to date")
+WATCH_ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+
+
+def watch_key_ok(key):
+    return bool(key and WATCH_KEY.fullmatch(key) and '..' not in key)
+
+
+def watch_real_dir(path):
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        os.mkdir(path)
+        mode = os.lstat(path).st_mode
+    if not stat.S_ISDIR(mode):
+        raise ValueError('task path is not a real directory')
+
+
+def watch_prune(tasks, current):
+    dirs = []
+    for name in os.listdir(tasks):
+        if not watch_key_ok(name):
+            continue
+        path = os.path.join(tasks, name)
+        try:
+            info = os.lstat(path)
+            if stat.S_ISDIR(info.st_mode):
+                dirs.append((info.st_mtime, name, path))
+        except OSError:
+            continue
+    dirs.sort(reverse=True)
+    cutoff = time.time() - 7 * 86400
+    for index, (mtime, name, path) in enumerate(dirs):
+        if name == current or (mtime >= cutoff and index < 50):
+            continue
+        try:
+            entries = os.listdir(path)
+            if any(not (entry in ('progress.json', 'watch.json', '.progress.lock', '.watch.lock') or
+                        re.fullmatch(r'(?:progress|watch)\.json\.tmp\.[A-Za-z0-9]+', entry)) or
+                   stat.S_ISDIR(os.lstat(os.path.join(path, entry)).st_mode) for entry in entries):
+                continue
+            for entry in entries:
+                os.unlink(os.path.join(path, entry))
+            os.rmdir(path)
+        except OSError:
+            continue
+
+
+def watch_regex_valid(pattern):
+    if len(pattern) > 200 or re.search(r'\\[1-9]|\(\?P=', pattern):
+        raise ValueError('--regex is too long or contains a backreference')
+    compiled = re.compile(pattern)
+    if 'done' not in compiled.groupindex:
+        raise ValueError('--regex needs a named done group')
+    stack = []
+    in_class = False
+    i = 0
+    while i < len(pattern):
+        char = pattern[i]
+        if char == '\\':
+            i += 2
+            continue
+        if char == '[':
+            in_class = True
+        elif char == ']':
+            in_class = False
+        elif not in_class:
+            if char == '(':
+                stack.append(False)
+            elif char == ')' and stack:
+                repeated = stack.pop()
+                suffix = pattern[i + 1:]
+                outer = bool(re.match(r'[+*]|\{\d+,\d*\}', suffix))
+                if repeated and outer:
+                    raise ValueError('--regex has nested quantifiers')
+                if stack and (repeated or outer):
+                    stack[-1] = True
+            elif stack and (char in '+*' or re.match(r'\{\d+,\d*\}', pattern[i:])):
+                stack[-1] = True
+        i += 1
+    return compiled
+
+
+def watch_regex_worker(pattern, lines, conn, parent_pid):
+    try:
+        if resource is not None:
+            try:
+                resource.setrlimit(resource.RLIMIT_CPU, (3, 3))
+            except (OSError, ValueError):
+                pass
+        matcher = re.compile(pattern)
+        conn.send('ready')
+        result = None
+        for line in lines:
+            if os.getppid() != parent_pid:
+                return
+            match = matcher.search(line)
+            if match:
+                result = (match.group('done'), match.groupdict().get('total'))
+        if os.getppid() == parent_pid:
+            conn.send(result)
+    finally:
+        conn.close()
+
+
+def watch_regex_batch(pattern, lines):
+    context = multiprocessing.get_context('spawn')
+    parent, child = context.Pipe(False)
+    process = context.Process(target=watch_regex_worker, args=(pattern, lines, child, os.getpid()))
+    process.daemon = True
+    process.start()
+    child.close()
+    try:
+        parent.recv()  # Start the match budget after interpreter startup and compilation.
+        if not parent.poll(2):
+            process.kill()
+            process.join()
+            raise TimeoutError('regex parser timed out')
+        return parent.recv()
+    finally:
+        parent.close()
+        process.join()
+
+
+def watch_pid_start(pid):
+    try:
+        result = subprocess.run(['ps', '-o', 'lstart=', '-p', str(pid)], capture_output=True,
+                                text=True, timeout=2, check=False)
+        return result.stdout.strip() or None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def watch_lines(fd, offset, partial, limit=1024 * 1024):
+    size = os.fstat(fd).st_size
+    if size < offset:
+        offset, partial = 0, b''
+    os.lseek(fd, offset, os.SEEK_SET)
+    chunks = []
+    remaining = min(max(0, size - offset), limit)
+    while remaining:
+        chunk = os.read(fd, min(remaining, 65536))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+        offset += len(chunk)
+    data = partial + b''.join(chunks)
+    pieces = data.split(b'\n')
+    partial = pieces.pop()
+    if len(pieces) > 20000:
+        unread = b'\n'.join(pieces[20000:] + [partial])
+        offset -= len(unread)
+        partial = b''
+        pieces = pieces[:20000]
+    partial = partial[:2048]
+    lines = [WATCH_ANSI.sub('', piece[:2048].decode('utf-8', errors='replace')) for piece in pieces]
+    return offset, partial, lines
+
+
+def cmd_watch(a):
+    if not watch_key_ok(a.task):
+        raise ValueError('--task must be a safe key of at most 64 characters')
+    if not a.label or not a.label.strip():
+        raise ValueError('--label is required')
+    if a.stage is not None and not a.stage:
+        raise ValueError('--stage must not be empty')
+    total = progress_number(a.total, '--total', True) if a.total is not None else None
+    if total is not None and total < 1:
+        raise ValueError('--total must be positive')
+    if a.parser == 'vitest' and total is None:
+        raise ValueError('vitest requires --total')
+    if a.parser == 'regex':
+        if not a.regex:
+            raise ValueError('regex parser requires --regex')
+        compiled = watch_regex_valid(a.regex)
+        if total is None and 'total' not in compiled.groupindex:
+            raise ValueError('regex parser requires --total or a named total group')
+    elif a.regex is not None:
+        raise ValueError('--regex requires --parser regex')
+    if a.pid is not None and not 1 < a.pid < 2 ** 31:
+        raise ValueError('--pid must be between 2 and 2147483647')
+    timeout = progress_number(a.timeout, '--timeout')
+    if timeout <= 0:
+        raise ValueError('--timeout must be positive')
+    # Short waits are available to CLI tests; normal watches poll every second.
+    poll = max(0.01, float(os.environ.get('CODEOME_WATCH_POLL', '1')))
+    wait = max(0, float(os.environ.get('CODEOME_WATCH_WAIT', '30')))
+    task_root = os.path.join(JOBS, '.tasks')
+    for directory in (os.path.join(ROOT, '.codeome'), JOBS, task_root, os.path.join(task_root, a.task)):
+        watch_real_dir(directory)
+    watch_prune(task_root, a.task)
+    stage_id = (a.stage or a.parser)[:40]
+    stamp = now_progress_iso()
+    stage = progress_stage(stage_id, a.label[:120], stamp, progress_history())
+    stage.update(state='running', kind='determinate', done=0, total=100 if a.parser == 'pytest' else total or 0,
+                 unit={'vitest': 'files', 'pytest': '%', 'tsc': 'projects', 'regex': None}[a.parser], startedAt=stamp)
+    path = os.path.join(task_root, a.task, 'progress.json')
+    last_written = None
+    last_time = 0
+
+    def save(force=False):
+        nonlocal last_written, last_time
+        current = (stage['state'], stage['done'], stage['total'])
+        if current == last_written:
+            return
+        delay = 1 - (time.monotonic() - last_time)
+        if delay > 0:
+            if not force:
+                return
+            time.sleep(delay)
+        stamp = now_progress_iso()
+        stage['updatedAt'] = stamp
+        write_json(path, {'v': 1, 'updatedAt': stamp, 'stages': [stage]})
+        last_written, last_time = current, time.monotonic()
+
+    stopped = False
+
+    def stop(_signal, _frame):
+        nonlocal stopped
+        stopped = True
+
+    old_term = signal.signal(signal.SIGTERM, stop)
+    old_int = signal.signal(signal.SIGINT, stop)
+    fd = None
+    reason = None
+    try:
+        save()
+        pid_start = watch_pid_start(a.pid) if a.pid is not None and pid_alive(a.pid) else None
+        deadline = time.monotonic() + wait
+        while not stopped and fd is None:
+            try:
+                fd = os.open(a.log, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | os.O_NONBLOCK)
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    raise ValueError('log is not a regular file')
+            except FileNotFoundError:
+                if time.monotonic() >= deadline:
+                    reason = 'log file did not appear'
+                    break
+                time.sleep(min(poll, max(0, deadline - time.monotonic())))
+            except (OSError, ValueError) as e:
+                reason = 'cannot watch log: %s' % e
+                break
+        offset, partial, files, projects = 0, b'', set(), set()
+        matched = False
+        log_started = time.monotonic()
+        warned = False
+        failure = False
+        summary = False
+
+        def consume(lines):
+            nonlocal matched, failure, summary, reason
+            if a.parser == 'regex' and lines:
+                result = watch_regex_batch(a.regex, lines)
+                if result is not None:
+                    try:
+                        done = int(result[0])
+                        parsed_total = int(result[1]) if result[1] is not None else total
+                        if done >= 0 and parsed_total is not None and parsed_total > 0:
+                            stage['done'], stage['total'] = min(done, parsed_total), parsed_total
+                            matched = True
+                    except (ValueError, TypeError):
+                        pass
+            for line in lines if a.parser != 'regex' else ():
+                if a.parser == 'vitest':
+                    hit = WATCH_VITEST.match(line)
+                    if hit:
+                        if len(files) < 100000:
+                            files.add(hit.group(2))
+                        stage['done'] = min(len(files), stage['total'])
+                        matched = True
+                        failure |= hit.group(1) in ('✗', '×')
+                    summary |= bool(re.match(r'^\s*Test Files\s', line))
+                    failure |= bool(re.match(r'^\s*FAIL\b', line))
+                    if re.match(r'^\s*(?:Test Files|Tests)\s', line):
+                        failure |= bool(re.search(r'\b[1-9]\d*\s+failed\b', line, re.I))
+                elif a.parser == 'pytest':
+                    hit = WATCH_PERCENT.search(line)
+                    if hit:
+                        stage['done'] = min(int(hit.group(1)), 100)
+                        matched = True
+                    if re.match(r'^=+ .* in [\d.]+s', line):
+                        summary = True
+                        failure |= bool(re.search(r'\b[1-9]\d*\s+(?:failed|errors?)\b', line, re.I))
+                else:
+                    hit = WATCH_TSC_COUNT.match(line)
+                    if hit:
+                        stage['done'], stage['total'] = int(hit.group(1)), int(hit.group(2))
+                        stage['done'] = min(stage['done'], stage['total'])
+                        matched = True
+                    else:
+                        hit = WATCH_TSC_BUILD.search(line) or WATCH_TSC_CURRENT.search(line)
+                        if hit:
+                            if total is None:
+                                reason = 'tsc project lines require --total'
+                            else:
+                                if len(projects) < 100000:
+                                    projects.add(hit.group(1))
+                                stage['done'], stage['total'] = min(len(projects), total), total
+                                matched = True
+                    failure |= bool(re.search(r'error TS\d+', line))
+
+        while fd is not None and not reason and not stopped:
+            offset, partial, lines = watch_lines(fd, offset, partial)
+            try:
+                consume(lines)
+            except (TimeoutError, EOFError):
+                reason = 'regex parser timed out'
+                break
+            save()
+            if not matched and not warned and time.monotonic() - log_started >= 60:
+                print('codeome-agent: warning: no progress lines matched; %s may need a verbose reporter' % a.parser, file=sys.stderr)
+                warned = True
+            ended = a.pid is not None and (not pid_alive(a.pid) or watch_pid_start(a.pid) != pid_start)
+            if summary or ended or (a.pid is None and a.parser in ('tsc', 'regex') and
+                                    (failure or stage['total'] > 0 and stage['done'] >= stage['total'])):
+                # Drain a large backlog before settling a finished process.
+                for _ in range(128):
+                    offset, partial, final_lines = watch_lines(fd, offset, partial)
+                    try:
+                        consume(final_lines)
+                    except (TimeoutError, EOFError):
+                        reason = 'regex parser timed out'
+                        break
+                    if offset >= os.fstat(fd).st_size:
+                        break
+                if partial:
+                    try:
+                        consume([WATCH_ANSI.sub('', partial.decode('utf-8', errors='replace'))])
+                    except (TimeoutError, EOFError):
+                        reason = 'regex parser timed out'
+                break
+            if time.monotonic() - log_started >= timeout:
+                reason = 'watch timed out'
+                break
+            time.sleep(poll)
+        stage['state'] = 'done' if not stopped and not reason and not failure and stage['total'] > 0 and stage['done'] >= stage['total'] else 'failed'
+    finally:
+        if stage['state'] == 'running':
+            stage['state'] = 'failed'
+        stage['endedAt'] = now_progress_iso()
+        try:
+            save(force=True)
+        except (OSError, ValueError, TypeError):
+            pass
+        if fd is not None:
+            os.close(fd)
+        signal.signal(signal.SIGTERM, old_term)
+        signal.signal(signal.SIGINT, old_int)
+        if stage['state'] == 'done':
+            start, end = parse_iso(stage['startedAt']), parse_iso(stage['endedAt'])
+            if start is not None and end is not None and end - start >= 1:
+                history_fd = progress_lock(os.path.join(JOBS, '.progress-history.lock'))
+                try:
+                    history = progress_history()
+                    if stage_id not in history and len(history) >= 500:
+                        history.pop(next(iter(history)))
+                    history[stage_id] = (history.get(stage_id) or [])[-4:] + [end - start]
+                    write_json(os.path.join(JOBS, '.progress-history.json'), history)
+                finally:
+                    progress_unlock(history_fd)
+        if reason or stopped:
+            print('codeome-agent: warning: watch: %s' % (reason or 'stopped'), file=sys.stderr)
+        if not a.quiet:
+            print('codeome-agent: watch %s: %s (%s/%s %s)' %
+                  (a.task, stage['state'], stage['done'], stage['total'], stage['unit'] or ''))
 
 
 # ---------- roles ----------
@@ -1027,18 +1413,30 @@ def main():
     pr.add_argument('--baseline')
     pr.add_argument('--plan')
     pr.set_defaults(fn=cmd_progress)
+    wa = sub.add_parser('watch', help='follow a log and record task progress')
+    wa.add_argument('--log', required=True)
+    wa.add_argument('--parser', required=True, choices=['vitest', 'pytest', 'tsc', 'regex'])
+    wa.add_argument('--total')
+    wa.add_argument('--label', required=True)
+    wa.add_argument('--task', required=True)
+    wa.add_argument('--pid', type=int)
+    wa.add_argument('--stage')
+    wa.add_argument('--regex')
+    wa.add_argument('--timeout', default='21600')
+    wa.add_argument('--quiet', action='store_true')
+    wa.set_defaults(fn=cmd_watch)
     sub.add_parser('hook', help='Claude Code hook entry point').set_defaults(fn=cmd_hook)
-    if sys.argv[1:2] == ['progress']:
+    if sys.argv[1:2] in (['progress'], ['watch']):
         def progress_error(message):
-            print('codeome-agent: warning: progress: %s' % message, file=sys.stderr)
+            print('codeome-agent: warning: %s: %s' % (sys.argv[1], message), file=sys.stderr)
             raise SystemExit(0)
-        p.error = pr.error = progress_error
+        p.error = (pr if sys.argv[1] == 'progress' else wa).error = progress_error
     a = p.parse_args()
-    if a.cmd == 'progress':
+    if a.cmd in ('progress', 'watch'):
         try:
             a.fn(a)
         except Exception as e:
-            print('codeome-agent: warning: progress: %s' % e, file=sys.stderr)
+            print('codeome-agent: warning: %s: %s' % (a.cmd, e), file=sys.stderr)
     else:
         a.fn(a)
 

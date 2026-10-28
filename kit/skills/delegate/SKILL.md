@@ -22,6 +22,7 @@ Request: $ARGUMENTS
      BRIEF
      ```
 4. When it returns, say in one line what came of it. Run the acceptance check yourself before reporting success, and show the user the Status line and the key findings.
+   For long parseable background runs, start `.codeome/bin/codeome-agent watch --log <log> --pid <pid> --parser <parser> --total <count> --label "<what>" --task <unique-key>` in the background with the command so its progress appears in chat; do not poll the log.
 
 If the job is held back for usage (a Codex job exiting with code 75, or a denied Agent call that starts `Codeome: Claude account`), do not retry: offer the other engine, or tell the user which account is out and when it resets.
 

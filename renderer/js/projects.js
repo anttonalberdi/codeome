@@ -555,6 +555,7 @@
         // Codex jobs end outside the chat stream; reconcile every project's chats with
         // the job records, not only the open one's, so its card gets the finished marker.
         App.views.chat.syncJobs(dir, list);
+        await App.views.chat.syncTasks(dir);
         const n = list.filter((j) => j.status === 'running').length;
         if (state(dir).jobs !== n) { state(dir).jobs = n; changed = true; }
       }));

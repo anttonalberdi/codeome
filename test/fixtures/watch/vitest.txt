@@ -1,0 +1,4 @@
+   ✓ src/lib/foo.test.ts  (12 tests) 34ms
+   ✓ src/lib/foo.test.ts  (12 tests) 34ms
+   ✓ src/lib/bar.spec.ts  (2 tests) 10ms
+ Test Files  2 passed (2)

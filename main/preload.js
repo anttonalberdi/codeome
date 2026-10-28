@@ -108,6 +108,7 @@ contextBridge.exposeInMainWorld('codeome', {
     pause: (project, id) => ipcRenderer.invoke('jobs:pause', { project, id }),
     resume: (project, id) => ipcRenderer.invoke('jobs:resume', { project, id })
   },
+  tasks: { progress: (project, keys) => ipcRenderer.invoke('tasks:progress', { project, keys }) },
   chat: {
     start: invoke('chat:start'), personas: invoke('chat:personas'), stop: invoke('chat:stop'), move: invoke('chat:move'),
     suggest: (text, account) => ipcRenderer.invoke('chat:suggest', { text, account }),

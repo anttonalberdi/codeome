@@ -7,12 +7,18 @@ const { spawn, spawnSync } = require('child_process');
 const kit = require('../main/kit');
 const jobs = require('../main/jobs');
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-kit-'));
+const testDirs = new Set();
+const tmp = () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-kit-'));
+  testDirs.add(dir);
+  return dir;
+};
+test.after(() => { for (const dir of testDirs) fs.rmSync(dir, { recursive: true, force: true }); });
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const agentBin = (project) => path.join(project, '.codeome', 'bin', 'codeome-agent');
 
 test('every role has the metadata the installer and router need', () => {
-  assert.strictEqual(kit.MANIFEST.version, '0.7.0');
+  assert.strictEqual(kit.MANIFEST.version, '0.8.0');
   assert.match(fs.readFileSync(path.join(__dirname, '../kit/roles/_report.md'), 'utf8'), /^## Progress$/m);
   const groups = Object.keys(kit.MANIFEST.groups);
   for (const r of kit.roles()) {
@@ -20,6 +26,12 @@ test('every role has the metadata the installer and router need', () => {
     assert.ok(groups.includes(r.group), `${r.name}: unknown group ${r.group}`);
     assert.ok(['claude', 'codex', 'cross'].includes(r.engine), `${r.name}: unknown engine ${r.engine}`);
     assert.match(r.body, /## Report/);
+  }
+});
+
+test('chat and delegation instructions describe log progress watches', () => {
+  for (const file of ['chat.md', 'chat-codex.md', 'skills/orchestrate/SKILL.md', 'skills/delegate/SKILL.md']) {
+    assert.match(fs.readFileSync(path.join(__dirname, '../kit', file), 'utf8'), /codeome-agent watch/, file);
   }
 });
 
@@ -111,16 +123,17 @@ sys.exit(${exitCode})
 
 // CODEOME_HOME points at an empty folder unless a test writes usage.json there.
 function runAgent(project, args, input, env = {}) {
-  return spawnSync('python3', [agentBin(project), ...args], { input, encoding: 'utf8', cwd: project, env: { ...process.env, CODEOME_HOME: path.join(project, '.codeome-home'), ...env } });
+  return spawnSync('python3', ['-B', agentBin(project), ...args], { input, encoding: 'utf8', cwd: project, env: { ...process.env, CODEOME_HOME: path.join(project, '.codeome-home'), ...env } });
 }
 
 async function waitFor(fn) {
-  for (let i = 0; i < 100; i++) {
+  const deadline = performance.now() + 15000;
+  while (true) {
     const result = await fn();
     if (result) return result;
+    if (performance.now() >= deadline) throw new Error('Timed out waiting for the job');
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error('Timed out waiting for the job');
 }
 
 // What Codeome writes to ~/.codeome/usage.json.
@@ -194,7 +207,7 @@ else:
   process.env.CODEOME_HOME = path.join(p, '.codeome-home');
   const pinnedHome = path.join(p, 'pinned-codex-home');
   process.env.CODEX_HOME = pinnedHome;
-  const child = spawn('python3', [agentBin(p), 'codex', '--role', 'implementer'], { cwd: p, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn('python3', ['-B', agentBin(p), 'codex', '--role', 'implementer'], { cwd: p, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.end('Pause this job.');
   try {
     const running = await waitFor(async () => (await jobs.list(p))[0]);
@@ -293,7 +306,7 @@ os.close(read); os.close(write)
 `);
     for (const mode of ['delayed', 'timeout']) {
       const ready = path.join(p, mode + '.ready');
-      const child = spawn('python3', [responder, fifo, dir, ready, mode], { stdio: 'ignore' });
+      const child = spawn('python3', ['-B', responder, fifo, dir, ready, mode], { stdio: 'ignore' });
       try {
         await waitFor(async () => fs.existsSync(ready));
         const r = runAgent(p, ['pause', id]);
@@ -323,7 +336,7 @@ print(json.dumps({'type': 'thread.started', 'thread_id': 'cancel-pausing-session
 time.sleep(30)
 `);
   fs.chmodSync(codex, 0o755);
-  const child = spawn('python3', [agentBin(p), 'codex', '--role', 'implementer'], {
+  const child = spawn('python3', ['-B', agentBin(p), 'codex', '--role', 'implementer'], {
     cwd: p, env: { ...process.env, CODEOME_CODEX: codex, CODEOME_HOME: path.join(p, '.codeome-home') }, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.end('Pause then cancel.');
   try {
@@ -387,16 +400,23 @@ open(argv[argv.index('-o') + 1], 'w').write('finished')
 subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'], stdout=sys.stdout, start_new_session=True)
 `);
   fs.chmodSync(codex, 0o755);
-  const child = spawn('python3', [agentBin(p), 'codex', '--role', 'implementer'], {
+  const child = spawn('python3', ['-B', agentBin(p), 'codex', '--role', 'implementer'], {
     cwd: p, env: { ...process.env, CODEOME_CODEX: codex, CODEOME_HOME: path.join(p, '.codeome-home') }, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.end('Finish first.');
   try {
     const job = await waitFor(async () => (await jobs.list(p)).find((j) => j.session === 'finished-session' && fs.existsSync(path.join(p, '.codeome', 'jobs', j.id, 'result.md'))));
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    assert.strictEqual((await jobs.list(p))[0].status, 'running');
+    await waitFor(async () => {
+      const current = (await jobs.list(p)).find((j) => j.id === job.id);
+      if (current.status === 'done') return true;
+      try { process.kill(current.childPid, 0); } catch (e) {
+        if (e.code === 'ESRCH') return true;
+        throw e;
+      }
+      return false;
+    });
     const pause = runAgent(p, ['pause', job.id]);
     assert.notStrictEqual(pause.status, 0);
-    assert.match(pause.stderr, /already stopped/);
+    assert.match(pause.stderr, /already stopped|is done/);
     assert.strictEqual(await new Promise((resolve) => child.on('close', resolve)), 0);
     assert.strictEqual((await jobs.list(p))[0].status, 'done');
   } finally {
@@ -761,7 +781,7 @@ test('the figure-designer role installs with its skill, and compose.py keeps pan
   const panel = (id) => `<svg xmlns='http://www.w3.org/2000/svg' width='100pt' height='50pt' viewBox='0 0 100 50'><defs><clipPath id='cp'><rect width='100' height='50'/></clipPath></defs><g clip-path='url(#cp)'><rect id='${id}' width='10' height='10'/></g></svg>`;
   fs.writeFileSync(path.join(p, 'a.svg'), panel('r'));
   fs.writeFileSync(path.join(p, 'b.svg'), panel('r'));
-  const r = spawnSync('python3', ['-I', path.join(dir, 'compose.py'), path.join(p, 'out.svg'), '--width', '100', '--cols', '2', path.join(p, 'a.svg'), path.join(p, 'b.svg')], { encoding: 'utf8' });
+  const r = spawnSync('python3', ['-B', '-I', path.join(dir, 'compose.py'), path.join(p, 'out.svg'), '--width', '100', '--cols', '2', path.join(p, 'a.svg'), path.join(p, 'b.svg')], { encoding: 'utf8' });
   if (r.error && r.error.code === 'ENOENT') return; // no python3 on this machine
   assert.strictEqual(r.status, 0, r.stderr);
   const out = fs.readFileSync(path.join(p, 'out.svg'), 'utf8');

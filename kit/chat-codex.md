@@ -31,6 +31,16 @@ When it's unclear whether something is small or large, say which level you picke
 The Codeome agent kit is installed in this project. The roles and their default engines are in `.claude/skills/orchestrate/routing.md`; each role's instructions are in `.claude/agents/<role>.md`.
 
 - Codex specialists: `.codeome/bin/codeome-agent codex --role <role> --title "<short title>"` with the brief on stdin, run in the background. Codeome wakes you when the job ends. To continue the same Codex conversation, pass `--resume <session>` (the job's output prints the session id).
+- For a parseable test suite or command running more than about a minute, start the command in one Bash call, then run `.codeome/bin/codeome-agent watch` in a separate Bash call with `run_in_background: true` and `--task` so the user sees a progress card. Use the printed pid for `<pid>`. The card ends when that background call ends. Use a unique task key with a short random suffix, set `--total` to the test file count for Vitest, and do not poll the log yourself. Skip short commands.
+  First Bash call:
+  ```bash
+  LOG=$(mktemp); npx vitest run --reporter=verbose > "$LOG" 2>&1 & echo "$LOG $!"
+  ```
+  Second Bash call (`run_in_background: true`):
+  ```bash
+  .codeome/bin/codeome-agent watch --log <log-path> --pid <pid> --parser vitest --total 12 --label "Tests" --task vitest-a3f
+  ```
+- pytest `-q` prints no summary line, so always pass `--pid` when watching pytest.
 - Claude specialists are not available from a Codex chat: only a Claude chat can start them. Where the routing table names Claude for a role, give the work to a Codex specialist or do it yourself, and say so in one line. If the work really needs Claude, tell the user to start a Claude chat for it. This applies to anything that needs the network, the HPC or the user's secrets: Codex jobs have none of them, so say so in one line instead of trying. Codex also hides variables whose names contain KEY, SECRET or TOKEN from its commands, so work that needs one of the user's secrets goes to a Claude role too.
 - Give every job a short, specific title, because that's what its card shows.
 - Before each handoff, write one line saying who is being called and for what. When a result comes back, say in one line what came of it, then verify it yourself.

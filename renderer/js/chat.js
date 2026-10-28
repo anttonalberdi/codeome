@@ -90,6 +90,7 @@
       if (it.id) chat.tools[it.id] = it;
       if ((it.t === 'perm' || it.t === 'ask') && !it.decided && !it.answers) it.expired = true;
       if (it.t === 'tool' && !it.done) it.done = true;
+      if (it.t === 'progress' && it.status === 'running') { it.status = 'stale'; it.endedAt ||= Date.now(); }
       if (it.t === 'text') it.live = false;
     }
     C.byId[chat.id] = chat;
@@ -148,7 +149,7 @@
     clearTimeout(saveTimers[chat.id]);
     const run = () => {
       const items = chat.items.map((it) => {
-        const item = Object.hasOwn(it, 'progress') ? { ...it } : it;
+        const item = it.t === 'job' && Object.hasOwn(it, 'progress') ? { ...it } : it;
         if (item !== it) delete item.progress;
         return item.result && item.result.length > 4000 ? { ...item, result: item.result.slice(0, 4000) + '\n…' } : item;
       });
@@ -702,14 +703,36 @@
     return null;
   }
 
+  function taskFrom(b) {
+    if (b.name !== 'Bash' && b.name !== 'Monitor') return null;
+    const input = (b.input || {}).command;
+    const command = typeof input === 'string' ? input.slice(0, 4096) : '';
+    const watch = command.match(/codeome-agent["']?\s+watch\b/);
+    if (!watch) return null;
+    const arg = (key) => {
+      const match = command.match(new RegExp('(?:^|\\s)--' + key + '\\s+(?:"([^"]*)"|\'([^\']*)\'|(\\S+))'));
+      return match ? match[1] ?? match[2] ?? match[3] : null;
+    };
+    const key = arg('task');
+    if (!key || !/^[A-Za-z0-9][\w.-]{0,63}$/.test(key) || key.includes('..')) return null;
+    const line = command.slice(watch.index).replace(/"(?:\\.|[^"\\])*"|'[^']*'/g, '');
+    return { key, label: arg('label') || key, detached: /(?:^|[^&\\])&(?!&)(?=\s|;|$)/.test(line) };
+  }
+
   // Questions and plan approvals show as their own cards (see request()).
   const OWN_CARD = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
   function toolUse(chat, b) {
     if (OWN_CARD.has(b.name)) return;
     const job = jobFrom(b);
+    const task = job ? null : taskFrom(b);
     let it;
     if (job) it = { t: 'job', id: b.id, ...job, status: 'running', startedAt: Date.now() };
+    else if (task) {
+      const existing = chat.items.find((x) => x.t === 'progress' && x.key === task.key);
+      if (existing) { if (task.detached) existing.detached = true; chat.tools[b.id] = existing; return; }
+      it = { t: 'progress', id: b.id, ...task, status: 'running', startedAt: Date.now() };
+    }
     else if (b.name === 'TodoWrite') {
       const old = chat.items.find((x) => x.t === 'todo');
       if (old) remove(chat, old);
@@ -745,6 +768,9 @@
         if (/job NOT started \(usage limit\)|Codeome: Claude account/.test(text)) { it.status = 'held'; it.result = text.slice(0, 2000); }
         else if (/Command running in background/.test(text)) it.background = true;
         else { it.status = b.is_error ? 'failed' : 'done'; it.endedAt = Date.now(); it.result = text.slice(0, 8000); }
+      } else if (it.t === 'progress') {
+        if (/Command running in background|Monitor started/.test(text)) it.background = true;
+        else if (it.status === 'running' && !it.detached) settleTask(chat, it, b.is_error ? 'failed' : 'done');
       } else continue;
       update(chat, it);
     }
@@ -762,9 +788,34 @@
     const it = chat.tools[toolUseId];
     if (!it) return;
     if (it.t === 'job' && it.status === 'running') { jobFinished(chat); it.status = status === 'completed' ? 'done' : status === 'killed' ? 'cancelled' : 'failed'; it.endedAt = Date.now(); }
+    if (it.t === 'progress' && it.status !== 'stale') {
+      const next = status === 'completed' ? 'done' : ['killed', 'cancelled', 'canceled'].includes(status) ? 'cancelled' : 'failed';
+      settleTask(chat, it, next);
+    }
     if (it.t === 'tool') it.done = true;
     update(chat, it);
     App.views.agents.refreshSoon();
+  }
+
+  function terminalTaskStatus(it) {
+    const stages = it.progress && it.progress.stages;
+    if (!Array.isArray(stages) || !stages.length || !stages.every((stage) => ['done', 'failed'].includes(stage.state))) return null;
+    return stages.some((stage) => stage.state === 'failed') ? 'failed' : 'done';
+  }
+
+  async function settleTask(chat, it, fallback) {
+    if (it.status === 'running') {
+      try { await C.syncTasks(chat.project); } catch { /* Use the tool outcome when progress cannot be read. */ }
+    }
+    const next = it.status === 'failed' ? 'failed' : terminalTaskStatus(it) || (it.status === 'cancelled' ? 'cancelled' : fallback);
+    if (it.status !== next || !it.endedAt) {
+      if (it.status === 'running') jobFinished(chat);
+      it.status = next;
+      it.endedAt = Date.now();
+      save(chat);
+      update(chat, it);
+      App.views.agents.refreshSoon();
+    }
   }
 
   // Job records (.codeome/jobs) carry the authoritative status and the log; link each card to one.
@@ -794,6 +845,33 @@
       if (it.status === 'running' || it.status === 'pausing' || j) update(chat, it);
     }
     scheduleTabs();
+  };
+
+  C.syncTasks = async (project) => {
+    const chats = [...new Set([...tabsOf(project), ...Object.values(C.byId).filter((chat) => chat.project === project)])];
+    const cards = chats.flatMap((chat) => chat.items.filter((it) => it.t === 'progress').map((it) => ({ chat, it })));
+    if (!cards.some(({ it }) => it.status === 'running')) return;
+    const now = Date.now();
+    const keys = [...new Set(cards.filter(({ it }) => it.status === 'running' || (it.endedAt && now - it.endedAt < 30000)).map(({ it }) => it.key))];
+    let snapshots;
+    try { snapshots = await codeome.tasks.progress(project, keys); } catch { return; }
+    for (const { chat, it } of cards) {
+      if (!keys.includes(it.key)) continue;
+      const before = JSON.stringify(it.progress);
+      const oldStatus = it.status;
+      const progress = snapshots && snapshots[it.key];
+      const first = progress && progress.stages && progress.stages[0];
+      const startedAt = first && Date.parse(first.startedAt);
+      if (progress && (!Number.isFinite(startedAt) || startedAt >= it.startedAt - 10000)) it.progress = progress;
+      else delete it.progress;
+      if (it.status === 'running' && it.progress && it.progress.stages.length && it.progress.stages.every((stage) => stage.state === 'done' || stage.state === 'failed')) {
+        jobFinished(chat);
+        it.status = it.progress.stages.some((stage) => stage.state === 'failed') ? 'failed' : 'done';
+        it.endedAt = now;
+      }
+      update(chat, it);
+      if (before !== JSON.stringify(it.progress) || oldStatus !== it.status) save(chat);
+    }
   };
 
   // ---------- permission prompts and questions ----------
@@ -968,7 +1046,7 @@
       h('button.jc-prog-toggle', { type: 'button', 'aria-expanded': String(open),
         onclick: (e) => { e.stopPropagation(); it.progressOpen = !open; update(chat, it); }
       }, h('span.jc-prog-heading', `stage ${index + 1}/${view.total} · ${stageLabel(active, index)}`),
-      progressBar(view.overallPct, 'Overall job progress'),
+      progressBar(view.overallPct, it.t === 'progress' ? 'Overall command progress' : 'Overall job progress'),
       h('span.jc-prog-chevron', { 'aria-hidden': 'true' }, open ? '⌄' : '›')),
       open ? h('div.jc-prog-stages', view.stages.map((stage, n) => {
         const state = ['done', 'running', 'failed', 'stopped'].includes(stage.state) ? stage.state : 'waiting';
@@ -1038,6 +1116,16 @@
           it.engine === 'codex' && it.jobId && ((it.status === 'running') || (it.status === 'pausing') || (it.status === 'paused' && !it.resumedBy))
             ? h('button.btn.small.jc-action', { disabled: it.status === 'pausing' || !!it.resuming, onclick: (e) => { e.stopPropagation(); jobAction(chat, it, it.status === 'paused' ? 'resume' : 'pause'); } },
               it.status === 'running' ? 'Pause' : it.status === 'pausing' ? 'Pausing…' : it.resuming ? 'Resuming…' : 'Resume') : null);
+        break;
+      }
+      case 'progress': {
+        const live = it.status === 'running';
+        const nowMs = Date.now();
+        const progress = Progress.progressView(it.progress, nowMs, { status: it.status });
+        el = h('div.jobcard.taskcard.' + it.status,
+          h('div.jc-top', h('span.pill.ok', 'Command'), h('span.jc-title', it.label), h('span.grow'),
+            h('span.state.' + it.status, live ? h('span.spinner') : null, ' ', STATUS[it.status] || it.status), h('span.jc-time', elapsed(it))),
+          progress ? jobProgress(chat, it, progress, nowMs) : h('div.jc-act', 'waiting for first output…'));
         break;
       }
       case 'perm': el = permCard(chat, it); break;
@@ -1169,7 +1257,7 @@
     logEl.addEventListener('scroll', () => { pinned = atBottom(); });
     new ResizeObserver(() => { if (!host.clientWidth) return; autosize(); if (pinned) scrollEnd(); }).observe(host);
     setInterval(paintThinking, 1000);
-    setInterval(() => { const c = cur(); if (c && logEl.isConnected) for (const it of c.items) if (it.t === 'job' && (it.status === 'running' || it.status === 'pausing')) update(c, it); }, 5000);
+    setInterval(() => { const c = cur(); if (c && logEl.isConnected) for (const it of c.items) if ((it.t === 'job' && (it.status === 'running' || it.status === 'pausing')) || (it.t === 'progress' && it.status === 'running')) update(c, it); }, 5000);
     paint();
     loadPersonas();
   };

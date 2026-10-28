@@ -116,6 +116,7 @@
       if (ended) codeome.usage.refresh();
       A.jobs = jobs; A.kit = kit;
       App.views.chat.syncJobs(project, jobs);
+      await App.views.chat.syncTasks(project);
       render();
     } finally { busy = false; }
   };

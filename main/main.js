@@ -1157,6 +1157,7 @@ ipcMain.handle('jobs:cancel', (_e, { project, id }) => jobs.cancel(project, id))
 ipcMain.handle('jobs:pause', (_e, { project, id }) => jobs.pause(project, id));
 ipcMain.handle('jobs:resume', (_e, { project, id }) => jobs.resume(project, id));
 ipcMain.handle('jobs:clear', (_e, project) => jobs.clear(project));
+ipcMain.handle('tasks:progress', (_e, { project, keys }) => jobs.tasks.progress(project, keys));
 
 // ---------- agent chat ----------
 // One headless Claude Code orchestrator per conversation; see chat.js.

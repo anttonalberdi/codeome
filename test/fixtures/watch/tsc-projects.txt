@@ -1,0 +1,3 @@
+Building project 'src/a/tsconfig.json'
+Building project 'src/a/tsconfig.json'
+Project 'src/b/tsconfig.json' is up to date

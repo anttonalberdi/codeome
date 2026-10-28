@@ -29,9 +29,8 @@ function settle(j) {
   return j;
 }
 
-function progress(project, id) {
+function readProgressFile(file) {
   try {
-    const file = path.join(jobsDir(project), id, 'progress.json');
     const info = fs.lstatSync(file);
     const max = 256 * 1024;
     if (!info.isFile() || info.size > max) return null;
@@ -71,6 +70,31 @@ function progress(project, id) {
     return { ...(clip(data.updatedAt, 64) !== undefined ? { updatedAt: clip(data.updatedAt, 64) } : {}), stages };
   } catch { return null; }
 }
+
+function progress(project, id) {
+  return readProgressFile(path.join(jobsDir(project), id, 'progress.json'));
+}
+
+function taskProgress(project, keys) {
+  if (typeof project !== 'string' || !path.isAbsolute(project) || !Array.isArray(keys)) return {};
+  const dir = path.join(jobsDir(project), '.tasks');
+  try {
+    for (const parent of [path.join(project, '.codeome'), jobsDir(project), dir]) {
+      if (!fs.lstatSync(parent).isDirectory()) return {};
+    }
+  } catch { return {}; }
+  const entries = [];
+  for (const key of keys.slice(0, 20)) {
+    if (typeof key !== 'string' || !/^[A-Za-z0-9][\w.-]{0,63}$/.test(key) || key.includes('..')) continue;
+    const task = path.join(dir, key);
+    try { if (!fs.lstatSync(task).isDirectory()) continue; } catch { continue; }
+    const summary = readProgressFile(path.join(task, 'progress.json'));
+    if (summary) entries.push([key, summary]);
+  }
+  return Object.fromEntries(entries);
+}
+
+const tasks = { progress: taskProgress };
 
 async function list(project) {
   if (!project) return [];
@@ -211,4 +235,4 @@ async function clear(project) {
   return { removed: n };
 }
 
-module.exports = { list, read, cancel, pause, resume, clear, settle };
+module.exports = { list, read, cancel, pause, resume, clear, settle, readProgressFile, tasks };

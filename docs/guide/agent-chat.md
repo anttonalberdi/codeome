@@ -18,7 +18,13 @@ The mode a new chat starts in, and the model, effort and engine, can be set for 
 
 When a specialist reports its steps, the job card gets a collapsible progress block: an overall bar with `stage N/M`, a row per stage, a done/total bar for countable work (such as files), the time elapsed against the usual duration for that stage, and an estimated time left once Codeome has seen the stage before. A stage that is running but has not reported for 120 seconds gets a stall badge. Cards without progress look as before.
 
-The agents report the steps; Codeome does not guess them from logs. Progress is read from the job's `progress.json` rather than saved in the chat history, and shows for running, paused and held jobs and for jobs that ended within the last hour. It needs agent kit 0.7.0, so update the kit in projects that have it installed (see [Agent kit](/reference/agent-kit)). Test-suite output is not parsed yet, and background commands do not get a card of their own.
+The agents report the steps; Codeome does not guess them from logs. Progress is read from the job's `progress.json` rather than saved in the chat history, and shows for running, paused and held jobs and for jobs that ended within the last hour. It needs agent kit 0.7.0, so update the kit in projects that have it installed (see [Agent kit](/reference/agent-kit)). Background commands get a card only through the log watcher below.
+
+### Test and build progress
+
+For a long test run or build, the agent can start `codeome-agent watch` in the background. It tails the log and parses Vitest, pytest, `tsc -b` or a custom pattern. The chat then shows a card of its own, but only for a Bash or Monitor call that contains `codeome-agent watch ... --task <key>`; other background commands get no card. The card has the same block as a job card: a bar, the time left estimated from past runs, and a stall badge after 120 seconds without an update. The progress file decides the outcome, so a run with failed tests ends the card as failed even though the command itself exits 0. A finished card stays in the chat history as its last snapshot.
+
+It needs agent kit 0.8.0; projects with an older kit see it as outdated. Snakemake and Slurm logs are not parsed, and the parsers and options are in [Agent kit](/reference/agent-kit#watching-a-log).
 
 ## Attachments and saved messages
 
