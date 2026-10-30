@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Fixed
+- **Ideas no longer reopens a folded pane**: returning to an Ideas agent chat no longer unfolds the right-hand pane ("💡 Ideas, Chat and forum with no project") after you folded it away. Opening a file, preview or terminal in a project still unfolds it.
+
 ## 1.3.0
 
 ### Added

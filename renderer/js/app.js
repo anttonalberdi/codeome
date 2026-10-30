@@ -30,7 +30,6 @@
     document.getElementById('cluster').hidden = ideas;
     if (ideas) {
       if (document.getElementById('app').classList.contains('side-collapsed')) document.getElementById('side-band').click();
-      App.expandMain();
       App.setView('agents');
       App.views.agents.show(['chat', 'forum'].includes(App.views.agents.pane) ? App.views.agents.pane : 'chat');
     }
