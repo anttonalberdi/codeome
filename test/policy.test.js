@@ -14,8 +14,8 @@ const changed = (values) => ({ ...defaults(), ...values });
 const bash = (command) => ({ tool_name: 'Bash', input: { command }, cwd });
 
 test('policy descriptors and project values use defaults for missing or invalid settings', () => {
-  assert.deepStrictEqual(POLICY_DEFAULTS.map((s) => s.key), ['slurmSubmit', 'gitPublish', 'hpcAccess', 'writeOutsideProject', 'requirePlan']);
-  assert.deepStrictEqual(defaults(), { slurmSubmit: 'ask', gitPublish: 'ask', hpcAccess: 'full', writeOutsideProject: 'ask', requirePlan: 'off' });
+  assert.deepStrictEqual(POLICY_DEFAULTS.map((s) => s.key), ['slurmSubmit', 'gitPublish', 'hpcAccess', 'writeOutsideProject', 'requirePlan', 'localResources']);
+  assert.deepStrictEqual(defaults(), { slurmSubmit: 'ask', gitPublish: 'ask', hpcAccess: 'full', writeOutsideProject: 'ask', requirePlan: 'off', localResources: 'off' });
   assert.deepStrictEqual(DEFAULTS.projectPolicy, {});
   assert.deepStrictEqual(DEFAULTS.policyDefaults, {});
   assert.deepStrictEqual(DEFAULTS.projectChat, {});
@@ -30,8 +30,11 @@ test('policy descriptors and project values use defaults for missing or invalid 
   assert.strictEqual(POLICY_DEFAULTS[2].advisory, true);
   assert.strictEqual(POLICY_DEFAULTS[4].type, 'bool');
   assert.strictEqual(POLICY_DEFAULTS[4].advisory, true);
+  assert.strictEqual(POLICY_DEFAULTS[5].type, 'enum');
+  assert.deepStrictEqual(POLICY_DEFAULTS[5].options.map((o) => o.value), ['off', 'balanced', 'gentle']);
+  assert.strictEqual(POLICY_DEFAULTS[5].advisory, undefined);
   const cfg = { projectPolicy: { [cwd]: { slurmSubmit: 'allow', gitPublish: 'never', hpcAccess: 'readonly', writeOutsideProject: 'never', requirePlan: 'on', other: 'x' } } };
-  assert.deepStrictEqual(policyFor(cfg, cwd), { slurmSubmit: 'allow', gitPublish: 'never', hpcAccess: 'readonly', writeOutsideProject: 'never', requirePlan: 'on' });
+  assert.deepStrictEqual(policyFor(cfg, cwd), { slurmSubmit: 'allow', gitPublish: 'never', hpcAccess: 'readonly', writeOutsideProject: 'never', requirePlan: 'on', localResources: 'off' });
   cfg.projectPolicy[cwd].slurmSubmit = 'bogus';
   cfg.projectPolicy[cwd].gitPublish = null;
   assert.strictEqual(policyFor(cfg, cwd).slurmSubmit, 'ask');
@@ -45,7 +48,7 @@ test('project policy overrides app defaults, while missing and invalid values in
     projectPolicy: { [cwd]: { slurmSubmit: 'ask', gitPublish: 'bogus', hpcAccess: 'full', requirePlan: 'on' } }
   };
   assert.deepStrictEqual(policyFor(cfg, cwd), {
-    slurmSubmit: 'ask', gitPublish: 'never', hpcAccess: 'full', writeOutsideProject: 'ask', requirePlan: 'on'
+    slurmSubmit: 'ask', gitPublish: 'never', hpcAccess: 'full', writeOutsideProject: 'ask', requirePlan: 'on', localResources: 'off'
   });
   assert.strictEqual(policyFor(cfg, '/other').slurmSubmit, 'never');
   assert.strictEqual(policyFor({}, cwd).slurmSubmit, 'ask');
@@ -174,7 +177,7 @@ test('file write decisions respect the project directory boundary', () => {
 test('policy prompt lists changed settings and settings rules have the expected shape', () => {
   assert.strictEqual(policyPrompt(defaults()), '');
   assert.deepStrictEqual(policySettings(defaults()), {});
-  const prompt = policyPrompt(changed({ slurmSubmit: 'allow', gitPublish: 'never', hpcAccess: 'readonly', writeOutsideProject: 'never', requirePlan: 'on' }));
+  const prompt = policyPrompt(changed({ slurmSubmit: 'allow', gitPublish: 'never', hpcAccess: 'readonly', writeOutsideProject: 'never', requirePlan: 'on', localResources: 'balanced' }));
   assert.match(prompt, /^## Project rules \(set by the user in Project settings\)/);
   assert.match(prompt, /project owner has authorised submitting Slurm jobs/);
   assert.match(prompt, /precedence over role instructions suggesting otherwise/);

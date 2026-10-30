@@ -5,6 +5,7 @@ const path = require('path');
 const vm = require('vm');
 const { EventEmitter } = require('events');
 const projectChat = require('../main/projectchat');
+const resources = require('../main/resources');
 
 test('forum sessions cannot inherit chat job auto-approval on either engine', () => {
   const source = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
@@ -14,7 +15,7 @@ test('forum sessions cannot inherit chat job auto-approval on either engine', ()
   const made = [];
   class Session extends EventEmitter { constructor(options) { super(); made.push(options); } }
   const cfg = { accounts: { claude: { list: [{ name: 'account' }] }, codex: { list: [{ name: 'account' }] } }, chat: {}, projectLinks: {} };
-  const context = { fs, path, cfg, policy: require('../main/policy'), statusline: null, Session, CodexSession: Session, scratch: { isScratch: () => false },
+  const context = { fs, path, cfg, policy: require('../main/policy'), resources, statusline: null, Session, CodexSession: Session, scratch: { isScratch: () => false },
     kit: { status: () => ({ installed: true }) }, claudeCmd: () => 'claude', codexCmd: () => 'codex',
     launchOn: () => ({ info: { name: 'account' }, env: {}, unset: [] }),
     augmentedEnv: (env) => env, userSecretEnv: () => ({}), secretsSync: { plan: () => ({ names: [], path: '' }) }, config: { getSecret: () => '' }, loginShell: () => '/bin/sh',
@@ -41,21 +42,29 @@ test('chat and forum sessions receive the project model and effort', () => {
   class Session extends EventEmitter { constructor(options) { super(); made.push(options); } }
   const cfg = { accounts: { claude: { list: [{ name: 'account' }] }, codex: { list: [{ name: 'account' }] } },
     chat: { model: 'sonnet', effort: 'low', codexModel: 'gpt-app', codexEffort: 'medium' },
-    projectChat: { [__dirname]: { model: 'opus', effort: 'high', codexModel: 'gpt-project', codexEffort: 'xhigh' } } };
-  const context = { fs, path, cfg, policy: require('../main/policy'), statusline: null, CodexSession: Session,
+    projectChat: { [__dirname]: { model: 'opus', effort: 'high', codexModel: 'gpt-project', codexEffort: 'xhigh' } },
+    policyDefaults: { localResources: 'balanced' } };
+  const context = { fs, path, cfg, policy: require('../main/policy'), resources, statusline: null, CodexSession: Session,
     scratch: { isScratch: () => false }, kit: { status: () => ({ installed: false }) },
     claudeCmd: () => 'claude', codexCmd: () => 'codex',
-    launchOn: () => ({ info: { name: 'account' }, env: {}, unset: [] }),
-    augmentedEnv: (env) => env, userSecretEnv: () => ({}), secretsSync: { plan: () => ({ names: [], path: '' }) }, config: { getSecret: () => '' }, loginShell: () => '/bin/sh',
+    launchOn: () => ({ info: { name: 'account' }, env: { OMP_NUM_THREADS: '99' }, unset: [] }),
+    augmentedEnv: (env) => env, userSecretEnv: () => ({ CODEOME_MAX_CORES: '99' }), secretsSync: { plan: () => ({ names: [], path: '' }) }, config: { getSecret: () => '' }, loginShell: () => '/bin/sh',
     projectChat, chat: { Session, isJobRunner: () => false,
       buildArgs: (options) => { built.push(options); return []; }, forumPrompt: () => 'forum', codexPrompt: () => 'chat', recordUsage: () => {} } };
   const create = vm.runInNewContext(source.slice(start, end) + '\ncreateAgentSession;', context);
+  const expected = resources.resolve('balanced');
   for (const forum of [false, true]) {
     create({ id: 'claude', project: __dirname, engine: 'claude', forum });
     assert.equal(built.at(-1).model, 'opus');
     assert.equal(built.at(-1).effort, 'high');
+    assert.deepEqual(made.at(-1).prefix, expected.prefix);
+    assert.equal(made.at(-1).env.OMP_NUM_THREADS, expected.env.OMP_NUM_THREADS);
+    assert.equal(made.at(-1).env.CODEOME_MAX_CORES, expected.env.CODEOME_MAX_CORES);
     create({ id: 'codex', project: __dirname, engine: 'codex', forum });
     assert.equal(made.at(-1).model, 'gpt-project');
     assert.equal(made.at(-1).effort, 'xhigh');
+    assert.deepEqual(made.at(-1).prefix, expected.prefix);
+    assert.equal(made.at(-1).env.OMP_NUM_THREADS, expected.env.OMP_NUM_THREADS);
+    assert.equal(made.at(-1).env.CODEOME_MAX_CORES, expected.env.CODEOME_MAX_CORES);
   }
 });

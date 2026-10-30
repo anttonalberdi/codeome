@@ -84,9 +84,9 @@ class CodexSession extends EventEmitter {
   // Also: instructions (developer instructions, set when the thread starts), resume (true: the
   // thread this chat id had; or a thread id), threadId, model, effort, mode (a Claude permission
   // mode), addDirs (more folders the agent may write in).
-  constructor({ id, cwd, shell, bin, args = [], env, autoAllow, meter, instructions = '', resume = false, threadId = null, model = '', effort = '', mode = 'default', addDirs = [], policy }) {
+  constructor({ id, cwd, shell, bin, args = [], env, prefix = [], autoAllow, meter, instructions = '', resume = false, threadId = null, model = '', effort = '', mode = 'default', addDirs = [], policy }) {
     super();
-    Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow, instructions, model, effort, addDirs, projectPolicy: policy });
+    Object.assign(this, { id, cwd, shell, bin, args, env, prefix, autoAllow, instructions, model, effort, addDirs, projectPolicy: policy });
     this.env = { ...(env || process.env) };
     delete this.env.CODEOME_HPC_HOST;
     delete this.env.CODEOME_HPC_SOCKET;
@@ -101,7 +101,7 @@ class CodexSession extends EventEmitter {
   }
 
   start() {
-    this.proc = spawn(this.shell, ['-l', '-c', 'exec "$0" "$@"', this.bin, ...this.args, 'app-server'], { cwd: this.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    this.proc = spawn(this.shell, ['-l', '-c', this.prefix.length ? `exec ${this.prefix.join(' ')} "$0" "$@"` : 'exec "$0" "$@"', this.bin, ...this.args, 'app-server'], { cwd: this.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
     let buf = '';
     this.proc.stdout.on('data', (d) => {
       buf += d;

@@ -263,9 +263,9 @@ class Session extends EventEmitter {
   // shell: a login shell, so the agent's tools see the same PATH as a terminal.
   // autoAllow(request): true for tool requests the host approves without asking.
   // meter: where a resumed conversation's token meter picks up (see stats.Meter).
-  constructor({ id, cwd, shell, bin, args, env, autoAllow, meter, policy }) {
+  constructor({ id, cwd, shell, bin, args, env, prefix = [], autoAllow, meter, policy }) {
     super();
-    Object.assign(this, { id, cwd, shell, bin, args, env, autoAllow, policy });
+    Object.assign(this, { id, cwd, shell, bin, args, env, prefix, autoAllow, policy });
     this.env = { ...(env || process.env) };
     delete this.env.CODEOME_HPC_HOST;
     delete this.env.CODEOME_HPC_SOCKET;
@@ -279,7 +279,7 @@ class Session extends EventEmitter {
   }
 
   start() {
-    this.proc = spawn(this.shell, ['-l', '-c', 'exec "$0" "$@"', this.bin, ...this.args], { cwd: this.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    this.proc = spawn(this.shell, ['-l', '-c', this.prefix.length ? `exec ${this.prefix.join(' ')} "$0" "$@"` : 'exec "$0" "$@"', this.bin, ...this.args], { cwd: this.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
     let buf = '';
     this.proc.stdout.on('data', (d) => {
       buf += d;

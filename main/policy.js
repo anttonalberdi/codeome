@@ -26,6 +26,14 @@ const POLICY_DEFAULTS = [
     key: 'requirePlan', label: 'Require a plan', help: 'Ask the agent to make a plan before changing files (prompt only).',
     type: 'bool', default: 'off', advisory: true,
     options: [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]
+  },
+  {
+    key: 'localResources', label: 'Local CPU and I/O use',
+    help: 'Runs local agent sessions and the jobs they start at low priority (nice; on macOS also background CPU and disk I/O priority) and caps BLAS/OpenMP thread counts. Applies from the next chat session. There is no hard memory cap on macOS.',
+    type: 'enum', default: 'off', options: [
+      { value: 'off', label: 'Off' }, { value: 'balanced', label: 'Balanced (half the cores)' },
+      { value: 'gentle', label: 'Gentle (quarter of the cores)' }
+    ]
   }
 ];
 
@@ -354,7 +362,8 @@ function policyPrompt(policy) {
     } else if (item.key === 'gitPublish') rule = 'Do not run git commit, push, or tag; ask the user.';
     else if (item.key === 'hpcAccess') rule = 'Use read-only commands over SSH; do not mutate files or submit or cancel jobs remotely.';
     else if (item.key === 'writeOutsideProject') rule = 'Do not write outside this project; ask the user.';
-    else rule = 'Present a plan before making changes.';
+    else if (item.key === 'requirePlan') rule = 'Present a plan before making changes.';
+    else if (item.key === 'localResources') rule = "This machine is shared with the user's day-to-day work. Keep parallelism at or below $CODEOME_MAX_CORES (for example, make -jN, pytest -n, snakemake --cores) and avoid memory-hungry jobs.";
     lines.push(`- ${item.label}: ${rule}`);
   }
   if (!lines.length) return '';
