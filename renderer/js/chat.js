@@ -1232,6 +1232,7 @@
     host.append(h('div.chat-tabbar', tabsEl, h('button.chat-tab-new', { title: 'New chat (each tab is its own agent session)', 'aria-label': 'New chat', onclick: () => C.newChat(), html: App.icons.plus })),
       sumEl, logEl, noticeEl, h('div.chat-compose', sugEl, attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, h('span.chat-go', stopBtn, sendBtn))));
     enableDrop(host.querySelector('.chat-compose'));
+    enablePaste(host.querySelector('.chat-compose'));
     const restoring = {};
     App.listen('project', async (p) => {
       if (p && !C.byProject[p]) {
@@ -1302,6 +1303,25 @@
       }
       for (const f of paths) if (f && !chat.attach.includes(f)) chat.attach.push(f);
       paintAttach(); focus();
+    });
+  }
+
+  // Pasting an image (a screenshot, or one copied from a browser) saves it to a temp file and attaches that.
+  function enablePaste(box) {
+    box.addEventListener('paste', async (e) => {
+      const imgs = [...(e.clipboardData ? e.clipboardData.files : [])].filter((f) => f.type.startsWith('image/'));
+      if (!imgs.length) return;
+      e.preventDefault();
+      const chat = cur();
+      if (!chat) return App.toast('Open a project folder first.');
+      for (const f of imgs) {
+        const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/\+.*/, '');
+        const r = await codeome.saveClipboardImage(new Uint8Array(await f.arrayBuffer()), ext);
+        if (r.error) App.toast(r.error, { error: true });
+        else if (!chat.attach.includes(r.path)) chat.attach.push(r.path);
+      }
+      if (chat === cur()) paintAttach();
+      focus();
     });
   }
 

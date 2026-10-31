@@ -360,6 +360,16 @@ ipcMain.on('log:renderer', (event, payload) => {
 });
 ipcMain.handle('policy:defaults', () => policy.POLICY_DEFAULTS);
 ipcMain.handle('scratch:dir', () => ({ dir: scratch.dir() }));
+// A pasted image has no file on disk; save it under the temp folder so the agent can be given its path.
+ipcMain.handle('clipboard:saveImage', (_e, { data, ext } = {}) => {
+  if (!(data instanceof Uint8Array) || !data.length || data.length > 50 * 1024 * 1024) return { error: 'Image too large or empty.' };
+  const e = /^(png|jpe?g|gif|webp|bmp)$/i.test(ext || '') ? ext.toLowerCase() : 'png';
+  const dir = path.join(os.tmpdir(), 'codeome', 'pasted');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'pasted-' + new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14) + '-' + crypto.randomBytes(3).toString('hex') + '.' + e);
+  fs.writeFileSync(file, Buffer.from(data));
+  return { path: file };
+});
 // Codeome's own version. app.getVersion() gives Electron's when the app is started from another script.
 ipcMain.handle('app:version', () => require('../package.json').version);
 ipcMain.handle('config:set', (_e, c) => {
