@@ -170,7 +170,7 @@ test('IPC replies omit content and the real file stays until both local scopes a
   const section = (start, end) => main.slice(main.indexOf(start), main.indexOf(end, main.indexOf(start)));
   const handlers = {};
   const placedSecrets = new Set(['SIGNING_KEY']);
-  const context = {
+  const context = { awake: { sync() {} },
     cfg: { accounts: {}, secrets: [{ name: 'SIGNING_KEY', kind: 'file', ext: '.p8', terminals: true, agents: true }], gitAccounts: [], projectAccounts: {} },
     secrets, placedSecrets, secretFileStore: store,
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },

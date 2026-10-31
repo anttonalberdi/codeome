@@ -15,7 +15,7 @@ test('forum sessions cannot inherit chat job auto-approval on either engine', ()
   const made = [];
   class Session extends EventEmitter { constructor(options) { super(); made.push(options); } }
   const cfg = { accounts: { claude: { list: [{ name: 'account' }] }, codex: { list: [{ name: 'account' }] } }, chat: {}, projectLinks: {} };
-  const context = { fs, path, cfg, policy: require('../main/policy'), resources, statusline: null, Session, CodexSession: Session, scratch: { isScratch: () => false },
+  const context = { awake: { track() {}, sync() {}, dispose() {} }, fs, path, cfg, policy: require('../main/policy'), resources, statusline: null, Session, CodexSession: Session, scratch: { isScratch: () => false },
     kit: { status: () => ({ installed: true }) }, claudeCmd: () => 'claude', codexCmd: () => 'codex',
     launchOn: () => ({ info: { name: 'account' }, env: {}, unset: [] }),
     augmentedEnv: (env) => env, userSecretEnv: () => ({}), secretsSync: { plan: () => ({ names: [], path: '' }) }, config: { getSecret: () => '' }, loginShell: () => '/bin/sh',
@@ -44,7 +44,7 @@ test('chat and forum sessions receive the project model and effort', () => {
     chat: { model: 'sonnet', effort: 'low', codexModel: 'gpt-app', codexEffort: 'medium' },
     projectChat: { [__dirname]: { model: 'opus', effort: 'high', codexModel: 'gpt-project', codexEffort: 'xhigh' } },
     policyDefaults: { localResources: 'balanced' } };
-  const context = { fs, path, cfg, policy: require('../main/policy'), resources, statusline: null, CodexSession: Session,
+  const context = { awake: { track() {}, sync() {}, dispose() {} }, fs, path, cfg, policy: require('../main/policy'), resources, statusline: null, CodexSession: Session,
     scratch: { isScratch: () => false }, kit: { status: () => ({ installed: false }) },
     claudeCmd: () => 'claude', codexCmd: () => 'codex',
     launchOn: () => ({ info: { name: 'account' }, env: { OMP_NUM_THREADS: '99' }, unset: [] }),

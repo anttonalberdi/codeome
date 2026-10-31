@@ -4,6 +4,10 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+### Added
+- **Keep the Mac awake while agents work**: Settings → Chat → *Keep Mac awake* (on by default) blocks idle system sleep from when a message is sent to a chat until its turn ends, including while the agent waits for a decision. The screen can still turn off, and closing the lid still sleeps the Mac unless it is in clamshell mode. A small pulsing "Awake" indicator in the title bar shows while the lock is held.
+- **Limit local CPU use by agents**: Settings → Agent policy has a new *Local CPU and I/O use* setting, and Project settings can override it per project. *Balanced* runs local Claude and Codex chat sessions, and every command and job they start, at lower priority (`nice 10`) with BLAS/OpenMP thread counts capped at half the cores. *Gentle* uses `nice 19` and a quarter of the cores. On macOS both also use background CPU and disk I/O priority (`taskpolicy -b`), and the agent is told to keep parallelism within `$CODEOME_MAX_CORES`. The default is *Off*. It is a soft cap that applies from the next chat session: a running session keeps its old setting, there is no hard memory limit on macOS, and your own terminals are not affected.
+
 ### Fixed
 - **Ideas no longer reopens a folded pane**: returning to an Ideas agent chat no longer unfolds the right-hand pane ("💡 Ideas, Chat and forum with no project") after you folded it away. Opening a file, preview or terminal in a project still unfolds it.
 

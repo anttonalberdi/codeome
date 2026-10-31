@@ -19,7 +19,7 @@ function section(start, end) {
 test('config:set keeps main-process GitHub bindings and renderer policy and chat defaults', () => {
   const handlers = {};
   const current = { accounts: {}, gitAccounts: [{ id: 'real' }], projectAccounts: { '/project': 'real' } };
-  const context = {
+  const context = { awake: { sync() {} },
     cfg: current,
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },
     usage: { ENV_VAR: {} },

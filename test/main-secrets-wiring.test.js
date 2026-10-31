@@ -105,7 +105,7 @@ test('config changes remove a placed file only when no local scope remains or ac
   const context = { cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
     secrets, placedSecrets, secretFileStore: { remove: (name) => removed.push(name) },
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, usage: { ENV_VAR: {} },
-    config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
+    awake: { track() {}, sync() {}, dispose() {} }, config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
     syncAllSecretsQuietly: () => {}, mirrorGeneralQuietly: () => {}
   };
   vm.runInNewContext(section("ipcMain.handle('config:set'", "ipcMain.handle('secret:set'"), context);
@@ -126,7 +126,7 @@ test('config cleanup clears placed state when file removal fails', () => {
   const context = { cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
     secrets, placedSecrets, secretFileStore: { remove: () => { throw new Error('private content'); } },
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, usage: { ENV_VAR: {} },
-    config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
+    awake: { track() {}, sync() {}, dispose() {} }, config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
     syncAllSecretsQuietly: () => {}, mirrorGeneralQuietly: () => {}
   };
   vm.runInNewContext(section("ipcMain.handle('config:set'", "ipcMain.handle('secret:set'"), context);
@@ -147,7 +147,7 @@ test('agent secret metadata exposes file kind and quit hooks clean up files', ()
   const hooks = {}, cleaned = [];
   vm.runInNewContext(section("app.on('before-quit'", "app.on('window-all-closed'"), {
     app: { on: (name, fn) => { hooks[name] = fn; } }, secretFileStore: { cleanupAll: () => cleaned.push(true) },
-    forumHost: { disposeAll: () => {} }, clearCopied: () => {}, stopLogins: () => {}, tunnel: null,
+    awake: { track() {}, sync() {}, dispose() {} }, forumHost: { disposeAll: () => {} }, clearCopied: () => {}, stopLogins: () => {}, tunnel: null,
     heartbeatTimer: null, clearInterval: () => {}, flushRendererLogs: () => {}, crashlog: { markClean: () => {} }
   });
   hooks['before-quit']();

@@ -215,6 +215,10 @@ svg { width: 18px; height: 18px; display: block; }
 
 /* ---------- title bar & cluster strip ---------- */
 #titlebar { grid-area: tb; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 84px; border-bottom: 1px solid var(--line); background: var(--surface-2); -webkit-app-region: drag; gap: 12px; }
+#awake { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted, #888); -webkit-app-region: no-drag; }
+#awake[hidden] { display: none; }
+#awake .dot { width: 7px; height: 7px; border-radius: 50%; background: #3fb950; animation: awake-pulse 2s ease-in-out infinite; }
+@keyframes awake-pulse { 50% { opacity: .35; } }
 #titlebar button, #titlebar .cluster { -webkit-app-region: no-drag; }
 .tb-left, .tb-right { flex: 1; display: flex; align-items: center; min-width: 0; }
 .tb-left { gap: 10px; }

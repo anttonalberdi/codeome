@@ -10,6 +10,12 @@
 
   U.init = async () => {
     U.snap = await codeome.usage.get();
+    const awakeEl = document.getElementById('awake');
+    if (awakeEl && codeome.awake) {
+      const show = (on) => { awakeEl.hidden = !on; };
+      codeome.awake.get().then(show).catch(() => {});
+      codeome.awake.onState(show);
+    }
     codeome.usage.onUpdate((s) => { U.snap = s; paint(); App.emit('usage', s); adopt(); });
     paint();
     adopt();

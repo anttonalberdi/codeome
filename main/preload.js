@@ -139,6 +139,7 @@ contextBridge.exposeInMainWorld('codeome', {
     onEvent: on('forum:event')
   },
   stats: { get: invoke('stats:get') },
+  awake: { get: invoke('awake:state'), onState: on('awake:state') },
   usage: {
     get: invoke('usage:get'), refresh: invoke('usage:refresh'), found: invoke('usage:found'),
     setActive: (engine, name) => ipcRenderer.invoke('usage:setActive', { engine, name }),

@@ -1,5 +1,5 @@
 // Codeome — main process.
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard, ClipboardItem, crashReporter } = require('electron');
+const { app, powerSaveBlocker, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard, ClipboardItem, crashReporter } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -22,6 +22,7 @@ const chat = require('./chat');
 const projectChat = require('./projectchat');
 const policy = require('./policy');
 const resources = require('./resources');
+const { createAwake } = require('./awake');
 const forumstore = require('./forumstore');
 const { createHost } = require('./forumhost');
 const rtools = require('./rtools');
@@ -378,6 +379,7 @@ ipcMain.handle('config:set', (_e, c) => {
   const secretsChanged = JSON.stringify(c.secrets) !== JSON.stringify(cfg.secrets);
   const oldSecrets = cfg.secrets || [];
   cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts });
+  awake.sync();
   for (const old of oldSecrets) {
     if (!old || secrets.kindOf(old) !== 'file') continue;
     const next = (cfg.secrets || []).find((s) => s && s.name === old.name);
@@ -1177,6 +1179,11 @@ const claudeCmd = () => (cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || 
 
 const codexCmd = () => (cfg.agents.find((a) => /^codex(\s|$)/.test(a.cmd)) || { cmd: 'codex' }).cmd;
 
+// Holds off idle sleep while any agent turn is running (Settings > Chat > Keep Mac awake).
+const awake = createAwake({ blocker: powerSaveBlocker, enabled: () => !cfg || !cfg.chat || cfg.chat.keepAwake !== false,
+  onChange: (held) => send('awake:state', held) });
+ipcMain.handle('awake:state', () => awake.held());
+
 function createAgentSession({ id, project, engine, account, resume, mode, meter, forum = false, persona }) {
   const scratchMode = scratch.isScratch(project);
   let kitInstalled = false;
@@ -1217,6 +1224,7 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
     s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
+  awake.track(id, s);
   s.on('exit', (r) => {
     crashlog.log(r.code === 0 && !r.signal ? 'info' : 'warn', 'chat exit',
       { id, code: r.code, signal: r.signal, ...(r.stderr ? { stderr: String(r.stderr).trimStart().split(/\r?\n/, 1)[0].slice(0, 200) } : {}) });
@@ -1581,6 +1589,7 @@ app.whenReady().then(() => {
 });
 app.on('before-quit', () => {
   quitting = true;
+  awake.dispose();
   try { forumHost.disposeAll(); clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); }
   finally { try { if (secretFileStore) secretFileStore.cleanupAll(); } catch {} clearInterval(heartbeatTimer); flushRendererLogs(); try { crashlog.markClean(); } catch {} }
 });
