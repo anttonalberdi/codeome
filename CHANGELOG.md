@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## 1.4.1
+
+### Fixed
+- **Tailscale not detected in the installed app**: Settings → Phone companion said Tailscale was "installed but not running or not signed in" even when it was running. The Tailscale app's command-line tool only works as a CLI when started from a terminal, which an installed app is not, so every status check failed. Codeome now starts it as a CLI explicitly (`TAILSCALE_BE_CLI=1`), so Check Tailscale, Set up Tailscale Serve and the pairing QR code work again.
+
 ## 1.4.0
 
 ### Added
