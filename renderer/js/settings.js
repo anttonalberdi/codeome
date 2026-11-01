@@ -1323,6 +1323,7 @@
     const pairResult = h('div.phone-pair-result', { 'aria-live': 'polite' });
     const pairButton = h('button.btn.small.primary', { disabled: true, onclick: () => createPair() }, 'Pair a phone');
     const tailscaleResult = h('div.phone-helper-result', { 'aria-live': 'polite' });
+    const serveResult = h('div.phone-helper-result', { role: 'status', 'aria-live': 'polite' });
     const ntfyResult = h('div.phone-helper-result', { role: 'status', 'aria-live': 'polite' });
     const topicResult = h('div.phone-topic', { hidden: true });
     let active = false, unsubscribe = null, pairTimer = null, pairing = null, pairBusy = false;
@@ -1337,7 +1338,7 @@
         const result = await codeome.remote.pair();
         if (!active) return;
         if (result.error) throw new Error(result.error === 'not-listening' ? 'Enable the companion and wait until it is listening.' :
-          result.error === 'no-magicdns' ? "Tailscale's HTTPS name is not available. Follow the Tailscale setup steps above, then check Tailscale and run the Serve command." : result.error);
+          result.error === 'no-magicdns' ? "Tailscale's HTTPS name is not available. Follow the Tailscale setup steps above, then check Tailscale and set up Serve." : result.error);
         pairing = result;
         const svg = new DOMParser().parseFromString(CodeomeQR.toSvg(CodeomeQR.encode(result.payload)), 'image/svg+xml').documentElement;
         const qr = document.importNode(svg, true);
@@ -1355,10 +1356,16 @@
       } catch (error) { if (active) pairResult.textContent = `Could not pair: ${sayError(error)}`; }
       finally { pairBusy = false; if (active) pairButton.disabled = !lastStatus?.listening; }
     }
-    let lastStatus = null;
+    let lastStatus = null, serveButton = null, serveButtonAvailable = false;
+    const companionReady = () => !!lastStatus?.enabled && lastStatus.mode === 'serve' && !!lastStatus.listening &&
+      lastStatus.port === (App.cfg.remote.port || 47821);
     function paintStatus(state) {
       if (!active) return;
       lastStatus = state;
+      if (serveButton) {
+        serveButton.disabled = !serveButtonAvailable || !companionReady();
+        serveButton.title = companionReady() ? '' : 'Turn on the phone companion in Serve mode first, then set up Tailscale Serve.';
+      }
       pairButton.disabled = !state.listening || pairBusy;
       if (!state.listening && pairing) clearPair();
       const parts = [state.listening ? 'Listening' : state.enabled ? 'Not listening' : 'Off'];
@@ -1439,19 +1446,70 @@
         }
       } catch (error) { ntfyResult.textContent = sayError(error); }
     }
+    let serveBusy = false;
+    async function serveAction(action) {
+      if (serveBusy) return;
+      serveBusy = true;
+      try {
+        const fresh = await codeome.remote.tailscale();
+        const companion = await codeome.remote.status();
+        paintStatus(companion);
+        if (action === 'setup' && (!companionReady() || !fresh.command || ![443, 8443].includes(fresh.serve?.httpsPort))) {
+          serveResult.textContent = 'Turn on the phone companion in Serve mode first, then check Tailscale again.';
+          return;
+        }
+        if (action === 'stop' && fresh.serve?.state !== 'active') {
+          serveResult.textContent = 'The Serve mapping has changed. Check Tailscale and confirm again.';
+          return;
+        }
+        const confirmed = action === 'setup' ?
+          await App.confirm('Set up Tailscale Serve?', `Codeome will run this exact command:\n${fresh.command}\n\nIt only shares this Mac's phone page on your tailnet, never the public internet.`, 'Set up') :
+          await App.confirm('Stop sharing the phone page?', `Codeome will remove the Serve mapping from HTTPS ${fresh.serve.httpsPort} to http://127.0.0.1:${companion.port}. If you created this exact mapping yourself, it will be removed too.`, 'Stop sharing', true);
+        if (!confirmed) return;
+        serveResult.textContent = action === 'setup' ? 'Setting up Tailscale Serve…' : 'Stopping Tailscale Serve…';
+        const result = await codeome.remote.serve(action === 'setup' ?
+          { action, expectedHttpsPort: fresh.serve.httpsPort } : { action });
+        if (!active) return;
+        if (result.error) {
+          serveResult.replaceChildren(h('span', result.error === 'changed' ?
+            'The Serve mapping changed. Check Tailscale and confirm again.' : result.message || result.error));
+          if (result.error === 'serve-not-enabled' && result.link) serveResult.append(' ',
+            h('a', { href: result.link, target: '_blank', rel: 'noopener', onclick: (event) => {
+              event.preventDefault(); void codeome.shell.open(result.link);
+            } }, 'Open Tailscale settings'));
+        } else if (result.warning) serveResult.replaceChildren(h('strong.phone-warning', `WARNING: ${result.warning}`));
+        else serveResult.textContent = action === 'setup' ?
+          `Serving at ${result.serve?.url || 'your Tailscale HTTPS address'}.` :
+          result.stopped ? 'Stopped sharing.' : 'This Mac’s phone page was not being shared.';
+        await checkTailscale();
+      } catch (error) { if (active) serveResult.textContent = `Tailscale Serve failed: ${sayError(error)}`; }
+      finally { serveBusy = false; if (active) void checkTailscale(); }
+    }
     async function checkTailscale() {
       tailscaleResult.textContent = 'Checking Tailscale…';
       try {
         const value = await codeome.remote.tailscale();
         if (!active) return;
         const command = value.command;
-        const steps = h('ol',
-          h('li', 'Open Tailscale and sign in on this Mac.'),
-          h('li', 'Install the Tailscale app on your iPhone and sign in with the same account.'),
-          h('li', 'In the Tailscale admin console, open DNS and enable HTTPS Certificates (needed for Serve mode).'),
-          h('li', 'Press Check Tailscale.'));
         const missing = !value.installed;
         const ready = value.running && value.loggedIn;
+        const serve = value.serve || { state: 'off', httpsPort: 443, others: [] };
+        const serveMode = App.cfg.remote.mode === 'serve';
+        const steps = missing ? h('ol', h('li', 'Install Tailscale and sign in on this Mac.'),
+          h('li', 'Install the Tailscale app on your iPhone and sign in with the same account.'),
+          h('li', 'Press Check Tailscale.')) : !ready ? h('ol',
+          h('li', 'Open Tailscale and sign in on this Mac.'), h('li', 'Press Check Tailscale.')) :
+          serveMode && serve.state === 'conflict' ? h('ol',
+            h('li', 'Stop another mapping on HTTPS port 443 or 8443.'), h('li', 'Press Check Tailscale.')) :
+          serveMode && serve.state !== 'active' ? h('ol',
+            h('li', 'In the Tailscale admin console, open DNS and enable HTTPS Certificates (needed for Serve mode).'),
+            h('li', 'Press Set up Tailscale Serve.')) : null;
+        serveButtonAvailable = !serveBusy && ready && serveMode && serve.state !== 'conflict' && !value.funnel;
+        serveButton = h('button.btn.small', { disabled: !serveButtonAvailable || !companionReady(),
+          title: companionReady() ? '' : 'Turn on the phone companion in Serve mode first, then set up Tailscale Serve.',
+          onclick: () => void serveAction('setup') }, 'Set up Tailscale Serve');
+        const stopButton = h('button.btn.small.danger', { disabled: serveBusy || !ready || !serveMode || value.funnel,
+          onclick: () => void serveAction('stop') }, 'Stop sharing');
         // replaceChildren turns a null into the text "null", so leave out the parts that do not apply.
         tailscaleResult.replaceChildren(...[
           missing ? stepRow('todo', 'Tailscale', 'Not installed on this Mac.', btn('Install…', async () => {
@@ -1461,6 +1519,14 @@
           App.cfg.remote.mode === 'tailnet' && missing ? h('strong.phone-warning', 'Tailnet mode needs Tailscale to provide an address.') : null,
           steps,
           value.funnel ? h('strong.phone-warning', value.warning || 'WARNING: Tailscale Funnel is enabled.') : null,
+          serveMode ? stepRow(serve.state === 'active' ? 'ok' : 'todo', 'Serve', serve.state === 'active' ?
+            `Serving at ${serve.url || 'your Tailscale HTTPS address'}` : serve.state === 'conflict' ?
+            'HTTPS ports 443 and 8443 already serve something else.' : 'Not set up') : null,
+          serveMode ? h('div.sp-tools', serve.state === 'active' ? stopButton : serveButton) : null,
+          serveMode && !ready ? h('span.hint', 'Open Tailscale and sign in to use these buttons.') : null,
+          serveMode && serve.state !== 'active' && !companionReady() ? h('span.hint', 'Turn on the phone companion in Serve mode first, then set up Tailscale Serve.') : null,
+          serveMode && value.funnel ? h('span.hint', 'Disable Tailscale Funnel before changing Serve.') : null,
+          command ? h('span.hint', 'Run it yourself') : null,
           command ? h('div.phone-copy', h('code.sp-code', command), h('button.btn.small', { onclick: async () => {
             try {
               if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(command);
@@ -1478,11 +1544,11 @@
     const result = section('phone', 'Phone companion', 'Use your paired phone to follow chats and approve agent actions. Codeome binds only to this Mac’s loopback or Tailscale tailnet address, never directly to the public internet. Keep Tailscale Funnel off.',
       card('Connection',
         row('Enable', check('Enable phone companion', () => remote.enabled, (value) => { App.cfg.remote.enabled = value; if (!value) clearPair(); })),
-        row('Mode', select([{ value: 'serve', label: 'Tailscale Serve · HTTPS, installable PWA' }, { value: 'tailnet', label: 'Tailnet IP · plain HTTP' }], remote.mode || 'serve', (value) => { App.cfg.remote.mode = value; clearPair(); commit(); void checkTailscale(); }, 'Phone companion mode'), 'Serve binds to 127.0.0.1 and needs a separate Tailscale Serve command. Tailnet binds to this Mac’s tailnet IP.'),
+        row('Mode', select([{ value: 'serve', label: 'Tailscale Serve · HTTPS, installable PWA' }, { value: 'tailnet', label: 'Tailnet IP · plain HTTP' }], remote.mode || 'serve', (value) => { App.cfg.remote.mode = value; clearPair(); commit(); void checkTailscale(); }, 'Phone companion mode'), 'Serve binds to 127.0.0.1 and needs Tailscale Serve setup. Tailnet binds to this Mac’s tailnet IP.'),
         row('Port', h('div.phone-field', port, portError), 'Empty uses 47821.'),
         row('Status', status)),
       card('Tailscale Serve', h('div.sp-tools', h('button.btn.small', { onclick: checkTailscale }, 'Check Tailscale')),
-      tailscaleResult, h('div.sp-foot.hint', 'Run the displayed command yourself in Terminal. Codeome never runs Tailscale Serve. Disable Funnel to keep access on your tailnet.')),
+      tailscaleResult, serveResult, h('div.sp-foot.hint', 'Copy the displayed command to run it in Terminal. Disable Funnel to keep access on your tailnet.')),
       card('Pair a phone', h('div.sp-tools', pairButton), pairResult),
       card('Paired phones', devices),
       card('Phone approvals',

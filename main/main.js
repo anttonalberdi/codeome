@@ -465,6 +465,13 @@ ipcMain.handle('remote:tabs', (_e, payload) => {
 ipcMain.handle('remote:pair', () => remoteService.pair());
 ipcMain.handle('remote:revoke', (_e, { id }) => remoteService.revoke(id));
 ipcMain.handle('remote:tailscale', () => remoteService.tailscale());
+ipcMain.handle('remote:serve', (_e, payload) => {
+  if (payload?.expectedHttpsPort !== undefined && ![443, 8443].includes(payload.expectedHttpsPort))
+    return { error: 'invalid-action' };
+  if (payload?.action === 'setup') return remoteService.serveSetup(payload.expectedHttpsPort);
+  if (payload?.action === 'stop') return remoteService.serveStop();
+  return { error: 'invalid-action' };
+});
 ipcMain.handle('remote:ntfy', (_e, action) => remoteService.ntfy(action));
 ipcMain.handle('secret:set', (_e, { key, value }) => { config.setSecret(key, value); return true; });
 ipcMain.handle('secret:has', (_e, key) => config.hasSecret(key));

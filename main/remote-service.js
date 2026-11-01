@@ -24,6 +24,47 @@ function funnelEnabled(value) {
       funnelEnabled(part));
 }
 
+function serveArgs(port, httpsPort) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || ![443, 8443].includes(httpsPort)) return null;
+  return ['serve', '--bg', `--https=${httpsPort}`, `http://127.0.0.1:${port}`];
+}
+
+function serveState(value, port, dnsName) {
+  const target = `http://127.0.0.1:${port}`;
+  const web = value?.Web && typeof value.Web === 'object' ? value.Web : {};
+  const tcp = value?.TCP && typeof value.TCP === 'object' ? value.TCP : {};
+  const entries = (httpsPort) => Object.entries(web).filter(([host]) => host.endsWith(`:${httpsPort}`));
+  const used = (httpsPort) => Object.hasOwn(tcp, String(httpsPort)) || entries(httpsPort).length > 0;
+  const ours = (httpsPort) => {
+    const matches = entries(httpsPort);
+    if (matches.length !== 1) return false;
+    const handlers = matches[0][1]?.Handlers;
+    return handlers && Object.keys(handlers).length === 1 && handlers['/']?.Proxy === target;
+  };
+  const others = [443, 8443].filter((httpsPort) => used(httpsPort) && !ours(httpsPort));
+  const httpsPort = ours(443) ? 443 : ours(8443) ? 8443 : !used(443) ? 443 : !used(8443) ? 8443 : null;
+  const state = httpsPort === null ? 'conflict' : ours(httpsPort) ? 'active' : 'off';
+  return { state, httpsPort, url: state === 'active' && dnsName ?
+    `https://${dnsName}${httpsPort === 443 ? '' : `:${httpsPort}`}` : null, others };
+}
+
+function serveFailure(cause) {
+  const output = String(cause?.output || cause?.message || 'Tailscale Serve failed.');
+  if (/serve is not enabled on your tailnet|https certificates?.*(?:not enabled|disabled|enable)|enable.*https certificates?/i.test(output)) {
+    const link = (output.match(/https:\/\/[^\s<>"']+/g) || []).map((candidate) => {
+      try {
+        const url = new URL(candidate.replace(/[),.;]+$/, ''));
+        return url.protocol === 'https:' && !url.username && !url.password &&
+          (url.hostname === 'tailscale.com' || url.hostname.endsWith('.tailscale.com')) ? url.href : null;
+      } catch { return null; }
+    }).find(Boolean) || null;
+    return { error: 'serve-not-enabled', link,
+      message: 'Enable HTTPS Certificates in Tailscale, then press Set up Tailscale Serve again.' };
+  }
+  if (cause?.killed || cause?.code === 'ETIMEDOUT') return { error: 'timeout', message: 'Tailscale Serve timed out. Try again.' };
+  return { error: 'failed', message: output.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').trim().slice(0, 200) };
+}
+
 function createService({ createServer, createAuth, createLimiter, remote, sessions, loadChat, listChats,
   getConfig, saveDevices, getDevices, getSecret, setSecret, staticDir,
   networkInterfaces = os.networkInterfaces, fileExists = fs.existsSync, execFile, send, fetch, logger, retryMs = 30000 }) {
@@ -35,8 +76,10 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
   let listening = false;
   let error = null;
   let tailState = { installed: false, running: false, loggedIn: false, available: false, cliPath: null,
-    dnsName: null, command: null, funnel: false, warning: null };
+    dnsName: null, command: null, funnel: false, warning: null, known: false,
+    serve: { state: 'off', httpsPort: 443, url: null, others: [] } };
   let queue = Promise.resolve();
+  let tailQueue = Promise.resolve();
   let notifier = null;
   let retryTimer = null;
 
@@ -54,7 +97,7 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
   function selectedPort() { return config().port || DEFAULT_PORT; }
   function url() {
     if (!listening) return null;
-    if (binding.mode === 'serve' && tailState.dnsName) return `https://${tailState.dnsName}`;
+    if (binding.mode === 'serve' && tailState.dnsName) return `https://${tailState.dnsName}${tailState.serve.state === 'active' && tailState.serve.httpsPort !== 443 ? `:${tailState.serve.httpsPort}` : ''}`;
     return `http://${binding.host}:${binding.port}`;
   }
   function status() {
@@ -88,6 +131,11 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
   function enqueue(action) {
     queue = queue.then(action, action);
     return queue;
+  }
+  function enqueueTail(action) {
+    const result = tailQueue.then(action, action);
+    tailQueue = result.then(() => {}, () => {});
+    return result;
   }
   function sync() { return enqueue(async () => {
     const settings = config();
@@ -160,11 +208,26 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
   function revoke(id) { const result = auth.revoke(id); if (result) { server?.revokeDevice?.(id); emitStatus(); } return result; }
   function revokeAll() { for (const device of auth.listDevices()) server?.revokeDevice?.(device.id); auth.revokeAll(); emitStatus(); }
   function rename(id, label) { const result = auth.rename(id, label); if (result) emitStatus(); return result; }
-  function run(file, args) {
-    return new Promise((resolve, reject) => execFile(file, args, { timeout: 3000, windowsHide: true },
-      (cause, stdout) => cause ? reject(cause) : resolve(stdout)));
+  function run(file, args, timeout = 3000) {
+    return new Promise((resolve, reject) => execFile(file, args, { timeout, windowsHide: true },
+      (cause, stdout, stderr) => {
+        if (cause) { cause.output = `${stdout || ''}\n${stderr || ''}`; reject(cause); }
+        else resolve(stdout);
+      }));
   }
-  async function tailscale() {
+  async function readServeStatus(cliPath) {
+    try {
+      const value = JSON.parse(await run(cliPath, ['serve', 'status', '--json'], 15000));
+      const known = !!value && typeof value === 'object' && !Array.isArray(value) &&
+        ['Web', 'TCP'].every((key) => value[key] === undefined ||
+          (value[key] !== null && typeof value[key] === 'object' && !Array.isArray(value[key])));
+      return { value, known };
+    } catch { return { value: null, known: false }; }
+  }
+  function mutationCliPath() {
+    return ['/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale', TAILSCALE_APP].find(fileExists) || null;
+  }
+  async function tailscaleRead() {
     const port = selectedPort();
     const appExists = fileExists(TAILSCALE_APP);
     let cliPath = null, info = null;
@@ -175,21 +238,72 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
         catch { /* Try the bundled CLI when the PATH command is absent or fails. */ }
       }
     }
-    let serve = null;
-    if (cliPath) try { serve = JSON.parse(await run(cliPath, ['serve', 'status', '--json'])); } catch {}
+    const { value: serve, known } = cliPath ? await readServeStatus(cliPath) : { value: null, known: false };
     const dnsName = typeof info?.Self?.DNSName === 'string' ? info.Self.DNSName.replace(/\.$/, '') : null;
     const funnel = funnelEnabled(serve);
     const installed = !!cliPath || appExists;
-    const running = !!info && info.BackendState !== 'NeedsLogin' && info.BackendState !== 'Stopped';
+    const running = info?.BackendState === 'Running';
     const loggedIn = !!info && info.BackendState !== 'NeedsLogin';
-    const command = cliPath && Number.isInteger(port) && port > 0 && port <= 65535 ?
-      `${cliPath === 'tailscale' ? 'tailscale' : '"' + cliPath + '"'} serve --bg --https=443 http://127.0.0.1:${port}` : null;
-    tailState = { installed, running, loggedIn, available: installed, cliPath, dnsName, command, funnel,
-      warning: funnel ? 'Funnel is enabled; disable it to keep the companion private.' : null };
+    const serveInfo = serveState(serve, port, dnsName);
+    const args = serveArgs(port, serveInfo.httpsPort);
+    const command = cliPath && args ?
+      `${cliPath === 'tailscale' ? 'tailscale' : '"' + cliPath + '"'} ${args.join(' ')}` : null;
+    tailState = { installed, running, loggedIn, available: installed, cliPath, dnsName, command, funnel, known,
+      warning: funnel ? 'Funnel is enabled; disable it to keep the companion private.' : null, serve: serveInfo };
     emitStatus();
-    return { ...tailState };
+    return { state: { ...tailState }, serveStatus: serve };
   }
-  Object.assign(service, { sync, stop, status, pair, revoke, revokeAll, rename, tailscale, ntfy });
+  function tailscale() { return enqueueTail(async () => (await tailscaleRead()).state); }
+  async function changedServe(state, original, port, cliPath) {
+    if (selectedPort() !== port) return true;
+    const current = await readServeStatus(cliPath);
+    if (!current.known || JSON.stringify(current.value) !== JSON.stringify(original)) return true;
+    const next = serveState(current.value, port, state.dnsName);
+    return funnelEnabled(current.value) || next.state !== state.serve.state || next.httpsPort !== state.serve.httpsPort;
+  }
+  function serveSetup(expectedHttpsPort) { return enqueueTail(async () => {
+    if (expectedHttpsPort !== undefined && ![443, 8443].includes(expectedHttpsPort)) return { error: 'invalid-action' };
+    const port = selectedPort();
+    if (!config().enabled || config().mode !== 'serve' || !listening ||
+        binding?.mode !== 'serve' || binding.port !== port)
+      return { error: 'not-listening', message: 'Turn on the phone companion in Serve mode first, then set up Tailscale Serve.' };
+    const { state, serveStatus } = await tailscaleRead();
+    if (!state.installed || !state.running || !state.loggedIn) return { error: 'not-ready', message: 'Open Tailscale and sign in on this Mac, then try again.' };
+    if (!state.known) return { error: 'status-unavailable', message: 'Could not check Tailscale Serve status. Try again.' };
+    if (state.funnel) return { error: 'funnel-enabled', message: 'Turn Tailscale Funnel off before changing Serve.' };
+    if (!Number.isInteger(selectedPort()) || selectedPort() < 1 || selectedPort() > 65535)
+      return { error: 'invalid-port', message: 'Enter a phone companion port from 1 to 65535.' };
+    if (expectedHttpsPort !== undefined && expectedHttpsPort !== state.serve.httpsPort) return { error: 'changed' };
+    if (state.serve.state === 'active') return { ok: true, serve: state.serve };
+    if (state.serve.state === 'conflict') return { error: 'ports-busy', message: 'HTTPS ports 443 and 8443 already serve something else. Stop one of those mappings before trying again.' };
+    const cliPath = mutationCliPath();
+    if (!cliPath) return { error: 'no-cli-path', message: "Tailscale's command line tool was not found in a standard location. Install the Tailscale app or run the command yourself." };
+    if (await changedServe(state, serveStatus, port, cliPath) || !config().enabled || config().mode !== 'serve' || !listening || binding?.port !== port)
+      return { error: 'changed' };
+    try { await run(cliPath, serveArgs(port, state.serve.httpsPort), 15000); }
+    catch (cause) { return serveFailure(cause); }
+    const checked = (await tailscaleRead()).state;
+    if (!checked.known || checked.serve.state !== 'active' || checked.serve.httpsPort !== state.serve.httpsPort)
+      return { error: 'failed', message: 'Tailscale did not confirm the new Serve mapping.' };
+    return { ok: true, serve: checked.serve, warning: checked.warning };
+  }); }
+  function serveStop() { return enqueueTail(async () => {
+    const port = selectedPort();
+    const { state, serveStatus } = await tailscaleRead();
+    if (!state.installed || !state.running || !state.loggedIn) return { error: 'not-ready', message: 'Open Tailscale and sign in on this Mac, then try again.' };
+    if (!state.known) return { error: 'status-unavailable', message: 'Could not check Tailscale Serve status. Try again.' };
+    if (state.funnel) return { error: 'funnel-enabled', message: 'Turn Tailscale Funnel off before changing Serve.' };
+    if (state.serve.state !== 'active') return { ok: true, stopped: false, serve: state.serve };
+    const cliPath = mutationCliPath();
+    if (!cliPath) return { error: 'no-cli-path', message: "Tailscale's command line tool was not found in a standard location. Install the Tailscale app or run the command yourself." };
+    if (await changedServe(state, serveStatus, port, cliPath)) return { error: 'changed' };
+    try { await run(cliPath, ['serve', `--https=${state.serve.httpsPort}`, 'off'], 15000); }
+    catch (cause) { return serveFailure(cause); }
+    const checked = (await tailscaleRead()).state;
+    if (!checked.known || checked.serve.state === 'active') return { error: 'failed', message: 'Tailscale did not confirm that sharing stopped.' };
+    return { ok: true, stopped: true, serve: checked.serve };
+  }); }
+  Object.assign(service, { sync, stop, status, pair, revoke, revokeAll, rename, tailscale, serveSetup, serveStop, ntfy });
   return service;
 }
 

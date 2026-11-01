@@ -18,13 +18,13 @@ You need Tailscale on the Mac and on the phone, signed in to the same tailnet.
    - *Tailscale Serve · HTTPS, installable PWA* (default). Codeome listens on `127.0.0.1` only, and Tailscale Serve publishes it on your tailnet over HTTPS. Choose this one if you want to add the page to the home screen.
    - *Tailnet IP · plain HTTP*. Codeome listens on the Mac's tailnet address. No extra command is needed, but the page is plain HTTP, so the phone cannot install it as an app.
 3. Leave **Port** empty to use 47821, or set another.
-4. Codeome checks Tailscale automatically and shows setup steps under *Tailscale Serve*. If it is missing, click **Install…** to install the Homebrew `tailscale-app` cask, then open Tailscale and sign in. Install Tailscale on your iPhone and sign in with the same account. In the Tailscale admin console, open **DNS** and enable **HTTPS Certificates** for Serve mode, then click **Check Tailscale**. With the default port, the displayed command is:
+4. Codeome checks Tailscale automatically and shows setup steps under *Tailscale Serve*. If it is missing, click **Install…** to install the Homebrew `tailscale-app` cask, then open Tailscale and sign in. Install Tailscale on your iPhone and sign in with the same account. Click **Set up Tailscale Serve** and confirm the exact command shown. If Tailscale asks you to enable **HTTPS Certificates**, follow its link in the Tailscale admin console, then click **Set up Tailscale Serve** again. With the default port, the command is:
 
    ```
    tailscale serve --bg --https=443 http://127.0.0.1:47821
    ```
 
-   **Copy** puts it on the clipboard. Run it yourself in Terminal; Codeome never runs it. Codeome looks for `tailscale` on the PATH and in `/Applications/Tailscale.app`. If the CLI is only inside the app, the displayed command begins with `"/Applications/Tailscale.app/Contents/MacOS/Tailscale"` instead of `tailscale`.
+   If HTTPS port 443 already serves something else, Codeome uses 8443 and includes `:8443` in the pairing link. If both ports are occupied, it stops without changing either mapping. **Stop sharing** removes the exact mapping from HTTPS 443 or 8443 to the selected phone companion port, even if you created that mapping yourself. You can still use **Copy** under *Run it yourself* to run the command in Terminal. The displayed command may use `tailscale` from the PATH, but Codeome changes Serve only through a CLI at `/opt/homebrew/bin/tailscale`, `/usr/local/bin/tailscale`, or inside `/Applications/Tailscale.app`.
 5. Keep **Tailscale Funnel off**. Funnel would publish the page on the public internet. If Codeome sees Funnel enabled, *Check Tailscale* shows a warning. Codeome binds only to the loopback or the tailnet address, never to the public internet.
 
 The status line shows whether the server is listening, and the error if not (for example, no tailnet address in Tailnet mode, or a port already in use).

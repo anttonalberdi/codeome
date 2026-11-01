@@ -82,6 +82,80 @@ test('device rename and HPC file rename use distinct IPC routes', async () => {
   assert.match(settings, /App\.setup\.install\(\['tailscale'\]/);
 });
 
+test('Serve IPC accepts only setup and stop actions', async () => {
+  const handlers = {}, calls = [];
+  vm.runInNewContext(section("ipcMain.handle('remote:serve'", "ipcMain.handle('remote:ntfy'"), {
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },
+    remoteService: { serveSetup: (port) => { calls.push(['setup', port]); return 'setup-ok'; },
+      serveStop: () => { calls.push('stop'); return 'stop-ok'; } }
+  });
+  assert.equal(handlers['remote:serve'](null, { action: 'setup' }), 'setup-ok');
+  assert.equal(handlers['remote:serve'](null, { action: 'setup', expectedHttpsPort: 8443 }), 'setup-ok');
+  assert.equal(handlers['remote:serve'](null, { action: 'stop' }), 'stop-ok');
+  for (const payload of [null, {}, { action: 'funnel' }, { action: 'SETUP' }, { action: ['setup'] },
+    { action: 'setup', expectedHttpsPort: 80 }, { action: 'setup', expectedHttpsPort: '443' },
+    { action: 'setup', expectedHttpsPort: null }])
+    assert.equal(handlers['remote:serve'](null, payload).error, 'invalid-action');
+  assert.deepEqual(calls, [['setup', undefined], ['setup', 8443], 'stop']);
+  assert.match(preload, /serve: \(payload\) => ipcRenderer\.invoke\('remote:serve', payload\)/);
+  assert.match(settings, /expectedHttpsPort: fresh\.serve\.httpsPort/);
+  assert.match(settings, /!companionReady\(\)/);
+  assert.match(settings, /If you created this exact mapping yourself, it will be removed too/);
+});
+
+test('Serve setup stays disabled until the companion listens, and completed steps disappear', async () => {
+  const make = (name, attrs, ...children) => {
+    if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs) || attrs.fakeNode) {
+      children.unshift(attrs); attrs = {};
+    }
+    const node = { name, attrs, fakeNode: true, children: children.flat(Infinity).filter((child) => child != null),
+      disabled: !!attrs.disabled, title: attrs.title || '', hidden: !!attrs.hidden,
+      append(...items) { this.children.push(...items.flat(Infinity).filter((item) => item != null)); },
+      replaceChildren(...items) { this.children = []; this.append(...items); },
+      get textContent() { return this.children.map((child) => typeof child === 'string' ? child : child.textContent).join(''); },
+      set textContent(value) { this.children = [String(value)]; } };
+    return node;
+  };
+  const find = (node, predicate) => !node || typeof node !== 'object' ? [] :
+    [...(predicate(node) ? [node] : []), ...(node.children || []).flatMap((child) => find(child, predicate))];
+  let status = { enabled: false, listening: false, mode: 'serve', port: 47821, devices: [] };
+  let notifyStatus;
+  const tailscale = { installed: true, running: true, loggedIn: true, dnsName: 'mac.tailnet.ts.net',
+    serve: { state: 'off', httpsPort: 443 }, command: 'tailscale serve --bg --https=443 http://127.0.0.1:47821' };
+  const context = { h: make, phoneController: null,
+    section: (_id, _title, _intro, ...children) => make('section', {}, ...children),
+    card: (_title, ...children) => make('card', {}, ...children),
+    row: (_label, control) => make('row', {}, control),
+    check: () => make('check'), select: () => make('select'),
+    stepRow: (_state, title, detail) => make('step', {}, title, detail),
+    btn: (label, onclick) => make('button', { onclick }, label),
+    App: { cfg: { remote: { enabled: false, mode: 'serve', port: 0, ntfy: {} } } },
+    codeome: { remote: { onStatus: (callback) => { notifyStatus = callback; return () => {}; },
+      status: async () => status, tailscale: async () => tailscale } },
+    clearInterval() {}, setInterval() {} };
+  const start = settings.indexOf('  const PHONE_BASH_DEFAULTS');
+  const end = settings.indexOf('  function appearanceSection(', start);
+  assert.ok(start >= 0 && end > start);
+  vm.runInNewContext(`${settings.slice(start, end)}\nthis.phoneSection = phoneSection;`, context);
+  const view = context.phoneSection({ remote: context.App.cfg.remote });
+  await context.phoneController.start();
+  await new Promise(setImmediate);
+  const result = find(view, (node) => node.name === 'div.phone-helper-result')[0];
+  const setup = find(result, (node) => node.name === 'button.btn.small' && node.textContent === 'Set up Tailscale Serve')[0];
+  assert.equal(setup.disabled, true);
+  assert.match(setup.title, /Turn on the phone companion/);
+  assert.match(result.textContent, /HTTPS Certificates/);
+  status = { ...status, enabled: true, listening: true };
+  notifyStatus(status);
+  assert.equal(setup.disabled, false);
+  tailscale.serve = { state: 'active', httpsPort: 443, url: 'https://mac.tailnet.ts.net' };
+  const check = find(view, (node) => node.name === 'button.btn.small' && node.textContent === 'Check Tailscale')[0];
+  assert.ok(check);
+  await check.attrs.onclick();
+  assert.equal(find(result, (node) => node.name === 'ol').length, 0);
+  assert.match(result.textContent, /Run it yourself/);
+});
+
 test('remote tabs IPC accepts known projects, coalesces latest payload and prunes old projects', () => {
   const handlers = {};
   const remote = createRemote({ send() {} });
