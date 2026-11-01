@@ -92,7 +92,7 @@ Under **Phone approvals**:
 
 An invalid rule or allow list (not valid JSON in the box, wrong types, an invalid regular expression) means every request needs the Mac, and the status line shows the error. **Reset to defaults** restores both lists.
 
-Messages from the phone are refused while the chat is in bypass-permissions, auto or accept-edits mode; send them from the Mac.
+**Send from phone** sets which chats accept messages from the phone. The default, *Default mode only*, refuses them while the chat is in auto, accept-edits or bypass-permissions mode, because in those modes the agent acts on a message with no approval step and a stolen phone could drive it. *Also auto mode* lets messages through in auto mode only; *Also accept-edits and bypass* allows every mode. Answering a pending decision is not affected.
 
 ## ntfy notifications
 

@@ -90,6 +90,7 @@ function createBuffer({ max = 2000, maxImageBytes = 20 * 1024 * 1024, seed = [] 
     let id = item.id && !byId.has(item.id) ? item.id : `remote-${i}`;
     while (byId.has(id)) id += '-';
     const stored = { ...item, i, id };
+    if (!preserve && !stored.at && (stored.t === 'user' || stored.t === 'text')) stored.at = Date.now();
     if ((stored.t === 'perm' || stored.t === 'ask') && !stored.state)
       stored.state = stored.decided || stored.answers ? 'decided' : stored.expired ? 'cancelled' : 'pending';
     items.push(stored);

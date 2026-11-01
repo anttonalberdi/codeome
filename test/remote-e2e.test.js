@@ -245,12 +245,24 @@ test('send uses default mode and records phone source; bypass modes reject; inte
   const session = f.session();
   assert.equal((await f.call('POST', '/api/send', { chatId: 'chat', text: 'hello from phone' })).status, 200);
   assert.deepEqual(session.sent, ['hello from phone']);
-  assert.deepEqual(f.remote.buffers.get('chat').tail(1).items[0],
-    { t: 'user', text: 'hello from phone', source: 'phone', i: 0, id: 'remote-0' });
+  const { at, ...sent } = f.remote.buffers.get('chat').tail(1).items[0];
+  assert.ok(Number.isFinite(at));
+  assert.deepEqual(sent, { t: 'user', text: 'hello from phone', source: 'phone', i: 0, id: 'remote-0' });
   for (const mode of ['auto', 'acceptEdits', 'bypassPermissions']) {
     session.permissionMode = mode;
     assert.equal((await f.call('POST', '/api/send', { chatId: 'chat', text: 'blocked' })).status, 403, mode);
   }
+  const allowed = { auto: ['auto'], all: ['auto', 'acceptEdits', 'bypassPermissions'] };
+  for (const [setting, modes] of Object.entries(allowed)) {
+    f.config.remote.phoneSendModes = setting;
+    for (const mode of ['auto', 'acceptEdits', 'bypassPermissions']) {
+      session.permissionMode = mode;
+      const sentNow = (await f.call('POST', '/api/send', { chatId: 'chat', text: `${setting}-${mode}` })).status;
+      assert.equal(sentNow, modes.includes(mode) ? 200 : 403, `${setting} ${mode}`);
+    }
+  }
+  delete f.config.remote.phoneSendModes;
+  session.sent.length = 1;
   assert.deepEqual(session.sent, ['hello from phone']);
   assert.equal((await f.call('POST', '/api/interrupt', { chatId: 'chat' })).status, 200);
   assert.deepEqual(session.controls, [{ subtype: 'interrupt' }]);

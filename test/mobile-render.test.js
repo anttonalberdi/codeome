@@ -292,3 +292,13 @@ test('mobile shell is CSP compatible and every referenced asset is allowlisted',
   assert.ok(sw.indexOf('fetch(event.request)') < sw.indexOf('caches.match(url.pathname)'), 'shell uses network first');
   assert.match(sw, /const CACHE = `codeome-mobile-v\$\{VERSION\}`/);
 });
+
+test('user and agent messages show a time stamp, and live text is marked', () => {
+  const at = new Date(2026, 10, 1, 9, 5).getTime();
+  const user = Render.renderItem({ t: 'user', id: 'a', text: 'hi', at });
+  const text = Render.renderItem({ t: 'text', id: 'b', text: 'hello', at, live: true });
+  assert.match(user, /<span class="stamp"[^>]*>[^<]*\d/);
+  assert.match(text, /class="item item-text live"/);
+  assert.match(text, /<span class="stamp"/);
+  assert.doesNotMatch(Render.renderItem({ t: 'user', id: 'c', text: 'no time' }), /class="stamp"/);
+});

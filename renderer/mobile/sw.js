@@ -1,4 +1,4 @@
-const VERSION = '2';
+const VERSION = '5';
 const CACHE = `codeome-mobile-v${VERSION}`;
 const SHELL = ['/', '/index.html', '/app.js', '/render.js', '/md.js', '/app.css',
   '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];

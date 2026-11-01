@@ -33,6 +33,8 @@ function validateRemoteConfig(remote) {
       try { new RegExp(rule.pattern); } catch { return 'Invalid remote rule pattern'; }
     }
   }
+  if (remote?.phoneSendModes !== undefined && !['default', 'auto', 'all'].includes(remote.phoneSendModes))
+    return 'Invalid remote.phoneSendModes';
   if (remote?.phoneBashAllow !== undefined && (!Array.isArray(remote.phoneBashAllow) ||
       remote.phoneBashAllow.some((value) => typeof value !== 'string' || !/^[a-z][a-z0-9 -]{0,40}$/.test(value))))
     return 'Invalid remote.phoneBashAllow';
@@ -553,7 +555,9 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
       const session = sessions.get(input.chatId);
       if (!session) { error(res, 404, 'not-found'); return; }
       if (rawPath === '/api/send') {
-        if (['auto', 'bypassPermissions', 'acceptEdits'].includes(session.permissionMode)) { error(res, 403, 'needs-desktop-mode'); return; }
+        const allowedModes = getConfig()?.remote?.phoneSendModes;
+        const blockedModes = allowedModes === 'all' ? [] : allowedModes === 'auto' ? ['bypassPermissions', 'acceptEdits'] : ['auto', 'bypassPermissions', 'acceptEdits'];
+        if (blockedModes.includes(session.permissionMode)) { error(res, 403, 'needs-desktop-mode'); return; }
         if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 20000) { error(res, 400, 'invalid'); return; }
         try { session.user(input.text); remote.recordUser(input.chatId, input.text, 'phone'); }
         catch { error(res, 500, 'failed'); return; }

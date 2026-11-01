@@ -1556,6 +1556,12 @@
       card('Paired phones', devices),
       card('Phone approvals',
         row('Require desktop for', h('div.phone-field', rulesInput, rulesError), 'JSON rules. Tool, role, outsideProject and pattern can require approval on this Mac. An invalid rule means desktop approval is required.'),
+        row('Send from phone', select([
+          { value: 'default', label: 'Default mode only' },
+          { value: 'auto', label: 'Also auto mode' },
+          { value: 'all', label: 'Also accept-edits and bypass' }],
+          remote.phoneSendModes || 'default', (v) => { App.cfg.remote.phoneSendModes = v; commit(); }, 'Chat modes that accept messages from the phone'),
+          'Messages sent from the phone run without a desktop approval step in auto, accept-edits and bypass modes, so a stolen phone could drive the agent. Off by default.'),
         row('Phone Bash allow list', h('div.phone-field', bashInput, bashError), 'One allowed command prefix per line. Other commands require desktop approval.'),
         h('div.sp-foot', h('button.btn.small', { onclick: () => {
           App.cfg.remote.requireDesktopFor = PHONE_RULE_DEFAULTS.map((rule) => ({ ...rule }));

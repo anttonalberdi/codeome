@@ -154,14 +154,26 @@
     return (Array.isArray(item.images) ? item.images : []).map((ref) =>
       `<img class="chat-image" data-image="${esc(ref.itemId)}" alt="Chat attachment" loading="lazy">`).join('');
   }
+  function stampText(value) {
+    const at = timestamp(value);
+    if (!at) return '';
+    const d = new Date(at);
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toDateString() === new Date().toDateString() ? time :
+      `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${time}`;
+  }
+  function stampOf(item) {
+    const label = stampText(item.at);
+    return label ? `<span class="stamp" title="${esc(new Date(timestamp(item.at)).toLocaleString())}">${esc(label)}</span>` : '';
+  }
   function renderItem(item) {
     const type = text(item?.t);
     const id = esc(item?.id || '');
     const knownTypes = ['user', 'text', 'tool', 'job', 'progress', 'note', 'perm', 'ask'];
-    const attrs = ` class="item item-${knownTypes.includes(type) ? type : 'unknown'}" data-item-id="${id}"`;
+    const attrs = ` class="item item-${knownTypes.includes(type) ? type : 'unknown'}${type === 'text' && item.live ? ' live' : ''}" data-item-id="${id}"`;
     if (type === 'user') return `<article${attrs}><h3>You</h3><div class="message-text">${esc(item.text)}</div>${
-      (Array.isArray(item.files) ? item.files : []).map((file) => `<div class="file">${esc(file)}</div>`).join('')}${images(item)}</article>`;
-    if (type === 'text') return `<article${attrs}><h3>Codeome${item.live ? ' · writing' : ''}</h3><div class="markdown">${md.render(item.text)}</div>${images(item)}</article>`;
+      (Array.isArray(item.files) ? item.files : []).map((file) => `<div class="file">${esc(file)}</div>`).join('')}${images(item)}${stampOf(item)}</article>`;
+    if (type === 'text') return `<article${attrs}><h3>Codeome${item.live ? ' · writing' : ''}</h3>${stampOf(item)}<div class="markdown">${md.render(item.text)}</div>${images(item)}</article>`;
     if (type === 'tool') return `<article${attrs}><details class="tool-detail"><summary>${esc(item.name || 'Tool')}: ${esc(short(inputText(item.input)))}</summary><pre>${esc(inputText(item.input))}</pre><button type="button" data-tool="${id}">Load full result</button><pre class="tool-result" aria-live="polite"></pre></details>${images(item)}</article>`;
     if (type === 'job' || type === 'progress') return `<article${attrs}><details class="tool-detail"><summary>${display(item.title || item.role || 'Job')} · ${esc(item.status || 'running')}</summary><p>${esc(item.engine || '')} ${esc(item.role || '')}</p><button type="button" data-tool="${id}">Load full result</button><pre class="tool-result" aria-live="polite"></pre></details>${images(item)}</article>`;
     if (type === 'note') return `<aside${attrs}><strong>${esc(item.kind || 'Note')}</strong><div>${esc(item.text)}</div></aside>`;

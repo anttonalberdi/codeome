@@ -20,6 +20,7 @@
   const errorText = (error) => {
     const code = error?.code || '';
     if (code === 'needs-desktop') return 'This action needs the desktop. You can still deny it here.';
+    if (code === 'needs-desktop-mode') return 'This chat's mode does not accept messages from the phone. Send from the Mac, or allow it in Settings → Phone companion → Send from phone.';
     if (code === 'truncated') return 'The input was truncated. Allow this on the desktop.';
     if (code === 'already-decided') return 'Already answered on the desktop.';
     if (code === 'rate-limited') return 'Too many requests. Wait a moment and try again.';
@@ -502,6 +503,7 @@
     if (!state.chatId || !state.hasMore || window.scrollY > 120) return;
     clearTimeout(olderTimer); olderTimer = setTimeout(older, 150);
   }, { passive: true });
+  $('connection').addEventListener('click', () => location.reload());
   window.addEventListener('offline', () => connection('Offline'));
   window.addEventListener('online', () => { if (state.token) { state.stream?.abort(); connectEvents(); } });
   window.addEventListener('hashchange', applyRoute);

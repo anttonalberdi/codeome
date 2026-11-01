@@ -2,6 +2,16 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Send from phone in auto mode**: Settings → Phone companion → Phone approvals has a new *Send from phone* setting. The default, *Default mode only*, keeps the old rule (no messages from the phone while a chat is in auto, accept-edits or bypass mode). *Also auto mode* lets messages through in auto mode, and *Also accept-edits and bypass* allows every mode. Those modes run the agent with no approval step, so a stolen phone could drive it; leave the setting at its default unless you need it.
+
+### Changed
+- **Phone page matches the desktop chat**: the phone companion now uses the desktop's dark palette. Your messages are green bubbles on the right, Codeome's replies are flat text with a thin divider, each carries a small muted time, tool calls are compact boxes, and the reply box sits in a bar at the bottom.
+- **Tap the status to refresh**: the Live / Connecting / Offline badge at the top of the phone page is now a button that reloads the page.
+- **Clear message when the phone cannot send**: instead of "Request failed (403)", the phone says that the chat's mode does not accept messages from the phone and where to change it.
+
 ## 1.4.1
 
 ### Fixed

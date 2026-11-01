@@ -60,6 +60,7 @@ const DEFAULTS = {
     enabled: false,
     mode: 'serve',         // 'serve' or 'tailnet'
     port: 0,               // 0 uses port 47821
+    phoneSendModes: 'default', // chats that accept messages from the phone: 'default' (default mode only), 'auto' (also auto), 'all' (also accept-edits and bypass)
     phoneBashAllow: ['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'echo', 'git status', 'git diff', 'git log', 'git show', 'git branch', 'npm test', 'npm run test', 'node --test', 'pytest', 'grep', 'rg', 'find', 'which', 'date'],
     requireDesktopFor: [
       { tool: 'Bash', pattern: '\\brm\\s+-(?:rf|fr)\\b' },
