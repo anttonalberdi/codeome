@@ -1252,6 +1252,7 @@ ipcMain.handle('tasks:progress', (_e, { project, keys }) => jobs.tasks.progress(
 // ---------- agent chat ----------
 // One headless Claude Code orchestrator per conversation; see chat.js.
 const suggest = require('./suggest');
+const suggestTitle = require('./suggesttitle');
 const claudeCmd = () => (cfg.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
 
 const codexCmd = () => (cfg.agents.find((a) => /^codex(\s|$)/.test(a.cmd)) || { cmd: 'codex' }).cmd;
@@ -1434,6 +1435,10 @@ ipcMain.handle('chat:suggest', (_e, { text, account }) => {
   if ((cfg.chat || {}).suggest === false) return [];
   const a = cfg.accounts.claude.list.find((x) => x.name === account);
   return suggest.suggest({ text, dir: a && a.dir, bin: claudeCmd().trim().split(/\s+/)[0] });
+});
+ipcMain.handle('chat:suggest-title', (_e, { messages, account }) => {
+  const a = cfg.accounts.claude.list.find((x) => x.name === account);
+  return suggestTitle.suggestTitle({ messages, dir: a && a.dir, bin: claudeCmd().trim().split(/\s+/)[0] });
 });
 ipcMain.handle('chat:stop', (_e, id) => { const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
 ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { const result = chat.saveChat(project, c); if (result.ok) remote.events.emit('chat-saved', project); return result; } catch (e) { return { error: e.message }; } });

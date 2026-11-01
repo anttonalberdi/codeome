@@ -416,11 +416,13 @@
   // and reads the ones it needs.
   const withFiles = (text, files) => (files.length ? (text ? text + '\n\n' : '') + 'Attached files:\n' + files.map((f) => '- ' + f).join('\n') : text);
 
+  const firstTitle = (text, files) => (text || files.map(App.basename).join(', ')).replace(/\s+/g, ' ').slice(0, 80);
+
   C.send = async (text, files = []) => {
     const chat = cur();
     text = String(text || '').trim();
     if (!chat || (!text && !files.length)) return;
-    if (!chat.title) chat.title = (text || files.map(App.basename).join(', ')).replace(/\s+/g, ' ').slice(0, 80);
+    if (!chat.title) chat.title = firstTitle(text, files);
     push(chat, files.length ? { t: 'user', text, files } : { t: 'user', text });
     clearSuggest(chat);
     App.emit('chat');
@@ -580,7 +582,7 @@
         chat.unread = !seen(chat);
         paintState(); App.emit('sessions'); save(chat);
         attention(chat, failed ? 'The agent stopped with an error.' : 'The agent finished.');
-        if (!failed) suggestReplies(chat);
+        if (!failed) { suggestReplies(chat); suggestTitle(chat); }
         break;
       }
     }
@@ -1374,23 +1376,47 @@
   // They sit above the message box until the user sends anything or the agent moves on.
   function clearSuggest(chat) { if (chat.suggest) { chat.suggest = null; if (chat === cur()) paintSuggest(); } }
 
-  async function suggestReplies(chat) {
-    if ((App.cfg.chat || {}).suggest === false || Object.keys(chat.requests).length) return;
-    const last = chat.items[chat.items.length - 1];
-    if (!last || last.t !== 'text' || !last.text) return;
-    if (!/\?[\s*_`"')\]]*$/.test(last.text.trimEnd().split('\n').pop())) return;
-    const r = await codeome.chat.suggest(last.text, chat.accountName || chat.account).catch(() => []);
-    // Still the newest message, and nothing sent or running since.
-    if (!Array.isArray(r) || !r.length || chat.busy || chat.items[chat.items.length - 1] !== last) return;
-    chat.suggest = r;
+  // Tab names: once a chat has a few user messages and still carries the title taken from
+  // the first one, offer two 1-3 word names (main/suggesttitle.js) and a way to type one.
+  // Asked once per chat. Settings → Chat and Project settings can turn it off.
+  const TITLE_AFTER = 5;
+  const tabNamesOn = (project) => {
+    const p = ((App.cfg.projectChat || {})[project] || {}).tabNames;
+    return p === 'on' ? true : p === 'off' ? false : (App.cfg.chat || {}).tabNames !== false;
+  };
+  const autoTitled = (chat, first) => chat.title === firstTitle(first.text, first.files || []);
+  async function suggestTitle(chat) {
+    if (!tabNamesOn(chat.project) || chat.titleAsked || chat.titleSuggest) return;
+    const users = chat.items.filter((i) => i.t === 'user');
+    if (users.length < TITLE_AFTER || !autoTitled(chat, users[0])) return;
+    chat.titleAsked = true;
+    const names = await codeome.chat.suggestTitle(users.map((u) => u.text).filter(Boolean), chat.accountName || chat.account).catch(() => []);
+    if (!Array.isArray(names) || !names.length || !autoTitled(chat, users[0])) return;
+    chat.titleSuggest = names.filter((n) => n !== chat.title);
+    if (!chat.titleSuggest.length) { chat.titleSuggest = null; return; }
     if (chat === cur()) paintSuggest();
   }
+  function applyTitle(chat, name) {
+    chat.titleSuggest = null;
+    if (name) { chat.title = name.slice(0, 80); save(chat, true); paintTabs(); App.emit('chat'); }
+    if (chat === cur()) paintSuggest();
+  }
+  async function typeTitle(chat) {
+    const v = await App.prompt('Rename chat', 'Name', chat.title || '');
+    if (v != null && v.trim()) applyTitle(chat, v.trim());
+  }
+  function dismissTitle(chat) { chat.titleSuggest = null; if (chat === cur()) paintSuggest(); }
 
   function paintSuggest() {
     if (!sugEl) return;
     const chat = cur(), list = chat && !chat.busy && chat.suggest;
-    sugEl.hidden = !list;
+    const names = chat && !chat.busy && chat.titleSuggest;
+    sugEl.hidden = !list && !names;
     sugEl.replaceChildren();
+    if (names) sugEl.append(h('span.hint', 'Rename tab:'),
+      ...names.map((n) => h('button.chat-sug', { title: 'Rename this tab to “' + n + '”', onclick: () => applyTitle(chat, n) }, n)),
+      h('button.chat-sug', { title: 'Type your own name', onclick: () => typeTitle(chat) }, 'Other…'),
+      h('button.chat-sug', { title: 'Keep the current name', 'aria-label': 'Keep the current tab name', onclick: () => dismissTitle(chat) }, '×'));
     if (!list) return;
     for (const t of list) sugEl.append(h('button.chat-sug', { title: 'Send this reply', onclick: () => sendQuick(t) }, t));
   }

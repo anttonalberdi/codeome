@@ -8,6 +8,7 @@
     ['model', 'Claude model'], ['effort', 'Claude effort'], ['codexModel', 'Codex model'],
     ['codexEffort', 'Codex effort'], ['mode', 'Default permission mode'], ['engine', 'Default engine']
   ];
+  const TAB_NAME_OPTIONS = [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }];
   const MODEL_RE = /^(?!-)[\w.:/[\]-]{1,80}$/;
 
   P.init = () => {
@@ -114,7 +115,7 @@
   function chatRow(key, label, options, path) {
     const project = (App.cfg.projectChat || {})[path] || {};
     const overridden = typeof project[key] === 'string' && project[key] !== '';
-    const appValue = (App.cfg.chat || {})[key] || '';
+    const appValue = key === 'tabNames' ? ((App.cfg.chat || {}).tabNames === false ? 'off' : 'on') : (App.cfg.chat || {})[key] || '';
     const appLabel = options.find((option) => option.value === appValue)?.label || appValue;
     return h('div.ps-row', { 'data-chat-key': key },
       h('div.ps-label', h('span', label), overridden ? h('span.ps-tag.ps-overridden', 'overridden') : null),
@@ -190,7 +191,8 @@
       h('section.ps-card', h('h3.ps-card-title', 'Agent defaults'),
         catalogError ? h('div.ps-catalog-error', { role: 'alert' }, 'Could not load Codex model choices: ' + catalogError,
           h('button.btn.small', { type: 'button', onclick: loadDefaults }, 'Retry')) : null,
-        h('div.ps-list', CHAT_ROWS.map(([key, label]) => chatRow(key, label, options[key], path)))),
+        h('div.ps-list', CHAT_ROWS.map(([key, label]) => chatRow(key, label, options[key], path)),
+          chatRow('tabNames', 'Suggest tab names', TAB_NAME_OPTIONS, path))),
       App.isIdeas(path) ? null : hpcFolders(path),
       h('section.ps-card', h('h3.ps-card-title', 'Connected projects'),
         App.isIdeas(path) ? h('div.lp-note', 'Ideas cannot be connected to projects.') : App.views.projects.linkPicker(path)),
