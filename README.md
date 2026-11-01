@@ -26,6 +26,7 @@ Open the `.dmg` and drag Codeome to Applications. The app is not signed with an 
 - **Editor** — Monaco with RStudio-style run commands and runnable R Markdown and Quarto chunks, on your Mac and directly on the HPC.
 - **Agent chat and team** — one chat per project that plans work, asks for your approval, and hands it to Claude subagents and Codex jobs.
 - **HPC, files and Slurm** — a shared SSH connection, FileZilla-style transfer, and live job queues and logs.
+- **Phone companion** — answer agent decisions, send a message or stop a chat from your phone over Tailscale, with low-risk approvals only.
 - **Plots, reports, Git/GitHub, Zenodo, packages** — all in the same window.
 
 See the [guide](https://www.alberdilab.dk/codeome/guide/getting-started) for each area, the [settings](https://www.alberdilab.dk/codeome/settings) for first-time set-up, and the [keyboard shortcuts](https://www.alberdilab.dk/codeome/reference/keyboard).

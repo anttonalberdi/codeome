@@ -58,6 +58,7 @@ export default defineConfig({
           { text: 'Git & GitHub', link: '/guide/git-github' },
           { text: 'Publishing', link: '/guide/publishing' },
           { text: 'Secrets', link: '/guide/secrets' },
+          { text: 'Phone companion', link: '/guide/phone' },
           { text: 'Project settings', link: '/guide/project-settings' }
         ]
       },
