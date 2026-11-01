@@ -36,7 +36,7 @@
   const MODEL_RE = /^(?!-)[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
     ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['policy', 'Agent policy'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'], ['figures', 'Figures'],
-    ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['appearance', 'Appearance'], ['mac', 'This Mac']
+    ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['phone', 'Phone companion'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
   const ALIAS = { github: 'git', zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
 
@@ -54,6 +54,7 @@
 
   S.close = () => {
     if (!page || page.hidden) return;
+    phoneController?.stop();
     page.hidden = true; S.isOpen = false;
     document.getElementById('app').classList.remove('settings-open');
     App.views.editor.layout();
@@ -180,10 +181,13 @@
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
     hpc: hpcSection, storage: storageSection, transfer: transferSection, agents: agentsSection, policy: policySection, accounts: accountsSection, r: rSection,
-    projects: projectsSection, python: pythonSection, figures: figuresSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, appearance: appearanceSection, mac: macSection
+    projects: projectsSection, python: pythonSection, figures: figuresSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, phone: phoneSection, appearance: appearanceSection, mac: macSection
   };
   let showSeq = 0;
+  let phoneController = null;
   async function show(id) {
+    phoneController?.stop();
+    phoneController = null;
     const seq = ++showSeq;
     current = id;
     markNav(id);
@@ -201,6 +205,7 @@
     if (id === 'storage') renderStorage();
     if (id === 'accounts') { renderAccounts(); findFolders(); }
     if (id === 'git') recheckGitAccounts(el);
+    if (id === 'phone') phoneController?.start();
   }
 
   // ---------- HPC ----------
@@ -1263,6 +1268,244 @@
         h('div.sec-add', h('div.sec-add-identity', name, type), h('div.sec-add-value', value, fileBox), add),
         h('div.sp-foot.row.wrap', sync, hpcStatus),
         h('div.sp-foot.hint', 'The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. HPC: syncs selected secrets to a private file in the HPC home, where they are stored in plaintext (mode 0600). All three are off for a new secret. The project button limits where each enabled scope applies. Copy puts a text value on the clipboard for 30 seconds.')));
+  }
+
+  // ---------- phone companion ----------
+  const PHONE_BASH_DEFAULTS = ['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'echo', 'git status', 'git diff', 'git log', 'git show', 'git branch', 'npm test', 'npm run test', 'node --test', 'pytest', 'grep', 'rg', 'find', 'which', 'date'];
+  const PHONE_RULE_DEFAULTS = [
+    { tool: 'Bash', pattern: '\\brm\\s+-(?:rf|fr)\\b' }, { tool: 'Bash', pattern: '\\bsudo\\b' },
+    { tool: 'Bash', pattern: '\\b(?:curl|wget)\\b[^\\n|]{0,200}\\|\\s*(?:ba)?sh\\b' },
+    { tool: 'Bash', pattern: '\\bgit\\s+push\\b' }, { tool: 'Bash', pattern: '\\bssh\\b' },
+    { tool: 'Write', outsideProject: true }, { tool: 'Edit', outsideProject: true }, { role: 'hpc-operator' }
+  ];
+  function phoneRulesError(value) {
+    if (!Array.isArray(value)) return 'Enter a JSON array of rules.';
+    for (const rule of value) {
+      if (!rule || typeof rule !== 'object' || Array.isArray(rule) ||
+          !Object.keys(rule).some((key) => ['tool', 'role', 'outsideProject', 'pattern'].includes(key)) ||
+          Object.keys(rule).some((key) => !['tool', 'role', 'outsideProject', 'pattern'].includes(key)) ||
+          (rule.tool !== undefined && typeof rule.tool !== 'string') ||
+          (rule.role !== undefined && typeof rule.role !== 'string') ||
+          (rule.outsideProject !== undefined && typeof rule.outsideProject !== 'boolean') ||
+          (rule.pattern !== undefined && typeof rule.pattern !== 'string')) return 'Each rule needs a tool, role, outsideProject, or pattern with the right value type.';
+      if (['tool', 'role', 'pattern'].some((key) => rule[key] !== undefined && !rule[key].trim()))
+        return 'Tool, role and pattern values cannot be empty.';
+      if (rule.pattern !== undefined) {
+        if (rule.pattern.length > 1000) return 'A rule pattern exceeds 1,000 characters.';
+        try { new RegExp(rule.pattern); } catch { return 'A rule has an invalid regular expression.'; }
+      }
+    }
+    return '';
+  }
+  function phoneDate(value) {
+    if (!value) return 'Never';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
+  }
+  function phoneServerError(value, allowPrivate) {
+    let url;
+    try { url = new URL(value); } catch { return 'Enter a full http or https server URL.'; }
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash)
+      return 'Enter a full http or https URL without a username, query or fragment.';
+    const host = url.hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
+    if (!allowPrivate && (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') ||
+        /^(?:0|10|127)\./.test(host) || /^169\.254\./.test(host) || /^192\.168\./.test(host) ||
+        /^172\.(?:1[6-9]|2[0-9]|3[01])\./.test(host) || host === '100.100.100.200' ||
+        host === '::' || host === '::1' || /^(?:fc|fd)[0-9a-f]{2}:/.test(host) ||
+        /^fe[89ab][0-9a-f]:/.test(host) || host.startsWith('::ffff:')))
+      return 'Enable “Allow private or self-hosted server” to use this address.';
+    return '';
+  }
+  function phoneSection(c) {
+    const remote = c.remote;
+    const status = h('div.phone-status', { role: 'status', 'aria-live': 'polite' }, 'Checking…');
+    const devices = h('div.phone-devices', { role: 'list', 'aria-label': 'Paired phones' }, h('div.sp-empty', 'Loading phones…'));
+    const pairResult = h('div.phone-pair-result', { 'aria-live': 'polite' });
+    const pairButton = h('button.btn.small.primary', { disabled: true, onclick: () => createPair() }, 'Pair a phone');
+    const tailscaleResult = h('div.phone-helper-result', { 'aria-live': 'polite' });
+    const ntfyResult = h('div.phone-helper-result', { role: 'status', 'aria-live': 'polite' });
+    const topicResult = h('div.phone-topic', { hidden: true });
+    let active = false, unsubscribe = null, pairTimer = null, pairing = null, pairBusy = false;
+    const sayError = (error) => error?.message || String(error);
+    const info = (message) => h('span.hint', message);
+    function clearPair() { clearInterval(pairTimer); pairTimer = null; pairing = null; pairResult.replaceChildren(); }
+    async function createPair() {
+      if (!active || pairBusy) return;
+      pairBusy = true; pairButton.disabled = true;
+      clearPair(); pairResult.textContent = 'Creating pairing code…';
+      try {
+        const result = await codeome.remote.pair();
+        if (!active) return;
+        if (result.error) throw new Error(result.error === 'not-listening' ? 'Enable the companion and wait until it is listening.' :
+          result.error === 'no-magicdns' ? "Tailscale's HTTPS name is not available: check Tailscale and the Serve command above" : result.error);
+        pairing = result;
+        const svg = new DOMParser().parseFromString(CodeomeQR.toSvg(CodeomeQR.encode(result.payload)), 'image/svg+xml').documentElement;
+        const qr = document.importNode(svg, true);
+        const link = h('input.phone-pair-url', { type: 'text', readonly: true, value: result.payload, 'aria-label': 'Pairing URL; select to copy' });
+        const countdown = h('span.hint', { role: 'timer' });
+        pairResult.replaceChildren(h('div.phone-pair', qr, h('div.phone-pair-details',
+          h('span', 'Scan this code with the phone camera, or open this link on the phone.'), link, countdown)));
+        const tick = () => {
+          if (!pairing || !active) return;
+          const remaining = Math.max(0, Math.ceil((Number(pairing.expiresAt) - Date.now()) / 1000));
+          countdown.textContent = `Expires in ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+          if (!remaining) { clearInterval(pairTimer); pairTimer = null; void createPair(); }
+        };
+        tick(); pairTimer = setInterval(tick, 1000);
+      } catch (error) { if (active) pairResult.textContent = `Could not pair: ${sayError(error)}`; }
+      finally { pairBusy = false; if (active) pairButton.disabled = !lastStatus?.listening; }
+    }
+    let lastStatus = null;
+    function paintStatus(state) {
+      if (!active) return;
+      lastStatus = state;
+      pairButton.disabled = !state.listening || pairBusy;
+      if (!state.listening && pairing) clearPair();
+      const parts = [state.listening ? 'Listening' : state.enabled ? 'Not listening' : 'Off'];
+      if (state.url) parts.push(state.url);
+      if (state.error) parts.push(state.error === 'no-tailnet-address' ? 'No Tailscale tailnet address found on this Mac.' : `Error: ${state.error}`);
+      status.textContent = parts.join(' · ');
+      const entries = Array.isArray(state.devices) ? state.devices : [];
+      devices.replaceChildren(...(entries.length ? entries.map((device) => {
+        const label = h('span.phone-device-name');
+        label.textContent = device.label || 'Unnamed phone';
+        return h('div.phone-device', { role: 'listitem' },
+          h('span.phone-dot' + (device.connected ? '.connected' : ''), { role: 'img', 'aria-label': device.connected ? 'Connected' : 'Offline' }),
+          h('div.phone-device-details', label, info(`Paired ${phoneDate(device.createdAt)} · Last seen ${phoneDate(device.lastSeen)}`)),
+          h('div.phone-device-actions',
+            h('button.btn.small', { onclick: async () => {
+              const name = await App.prompt('Rename phone', 'Phone name', device.label || '', { ok: 'Rename' });
+              if (name === null || name === undefined) return;
+              const next = name.trim();
+              if (!next || next.length > 64) { App.err('Phone name must be 1–64 characters.'); return; }
+              try { if (!await codeome.remote.renameDevice(device.id, next)) App.err('Could not rename phone.'); }
+              catch (error) { App.err(sayError(error)); }
+            } }, 'Rename'),
+            h('button.btn.small.danger', { onclick: async () => {
+              if (!await App.confirm(`Revoke ${device.label || 'this phone'}?`, 'It will need a new pairing code to connect again.', 'Revoke', true)) return;
+              try { if (!await codeome.remote.revoke(device.id)) App.err('Could not revoke phone.'); }
+              catch (error) { App.err(sayError(error)); }
+            } }, 'Revoke')));
+      }) : [h('div.sp-empty', 'No phones paired yet.')]));
+    }
+    const rulesError = h('span.phone-field-error', { role: 'alert' });
+    const rulesInput = h('textarea', { rows: '9', spellcheck: 'false', 'aria-label': 'Require desktop for rules as JSON', value: JSON.stringify(remote.requireDesktopFor ?? PHONE_RULE_DEFAULTS, null, 2),
+      oninput: (event) => {
+        let error = '';
+        try { error = phoneRulesError(JSON.parse(event.target.value)); } catch { error = 'Enter valid JSON.'; }
+        rulesError.textContent = error; event.target.setAttribute('aria-invalid', String(!!error));
+      },
+      onchange: (event) => {
+        let parsed;
+        try { parsed = JSON.parse(event.target.value); } catch { return; }
+        if (phoneRulesError(parsed)) return;
+        App.cfg.remote.requireDesktopFor = parsed; commit();
+      } });
+    const bashError = h('span.phone-field-error', { role: 'alert' });
+    const bashInput = h('textarea', { rows: '5', spellcheck: 'false', 'aria-label': 'Phone Bash allow list, one command per line', value: (remote.phoneBashAllow ?? PHONE_BASH_DEFAULTS).join('\n'),
+      oninput: (event) => {
+        const values = event.target.value.split('\n').map((line) => line.trim()).filter(Boolean);
+        const error = values.some((value) => !/^[a-z][a-z0-9 -]{0,40}$/.test(value)) ? 'Use lowercase command names, digits, spaces and hyphens; 1–41 characters per line.' : '';
+        bashError.textContent = error; event.target.setAttribute('aria-invalid', String(!!error));
+      },
+      onchange: (event) => { if (bashError.textContent) return; App.cfg.remote.phoneBashAllow = event.target.value.split('\n').map((line) => line.trim()).filter(Boolean); commit(); } });
+    const portError = h('span.phone-field-error', { role: 'alert' });
+    const port = h('input', { type: 'number', min: '1', max: '65535', step: '1', value: remote.port || '', placeholder: '47821', 'aria-label': 'Phone companion port',
+      oninput: (event) => { const value = event.target.value; const valid = !value || Number.isInteger(+value) && +value >= 1 && +value <= 65535; portError.textContent = valid ? '' : 'Enter a port from 1 to 65535, or leave empty for 47821.'; event.target.setAttribute('aria-invalid', String(!valid)); },
+      onchange: (event) => { if (portError.textContent) return; App.cfg.remote.port = event.target.value ? +event.target.value : 0; commit(); } });
+    const serverError = h('span.phone-field-error', { role: 'alert' });
+    const server = h('input', { type: 'url', value: remote.ntfy?.server || 'https://ntfy.sh', 'aria-label': 'ntfy server URL', spellcheck: 'false',
+      oninput: (event) => {
+        const error = phoneServerError(event.target.value, !!App.cfg.remote.ntfy.allowPrivate);
+        serverError.textContent = error;
+        event.target.setAttribute('aria-invalid', String(!!error));
+      },
+      onchange: (event) => { if (serverError.textContent) return; App.cfg.remote.ntfy.server = event.target.value.trim(); commit(); } });
+    async function ntfyAction(action) {
+      ntfyResult.textContent = action === 'test' ? 'Sending test notification…' : '';
+      try {
+        await App.saveConfig();
+        const result = await codeome.remote.ntfy(action);
+        if (!active) return;
+        if (result.error || result.ok === false) throw new Error(result.error || 'Request failed.');
+        if (action === 'test') ntfyResult.textContent = 'Test notification sent.';
+        else {
+          const url = new URL(result.server);
+          url.pathname = `${url.pathname.replace(/\/+$/, '')}/${result.topic}`;
+          topicResult.hidden = false;
+          topicResult.replaceChildren(info('Subscribe in the ntfy app to this topic:'),
+            h('input.phone-topic-url', { type: 'text', readonly: true, value: url.toString(), 'aria-label': 'ntfy subscription URL' }),
+            h('button.btn.small', { onclick: () => { topicResult.hidden = true; topicResult.replaceChildren(); } }, 'Hide topic'));
+        }
+      } catch (error) { ntfyResult.textContent = sayError(error); }
+    }
+    const result = section('phone', 'Phone companion', 'Use your paired phone to follow chats and approve agent actions. Codeome binds only to this Mac’s loopback or Tailscale tailnet address, never directly to the public internet. Keep Tailscale Funnel off.',
+      card('Connection',
+        row('Enable', check('Enable phone companion', () => remote.enabled, (value) => { App.cfg.remote.enabled = value; if (!value) clearPair(); })),
+        row('Mode', select([{ value: 'serve', label: 'Tailscale Serve · HTTPS, installable PWA' }, { value: 'tailnet', label: 'Tailnet IP · plain HTTP' }], remote.mode || 'serve', (value) => { App.cfg.remote.mode = value; clearPair(); commit(); }, 'Phone companion mode'), 'Serve binds to 127.0.0.1 and needs a separate Tailscale Serve command. Tailnet binds to this Mac’s tailnet IP.'),
+        row('Port', h('div.phone-field', port, portError), 'Empty uses 47821.'),
+        row('Status', status)),
+      card('Tailscale Serve', h('div.sp-tools', h('button.btn.small', { onclick: async () => {
+        tailscaleResult.textContent = 'Checking Tailscale…';
+        try {
+          const value = await codeome.remote.tailscale();
+          const command = value.command;
+          tailscaleResult.replaceChildren(info(value.available ? 'Tailscale CLI found.' : 'Tailscale CLI not found.'),
+            info(value.dnsName ? `MagicDNS: ${value.dnsName}` : 'No MagicDNS name found.'),
+            value.funnel ? h('strong.phone-warning', value.warning || 'WARNING: Tailscale Funnel is enabled.') : null,
+            command ? h('div.phone-copy', h('code.sp-code', command), h('button.btn.small', { onclick: async () => {
+              try {
+                if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(command);
+                else {
+                  const temporary = h('textarea', { value: command, readonly: true });
+                  document.body.append(temporary); temporary.select();
+                  const copied = document.execCommand('copy'); temporary.remove();
+                  if (!copied) throw new Error('Clipboard unavailable.');
+                }
+                flash('Copied');
+              } catch (error) { App.err(`Could not copy: ${sayError(error)}`); }
+            } }, 'Copy')) : null);
+        } catch (error) { tailscaleResult.textContent = `Tailscale check failed: ${sayError(error)}`; }
+      } }, 'Check Tailscale')),
+      tailscaleResult, h('div.sp-foot.hint', 'Run the displayed command yourself in Terminal. Codeome never runs Tailscale Serve. Disable Funnel to keep access on your tailnet.')),
+      card('Pair a phone', h('div.sp-tools', pairButton), pairResult),
+      card('Paired phones', devices),
+      card('Phone approvals',
+        row('Require desktop for', h('div.phone-field', rulesInput, rulesError), 'JSON rules. Tool, role, outsideProject and pattern can require approval on this Mac. An invalid rule means desktop approval is required.'),
+        row('Phone Bash allow list', h('div.phone-field', bashInput, bashError), 'One allowed command prefix per line. Other commands require desktop approval.'),
+        h('div.sp-foot', h('button.btn.small', { onclick: () => {
+          App.cfg.remote.requireDesktopFor = PHONE_RULE_DEFAULTS.map((rule) => ({ ...rule }));
+          App.cfg.remote.phoneBashAllow = [...PHONE_BASH_DEFAULTS];
+          rulesInput.value = JSON.stringify(App.cfg.remote.requireDesktopFor, null, 2); bashInput.value = PHONE_BASH_DEFAULTS.join('\n');
+          rulesError.textContent = bashError.textContent = ''; rulesInput.removeAttribute('aria-invalid'); bashInput.removeAttribute('aria-invalid'); commit();
+        } }, 'Reset to defaults'))),
+      card('ntfy notifications',
+        row('Enable ntfy', check('Send decision notifications', () => !!remote.ntfy?.enabled, (value) => { App.cfg.remote.ntfy.enabled = value; if (!value) { topicResult.hidden = true; topicResult.replaceChildren(); } }), 'Notification text contains the project name.'),
+        row('Server URL', h('div.phone-field', server, serverError)),
+        row('Private server', check('Allow private or self-hosted server', () => !!remote.ntfy?.allowPrivate, (value) => { App.cfg.remote.ntfy.allowPrivate = value; server.dispatchEvent(new Event('input')); })),
+        row('When to notify', check('Notify only when away from the phone', () => remote.notifyOnlyWhenAway !== false, (value) => { App.cfg.remote.notifyOnlyWhenAway = value; }), 'A phone with a lingering connection counts as active for about 2 minutes.'),
+        h('div.sp-tools',
+          h('button.btn.small', { onclick: () => ntfyAction('reveal') }, 'Reveal topic'),
+          h('button.btn.small.danger', { onclick: async () => {
+            if (await App.confirm('Regenerate ntfy topic?', 'The phone must resubscribe to the new topic.', 'Regenerate', true)) void ntfyAction('regenerate');
+          } }, 'Regenerate topic'),
+          h('button.btn.small', { onclick: () => ntfyAction('test') }, 'Send test notification')),
+        topicResult, ntfyResult));
+    phoneController = {
+      start: async () => {
+        active = true;
+        unsubscribe = codeome.remote.onStatus(paintStatus);
+        try { paintStatus(await codeome.remote.status()); }
+        catch (error) {
+          if (active) {
+            status.textContent = `Status failed: ${sayError(error)}`;
+            devices.replaceChildren(h('div.sp-empty', { role: 'alert' }, 'Could not load paired phones. Reopen this section to retry.'));
+          }
+        }
+      },
+      stop: () => { active = false; unsubscribe?.(); unsubscribe = null; clearPair(); topicResult.hidden = true; topicResult.replaceChildren(); }
+    };
+    return result;
   }
 
   function appearanceSection(c) {
