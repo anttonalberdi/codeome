@@ -43,6 +43,88 @@ test('permission and question history state is explicit', () => {
   assert.equal(Render.stateOf({ decided: 'allow' }), 'decided');
 });
 
+test('groupChats orders projects and chats by pending, running, then recency', () => {
+  const chats = [
+    { id: 'recent', project: '/work/recent', updatedAt: 900 },
+    { id: 'running', project: '/work/running', running: true, updatedAt: 100 },
+    { id: 'waiting', project: '/work/waiting', pending: 2, updatedAt: 1 },
+    { id: 'both', project: '/work/both', pending: 1, running: true, updatedAt: 2 },
+    { id: 'older', project: '/work/older', updatedAt: 5 },
+    { id: 'plain', project: '/work/order', updatedAt: 500 },
+    { id: 'active', project: '/work/order', running: true, updatedAt: 2 },
+    { id: 'decision', project: '/work/order', pending: 1, updatedAt: 1 }
+  ];
+  const groups = Render.groupChats(chats);
+  assert.deepEqual(groups.map((group) => group.key),
+    ['/work/order', '/work/both', '/work/waiting', '/work/running', '/work/recent', '/work/older']);
+  assert.deepEqual(groups.find((group) => group.key === '/work/order').chats.map((chat) => chat.id),
+    ['decision', 'active', 'plain']);
+  assert.deepEqual({ pending: groups[0].pending, running: groups[0].running, updatedAt: groups[0].updatedAt },
+    { pending: 1, running: 1, updatedAt: 500 });
+});
+
+test('groupChats disambiguates basenames and handles missing fields with stable ties', () => {
+  const chats = [
+    { id: 'z', project: '/home/alberdilab/analysis', updatedAt: 1 },
+    { id: 'a', project: '/home/alberdilab/analysis', updatedAt: 1 },
+    { id: 'b', project: '/home/other/analysis', updatedAt: 1 },
+    { id: 'c', project: '/else/alberdilab/analysis', updatedAt: 1 },
+    { id: 'unknown' }, { id: 'also-unknown', project: '' }
+  ];
+  const before = structuredClone(chats);
+  const groups = Render.groupChats(chats);
+  assert.deepEqual(chats, before);
+  assert.equal(groups.find((group) => group.key === '').name, 'No project');
+  assert.equal(Render.groupChats([{ id: 'unknown', project: '' },
+    { id: 'named', project: '/work/No project' }]).find((group) => group.key === '').name, 'No project');
+  assert.equal(groups.find((group) => group.key === '/home/other/analysis').name, 'analysis · other');
+  assert.equal(groups.find((group) => group.key === '/home/alberdilab/analysis').name,
+    'analysis · alberdilab · home');
+  assert.equal(groups.find((group) => group.key === '/else/alberdilab/analysis').name,
+    'analysis · alberdilab · else');
+  assert.deepEqual(groups.find((group) => group.key === '/home/alberdilab/analysis').chats.map((chat) => chat.id), ['a', 'z']);
+  assert.deepEqual(Render.groupChats([...chats].reverse()).map((group) => [group.key, group.chats.map((chat) => chat.id)]),
+    groups.map((group) => [group.key, group.chats.map((chat) => chat.id)]));
+  assert.deepEqual(Render.groupChats(null), []);
+});
+
+test('group rendering escapes names and titles and shows the path once', () => {
+  const project = '/work/<script>';
+  const groups = Render.groupChats([
+    { id: 'one', project, title: attack, pending: 1, updatedAt: 700000 },
+    { id: 'two', project, title: 'Second', running: true, updatedAt: 700000 }
+  ]);
+  const html = Render.renderChatGroups(groups, new Set(), 1000000);
+  safe(html);
+  assert.match(html, /<section class="chat-group"/);
+  assert.match(html, /<h3>&lt;script&gt;/);
+  assert.match(html, /1 waiting/);
+  assert.match(html, /1 running/);
+  assert.match(html, /Recent · 5 min ago · 1 pending/);
+  assert.equal(html.split(Render.display(project)).length - 1, 1);
+  assert.equal((html.match(/class="chat-entry"/g) || []).length, 2);
+});
+
+test('group rendering caps non-running chats and can expand one project', () => {
+  const chats = Array.from({ length: 12 }, (_, index) =>
+    ({ id: `chat-${index}`, project: '/work/many', updatedAt: 1000 - index }));
+  chats.push({ id: 'running', project: '/work/many', running: true, updatedAt: 1 });
+  const groups = Render.groupChats(chats);
+  const collapsed = Render.renderChatGroups(groups);
+  assert.equal((collapsed.match(/class="chat-entry"/g) || []).length, 11);
+  assert.match(collapsed, /Show 2 more/);
+  const expanded = Render.renderChatGroups(groups, new Set(['/work/many']));
+  assert.equal((expanded.match(/class="chat-entry"/g) || []).length, 13);
+  assert.doesNotMatch(expanded, /Show 2 more/);
+});
+
+test('pending cards use the computed project name and show its path separately', () => {
+  const html = Render.renderPending({ chatId: 'chat', requestId: 'request', input: {} },
+    { title: 'A chat', project: '/lab/analysis', projectName: 'analysis · lab' });
+  assert.match(html, /<p class="eyebrow">analysis · lab<\/p>/);
+  assert.match(html, /<p class="project-path">\/lab\/analysis<\/p>/);
+});
+
 test('a plain question shows its options without the raw JSON input', () => {
   const html = Render.renderPending({ chatId: 'chat', requestId: 'q1', toolName: 'AskUserQuestion',
     input: { questions: [{ question: 'Which file?', header: 'File', multiSelect: false,

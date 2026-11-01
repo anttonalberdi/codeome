@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const state = { token: null, chats: [], pending: [], chatId: null, items: [], hasMore: false,
+  const state = { token: null, chats: [], groups: [], expandedGroups: new Set(), pending: [], chatId: null, items: [], hasMore: false,
     loadingOlder: false, firstIndex: null, stream: null, lastEventId: '', imageUrls: new Map(),
     imageObserver: null, reconnect: 1000, refreshing: false, refreshAgain: false };
   const inFlight = new Set();
@@ -89,16 +89,33 @@
     while (next) { const stale = next; next = next.nextSibling; stale.remove(); }
   }
   function renderPending() {
-    const chats = new Map(state.chats.map((chat) => [chat.id, chat]));
+    const chats = new Map(state.groups.flatMap((group) => group.chats.map((chat) =>
+      [chat.id, { ...chat, projectName: group.name }])));
     const ordered = [...state.pending].sort((a, b) => a.createdAt - b.createdAt);
     syncCards($('pending-list'), ordered, chats, true);
     const pinned = ordered.filter((entry) => entry.chatId === state.chatId);
     syncCards($('chat-pending'), pinned, chats);
   }
   function renderChats() {
-    const chats = [...state.chats].sort((a, b) => Number(b.running) - Number(a.running) || b.updatedAt - a.updatedAt);
-    replaceMarkup($('chat-list'), chats.length ? chats.map((chat) =>
-      `<button type="button" class="chat-entry" data-chat="${Render.esc(chat.id)}"><strong>${Render.esc(Render.visibleText(chat.title || 'Untitled chat'))}</strong><span class="meta">${Render.esc(Render.visibleText(chat.project || ''))} · ${chat.running ? 'Running' : 'Recent'}${chat.pending ? ` · ${chat.pending} pending` : ''}</span></button>`).join('') : '<p class="empty">No chats yet.</p>');
+    replaceMarkup($('chat-list'), Render.renderChatGroups(state.groups, state.expandedGroups));
+  }
+  function renderChatHeading() {
+    const chat = chatOf(state.chatId);
+    const group = state.groups.find((entry) => entry.key === (chat?.project || ''));
+    const heading = $('heading');
+    const title = document.createElement('span');
+    title.className = 'heading-title';
+    title.textContent = Render.visibleText(chat?.title || 'Chat');
+    const project = document.createElement('small');
+    project.className = 'heading-project';
+    project.textContent = Render.visibleText(group?.name || 'No project');
+    heading.replaceChildren(title, project);
+    if (group?.path) {
+      const path = document.createElement('small');
+      path.className = 'heading-path';
+      path.textContent = Render.visibleText(group.path);
+      heading.append(path);
+    }
   }
   async function refreshState() {
     if (!state.token) return;
@@ -107,10 +124,12 @@
     try {
       const data = await json('/api/state');
       state.chats = Array.isArray(data.chats) ? data.chats : [];
+      state.groups = Render.groupChats(state.chats);
       const pending = Array.isArray(data.pending) ? data.pending : [];
       for (const key of completed) if (!pending.some((entry) => cardKey(entry) === key)) completed.delete(key);
       state.pending = pending.filter((entry) => !completed.has(cardKey(entry)));
       renderPending(); renderChats();
+      if (state.chatId) renderChatHeading();
       if (!state.chatId) { $('inbox').hidden = false; notice(''); }
     } catch (error) { if (state.token) notice(errorText(error)); }
     finally {
@@ -194,7 +213,7 @@
     if (state.chatId !== chatId) { clearImages(); state.items = []; state.hasMore = false; }
     state.chatId = chatId;
     $('inbox').hidden = true; $('chat').hidden = false; $('back').hidden = false;
-    $('heading').textContent = Render.visibleText(chatOf(chatId)?.title || 'Chat');
+    renderChatHeading();
     renderPending(); replaceMarkup($('log'), '<p class="empty">Loading messages…</p>'); notice('');
     await loadLog();
     requestAnimationFrame(scrollBottom);
@@ -334,6 +353,9 @@
     if (target.id === 'back') { showInbox(); return; }
     if (target.id === 'load-older') { older(); return; }
     if (target.id === 'reload-log') { loadLog(); return; }
+    if (target.hasAttribute('data-project-more')) {
+      state.expandedGroups.add(target.dataset.projectMore); renderChats(); return;
+    }
     if (target.dataset.chat) { openChat(target.dataset.chat); return; }
     if (target.dataset.tool) { loadTool(target); return; }
     if (target.dataset.option) {
