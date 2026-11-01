@@ -2,6 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { fromSaved, redact } = require('./remote-items');
 
@@ -93,11 +94,13 @@ function validImageId(value) {
   return ID.test(value) || /^([A-Za-z0-9._-]{1,128}):image:\d+$/.test(value);
 }
 
-function createServer({ auth, limiter, remote, sessions, loadChat, listChats, getConfig, staticDir, getTailnetDnsName = () => null, now = Date.now, heartbeatMs = 20000 }) {
+function createServer({ auth, limiter, remote, sessions, loadChat, listChats, getConfig, staticDir, getTailnetDnsName = () => null, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, heartbeatMs = 20000 }) {
   const emitter = new EventEmitter();
   const streams = new Set();
   const ring = [];
   const batchTimers = new Map();
+  const tabTimers = new Map();
+  const lastProjects = new Map();
   const listeners = [];
   let boundHost = null;
   let mode = null;
@@ -110,7 +113,6 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
   }
   function error(res, status, code) { json(res, status, { error: code }); }
   function publish(type, data) {
-    chatsCache = null;
     if (!streams.size) return;
     const event = { id: ++sequence, type, data: clean(data) };
     ring.push(event);
@@ -123,18 +125,46 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
     else if (res.writableLength >= 1024 * 1024) res.destroy();
   }
   function on(source, event, handler) { source.on(event, handler); listeners.push([source, event, handler]); }
-  on(remote.registry, 'added', (record) => publish('added', pendingItem(record)));
+  function normalized(project) { return typeof project === 'string' && project ? path.resolve(project) : ''; }
+  function knownProjects() {
+    const projects = new Set([...(getConfig()?.openProjects || []), ...lastProjects.keys(), ...remote.tabs.keys()]);
+    for (const [id] of sessions) projects.add(projectOf(id));
+    for (const chat of allChats()) projects.add(chat.project);
+    return [...projects].map(normalized).filter(Boolean);
+  }
+  function queueAllTabs() { for (const project of knownProjects()) queueTabs(project); }
+  function queueTabs(project) {
+    project = normalized(project);
+    if (!project || tabTimers.has(project)) return;
+    tabTimers.set(project, setTimer(() => {
+      tabTimers.delete(project);
+      const chats = allChats();
+      const value = projectModel(project, chats, tabOwners(chats));
+      const serial = JSON.stringify(value);
+      if (serial !== lastProjects.get(project)) {
+        if (value) { lastProjects.set(project, serial); publish('tabs', value); }
+        else if (lastProjects.delete(project)) publish('tabs', { key: projectKey(project), removed: true });
+      }
+    }, 150));
+  }
+  on(remote.registry, 'added', (record) => { chatsCache = null; publish('added', pendingItem(record)); queueTabs(projectOf(record.chatId)); });
   on(remote.registry, 'decided', (event) => {
     publish('decided', event);
+    queueTabs(projectOf(event.chatId));
     if (event.source === 'phone') emitter.emit('decided-by-phone', clean(event));
   });
-  on(remote.registry, 'cancelled', (event) => publish('cancelled', { chatId: event.chatId, requestId: event.requestId }));
+  on(remote.registry, 'cancelled', (event) => { publish('cancelled', { chatId: event.chatId, requestId: event.requestId }); queueTabs(projectOf(event.chatId)); });
   if (remote.events) {
-    on(remote.events, 'chat-started', (chatId) => publish('chat-started', { chatId }));
-    on(remote.events, 'chat-exit', (chatId) => publish('chat-exit', { chatId }));
+    on(remote.events, 'tabs', (project) => queueTabs(project));
+    on(remote.events, 'chat-started', (chatId) => { chatsCache = null; publish('chat-started', { chatId }); queueTabs(projectOf(chatId)); });
+    on(remote.events, 'chat-exit', (chatId) => { chatsCache = null; publish('chat-exit', { chatId }); queueTabs(projectOf(chatId)); });
+    on(remote.events, 'chat-detached', (chatId, project) => { chatsCache = null; queueTabs(project || projectOf(chatId)); });
+    on(remote.events, 'chat-saved', (project) => { chatsCache = null; queueTabs(project); });
+    on(remote.events, 'config-changed', () => { chatsCache = null; queueAllTabs(); });
     on(remote.events, 'message', (chatId) => {
+      queueTabs(projectOf(chatId));
       if (batchTimers.has(chatId)) return;
-      batchTimers.set(chatId, setTimeout(() => {
+      batchTimers.set(chatId, setTimer(() => {
         batchTimers.delete(chatId);
         const buffer = remote.buffers.get(chatId);
         if (buffer) publish('message-batch', { chatId, items: buffer.tail(100).items });
@@ -242,15 +272,19 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
   }
   function pendingItem(record) {
     const reason = risk(record) || (truncated(record) ? 'truncated' : null);
+    const chat = allChats().find((entry) => entry.id === record.chatId);
+    const project = normalized(projectOf(record.chatId) || chat?.project);
     return { chatId: record.chatId, requestId: record.requestId, toolName: record.toolName,
+      project, projectName: project ? path.basename(project) : '',
+      chatTitle: clean(String(chatInfo(record.chatId).title || findSaved(record.chatId)?.title || '')),
       input: clean(record.input), title: clean(record.title || null),
       decisionReason: clean(record.decisionReason || null), createdAt: record.createdAt,
       needsDesktop: !!reason, reason };
   }
   function allChats() {
     if (chatsCache && now() - chatsCache.at < 3000) return chatsCache.value;
-    const projects = new Set((getConfig()?.openProjects || []).filter((p) => typeof p === 'string'));
-    for (const [id] of sessions) { const project = projectOf(id); if (project) projects.add(project); }
+    const projects = new Set((getConfig()?.openProjects || []).map(normalized).filter(Boolean));
+    for (const [id] of sessions) { const project = normalized(projectOf(id)); if (project) projects.add(project); }
     const root = path.join(process.env.CODEOME_HOME || path.join(os.homedir(), '.codeome'), 'chats');
     try {
       for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
@@ -260,7 +294,7 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
         for (const file of files) {
           try {
             const saved = JSON.parse(fs.readFileSync(path.join(folder, file), 'utf8'));
-            if (typeof saved.project === 'string') { projects.add(saved.project); break; }
+            if (typeof saved.project === 'string') { const project = normalized(saved.project); if (project) projects.add(project); break; }
           } catch {}
         }
       }
@@ -271,19 +305,78 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
       try { chats = listChats(project) || []; } catch { continue; }
       for (const chat of chats) if (ID.test(chat.id) && (!byId.has(chat.id) || chat.updatedAt > byId.get(chat.id).updatedAt))
         byId.set(chat.id, { id: chat.id, title: chat.title || 'Untitled chat', project,
-          engine: chat.engine || '', role: chat.role || '', running: false, pending: 0, updatedAt: chat.updatedAt || 0 });
+          engine: chat.engine || '', role: chat.role || '', running: false, pending: 0,
+          updatedAt: Number.isFinite(chat.updatedAt) ? chat.updatedAt : 0 });
     }
     for (const [id, session] of sessions) {
       if (!ID.test(id)) continue;
       const entry = chatInfo(id);
       const saved = byId.get(id);
-      byId.set(id, { id, title: saved?.title || 'Untitled chat', project: projectOf(id) || '',
+      byId.set(id, { id, title: saved?.title || 'Untitled chat', project: normalized(projectOf(id) || saved?.project),
         engine: entry.engine || saved?.engine || '', role: entry.role || saved?.role || '', running: true,
-        pending: remote.registry.list(id).length, updatedAt: now() });
+        pending: remote.registry.list(id).length, updatedAt: entry.lastActivityAt || saved?.updatedAt || 0 });
     }
-    const value = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
+    const value = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
     chatsCache = { at: now(), value };
     return value;
+  }
+  function projectKey(project) { return crypto.createHash('sha1').update(project).digest('hex').slice(0, 12); }
+  function tabOwners(chats) {
+    const owners = new Map(chats.map((chat) => [chat.id, chat.project]));
+    for (const project of [...remote.tabs.keys()].sort()) {
+      for (const tab of remote.tabs.get(project).tabs) if (!owners.has(tab.id)) owners.set(tab.id, project);
+    }
+    return owners;
+  }
+  function projectModels() {
+    const chats = allChats();
+    const paths = new Set((getConfig()?.openProjects || []).map(normalized).filter(Boolean));
+    for (const chat of chats) if (chat.project) paths.add(chat.project);
+    for (const project of remote.tabs.keys()) paths.add(project);
+    const owners = tabOwners(chats);
+    const models = [...paths].map((project) => projectModel(project, chats, owners)).filter(Boolean);
+    return models.sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name) || a.path.localeCompare(b.path)).slice(0, 30);
+  }
+  function projectModel(project, chats, owners) {
+    const saved = chats.filter((chat) => chat.project === project).map((chat) => chat.running ?
+      { ...chat, pending: remote.registry.list(chat.id).length,
+        updatedAt: chatInfo(chat.id).lastActivityAt || chat.updatedAt } : chat);
+    const summary = remote.tabs?.get(project);
+    const hasSummary = !!summary;
+    const tabs = hasSummary ? summary.tabs.filter((tab) => owners.get(tab.id) === project).map((tab) => ({ ...tab })) : [];
+    const tabIds = new Set(tabs.map((tab) => tab.id));
+    for (const chat of saved) {
+      if (tabIds.has(chat.id) || !chat.running || hasSummary && !chat.pending) continue;
+      const info = chatInfo(chat.id);
+      const state = chat.pending ? 'waiting' : info.busy ? 'working' : info.lastOutcome === 'error' ? 'error' : 'idle';
+      tabs.push({ id: chat.id, title: chat.title, state,
+        label: state === 'waiting' ? 'Waiting for you' : state === 'working' ? 'Working' : state === 'error' ? 'Last turn ended with an error' : 'Finished; session open',
+        jobs: 0, engine: chat.engine, role: chat.role, active: false, updatedAt: chat.updatedAt });
+      tabIds.add(chat.id);
+    }
+    const waitingIds = new Set(remote.registry.list().filter((record) => normalized(projectOf(record.chatId)) === project).map((record) => record.chatId));
+    for (const tab of tabs) {
+      if (waitingIds.has(tab.id)) { tab.state = 'waiting'; tab.label = 'Waiting for you'; }
+      else if (tab.state === 'waiting') {
+        const info = chatInfo(tab.id);
+        tab.state = info.busy ? 'working' : info.lastOutcome === 'error' ? 'error' : info.session && !info.exited ? 'idle' : 'off';
+        tab.label = tab.state === 'working' ? 'Working' : tab.state === 'error' ? 'Last turn ended with an error' :
+          tab.state === 'idle' ? 'Finished; session open' : 'Session closed';
+      }
+    }
+    const earlier = saved.filter((chat) => !tabIds.has(chat.id)).slice(0, 30)
+      .map(({ id, title, updatedAt, engine, role }) => ({ id, title, updatedAt, engine, role }));
+    if (!tabs.length && !earlier.length && !(getConfig()?.openProjects || []).some((entry) => normalized(entry) === project)) return null;
+    const counts = { waiting: waitingIds.size, working: 0, ready: 0, error: 0, jobs: 0 };
+    for (const tab of tabs) {
+      if (tab.state === 'working') counts.working++;
+      if (tab.state === 'ready') counts.ready++;
+      if (tab.state === 'error') counts.error++;
+      counts.jobs += tab.jobs;
+    }
+    return { key: projectKey(project), path: project,
+      name: path.basename(project), updatedAt: Math.max(0, ...saved.map((chat) => chat.updatedAt), ...tabs.map((tab) => tab.updatedAt)),
+      counts, tabs, earlier };
   }
   function findSaved(id) {
     const chat = allChats().find((entry) => entry.id === id);
@@ -293,7 +386,12 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
   function bufferFor(id) {
     if (remote.buffers.has(id)) return remote.buffers.get(id);
     const saved = findSaved(id);
-    return saved ? fromSaved(saved) : null;
+    if (saved) return fromSaved(saved);
+    const owners = tabOwners(allChats());
+    if ([...remote.tabs?.entries() || []].some(([project, summary]) => owners.get(id) === project &&
+      summary.tabs.some((tab) => tab.id === id)))
+      return fromSaved({ items: [] });
+    return null;
   }
   async function body(req) {
     return new Promise((resolve, reject) => {
@@ -412,7 +510,7 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
     const device = verified.device;
     if (req.method === 'GET' && rawPath === '/api/events') { events(req, res, device, token); return; }
     if (req.method === 'GET' && rawPath === '/api/state') {
-      json(res, 200, { chats: clean(allChats()), pending: remote.registry.list().map(pendingItem), now: now() }); return;
+      json(res, 200, { projects: clean(projectModels()), pending: remote.registry.list().map(pendingItem), now: now() }); return;
     }
     if (req.method === 'GET' && rawPath === '/api/devices') { json(res, 200, [{ id: device.id, label: device.label }]); return; }
     const revoke = /^\/api\/devices\/([^/]+)\/revoke$/.exec(rawPath);
@@ -457,7 +555,7 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
       if (rawPath === '/api/send') {
         if (['auto', 'bypassPermissions', 'acceptEdits'].includes(session.permissionMode)) { error(res, 403, 'needs-desktop-mode'); return; }
         if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 20000) { error(res, 400, 'invalid'); return; }
-        try { session.user(input.text); remote.buffers.get(input.chatId)?.addUser(input.text, 'phone'); }
+        try { session.user(input.text); remote.recordUser(input.chatId, input.text, 'phone'); }
         catch { error(res, 500, 'failed'); return; }
         publish('message-batch', { chatId: input.chatId, items: remote.buffers.get(input.chatId)?.tail(1).items || [] });
         json(res, 200, { ok: true }); return;
@@ -512,6 +610,7 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
   server.maxConnections = 50;
   emitter.revokeDevice = (id) => { for (const stream of [...streams]) if (stream.device.id === id) endStream(stream); };
   emitter.risk = risk;
+  emitter.projectState = projectModels;
   emitter.listen = (port, host) => {
     const selectedMode = getConfig()?.remote?.mode || 'serve';
     if (!((selectedMode === 'serve' && host === '127.0.0.1') ||
@@ -528,8 +627,10 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
   };
   emitter.close = () => new Promise((resolve) => {
     for (const stream of [...streams]) endStream(stream);
-    for (const timer of batchTimers.values()) clearTimeout(timer);
+    for (const timer of batchTimers.values()) clearTimer(timer);
     batchTimers.clear();
+    for (const timer of tabTimers.values()) clearTimer(timer);
+    tabTimers.clear();
     for (const [source, event, handler] of listeners) source.off(event, handler);
     if (!server.listening) { resolve(); return; }
     server.close(resolve);

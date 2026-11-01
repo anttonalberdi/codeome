@@ -408,6 +408,7 @@
   C.closeProject = (project) => {
     for (const c of tabsOf(project)) if (c.running) { c.stopping = true; codeome.chat.stop(c.id); }
     delete C.byProject[project];
+    pushTabs(project, [], true);
   };
 
   // ---------- sending ----------
@@ -1615,6 +1616,23 @@
   let tabsRaf = 0;
   function scheduleTabs() { if (!tabsRaf) tabsRaf = requestAnimationFrame(() => { tabsRaf = 0; paintTabs(); App.emit('chat-state'); }); }
 
+  const tabActivity = new WeakMap();
+  const sentTabs = new Map();
+  const tabTimers = new Map();
+  function pushTabs(project, tabs, immediate = false) {
+    if (!project || !codeome.remote?.tabs) return;
+    const serial = JSON.stringify(tabs);
+    clearTimeout(tabTimers.get(project));
+    if (sentTabs.get(project) === serial) return;
+    const send = () => {
+      tabTimers.delete(project);
+      sentTabs.set(project, serial);
+      codeome.remote.tabs({ project, tabs }).then((result) => { if (result?.error) sentTabs.delete(project); })
+        .catch(() => { sentTabs.delete(project); });
+    };
+    if (immediate) send(); else tabTimers.set(project, setTimeout(send, 300));
+  }
+
   let dragTab = null;
   function paintTabs() {
     if (!tabsEl) return;
@@ -1623,11 +1641,17 @@
     tabsEl.innerHTML = '';
     sumEl.innerHTML = '';
     if (!t) return;
+    const summary = [];
     for (const c of t.tabs) {
       const [st, label] = tabState(c);
       const jobs = runningJobs(c);
       const active = c === t.active;
       const title = c.title || 'New chat';
+      const state = st === 'done' ? 'ready' : st;
+      let activity = tabActivity.get(c);
+      if (!activity || activity.state !== state) { activity = { state, at: Date.now() }; tabActivity.set(c, activity); }
+      summary.push({ id: c.id, title, state, label, jobs: jobs.length, engine: engineOf(c), role: c.role || '', active,
+        updatedAt: Math.max(Number.isFinite(c.updatedAt) ? c.updatedAt : 0, activity.at) });
       const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
       const el = h('div.ctab.' + st + (active ? '.active' : ''), {
         role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
@@ -1669,6 +1693,7 @@
     const a = tabsEl.querySelector('.ctab.active');
     if (a) { if (focused) a.focus(); a.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
     paintSummary(t);
+    pushTabs(App.project, summary);
   }
 
   // One line under the tabs: sessions, who is working, who needs you, specialists, unseen replies.

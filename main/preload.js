@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('codeome', {
   setup: { status: invoke('setup:status'), testLogin: invoke('setup:testLogin'), testVpn: invoke('setup:testVpn'), install: invoke('setup:install'), addHost: invoke('setup:addHost') },
   remote: {
     status: invoke('remote:status'), pair: invoke('remote:pair'),
+    tabs: (payload) => ipcRenderer.invoke('remote:tabs', payload),
     revoke: (id) => ipcRenderer.invoke('remote:revoke', { id }),
     tailscale: invoke('remote:tailscale'), ntfy: (action) => ipcRenderer.invoke('remote:ntfy', action),
     onStatus: on('remote:status'),

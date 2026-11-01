@@ -4,7 +4,7 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { createRemote } = require('../main/remote');
+const { createRemote, validateTabsPayload } = require('../main/remote');
 
 function setup(loadChat = () => null, options = {}) {
   const events = [], calls = [];
@@ -15,6 +15,57 @@ function setup(loadChat = () => null, options = {}) {
     request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'pwd' } } });
   return { events, calls, session, remote, request };
 }
+
+test('tab summaries validate every field and clear on window close', () => {
+  let time = 100;
+  const { remote } = setup(undefined, { now: () => time });
+  const tab = { id: 'chat', title: 'Chat', state: 'ready', label: 'Reply ready', jobs: 2,
+    engine: 'claude', role: '', active: true, updatedAt: 50 };
+  const valid = { project: '/known', tabs: [tab] };
+  assert.equal(validateTabsPayload(valid, new Set(['/known'])), true);
+  for (const payload of [
+    { ...valid, project: '/unknown' }, { ...valid, tabs: Array(51).fill(tab) },
+    { ...valid, tabs: [{ ...tab, title: 'x'.repeat(201) }] },
+    { ...valid, tabs: [{ ...tab, label: 'x'.repeat(101) }] },
+    { ...valid, tabs: [{ ...tab, state: 'done' }] },
+    { ...valid, tabs: [{ ...tab, jobs: Infinity }] },
+    { ...valid, tabs: [{ ...tab, updatedAt: NaN }] },
+    { ...valid, tabs: [{ ...tab, updatedAt: 1.5 }] },
+    { ...valid, tabs: [{ ...tab, updatedAt: Number.MAX_SAFE_INTEGER + 1 }] },
+    { ...valid, tabs: [{ ...tab, active: 'true' }] },
+    { ...valid, tabs: [{ ...tab, engine: 'other' }] },
+    { ...valid, tabs: [{ ...tab, extra: 'ignored' }] }
+  ]) assert.equal(validateTabsPayload(payload, new Set(['/known'])), false);
+  const clamped = { project: '/known/', tabs: [{ ...tab, updatedAt: Number.MAX_SAFE_INTEGER }] };
+  assert.equal(validateTabsPayload(clamped, new Set(['/known']), 100), true);
+  assert.equal(clamped.tabs[0].updatedAt, 86400100);
+  clamped.tabs[0].updatedAt = -10;
+  assert.equal(validateTabsPayload(clamped, new Set(['/known']), 100), true);
+  assert.equal(clamped.tabs[0].updatedAt, 0);
+  const changed = [];
+  remote.events.on('tabs', (project) => changed.push(project));
+  assert.equal(remote.setTabs('/known', [tab]), true);
+  assert.equal(remote.setTabs('/known/', [tab]), true);
+  assert.equal(remote.tabs.size, 1);
+  assert.equal(remote.tabs.get('/known').receivedAt, 100);
+  time = 200;
+  remote.clearTabs();
+  assert.equal(remote.tabs.size, 0);
+  assert.deepEqual(changed, ['/known', '/known', '/known']);
+});
+
+test('live fallback tracks busy, error and last activity from turns', () => {
+  let time = 10;
+  const { remote, session } = setup(undefined, { now: () => time });
+  remote.attach(session, 'chat', { project: '/project' });
+  assert.equal(remote.sessions.get('chat').busy, false);
+  time = 20; remote.recordUser('chat', 'hello');
+  assert.equal(remote.sessions.get('chat').busy, true);
+  time = 30; session.emit('message', { type: 'result', is_error: true, result: 'failed' });
+  assert.equal(remote.sessions.get('chat').busy, false);
+  assert.equal(remote.sessions.get('chat').lastOutcome, 'error');
+  assert.equal(remote.sessions.get('chat').lastActivityAt, 30);
+});
 
 test('attach feeds items and registry; user messages enter the live buffer', () => {
   const { session, remote, request } = setup();
@@ -209,4 +260,23 @@ test('renderer restores pending cards and resolves a phone decision once', async
   chat.items.push(racing);
   onDecided({ id: 'chat', requestId: 'r4', decision: 'deny', source: 'desktop' });
   assert.equal(racing.decided, 'deny');
+});
+
+test('renderer retries a tab summary when IPC resolves with an error', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'renderer/js/chat.js'), 'utf8');
+  const start = source.indexOf('  const tabActivity = new WeakMap();');
+  const end = source.indexOf('  let dragTab = null;', start);
+  assert.ok(start >= 0 && end > start);
+  const calls = [];
+  const context = { codeome: { remote: { tabs: async (payload) => {
+    calls.push(payload);
+    return calls.length === 1 ? { error: 'Invalid tab summary.' } : { ok: true };
+  } } }, clearTimeout() {}, setTimeout() {} };
+  vm.runInNewContext(source.slice(start, end) + '\nglobalThis.pushTabs = pushTabs;', context);
+  const tabs = [{ id: 'chat' }];
+  context.pushTabs('/project', tabs, true);
+  await Promise.resolve();
+  context.pushTabs('/project', tabs, true);
+  await Promise.resolve();
+  assert.equal(calls.length, 2);
 });

@@ -175,7 +175,7 @@ test('service sync, fragment pairing, token and state complete the phone entry f
   const state = await f.call('GET', '/api/state');
   assert.equal(state.status, 200);
   assert.deepEqual(state.body.pending, []);
-  assert.ok(Array.isArray(state.body.chats));
+  assert.ok(Array.isArray(state.body.projects));
 });
 
 test('phone sees a safe Bash request and phone/desktop decisions respond exactly once', async (t) => {

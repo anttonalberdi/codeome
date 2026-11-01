@@ -23,7 +23,7 @@ const projectChat = require('./projectchat');
 const policy = require('./policy');
 const resources = require('./resources');
 const { createAwake } = require('./awake');
-const { createRemote } = require('./remote');
+const { createRemote, validateTabsPayload } = require('./remote');
 const { createServer } = require('./remote-server');
 const { createAuth, createLimiter } = require('./remote-auth');
 const { createService } = require('./remote-service');
@@ -139,6 +139,8 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   win.webContents.on('unresponsive', () => crashlog.log('warn', 'renderer unresponsive'));
   win.webContents.on('responsive', () => crashlog.log('info', 'renderer responsive'));
+  win.webContents.on('render-process-gone', clearRemoteTabs);
+  win.webContents.on('destroyed', clearRemoteTabs);
   win.webContents.on('did-fail-load', (_e, code, description, _url, isMainFrame) => {
     crashlog.log('error', 'renderer load failed', { code, description, isMainFrame });
   });
@@ -146,7 +148,7 @@ function createWindow() {
     const details = event.details || event;
     if (details.level === 'error' || level === 3) logRendererLine(String(details.message || message).slice(0, 2000), 'renderer console');
   });
-  win.on('closed', () => { gdoc.closeAll(win); win = null; });
+  win.on('closed', () => { gdoc.closeAll(win); clearRemoteTabs(); win = null; });
 }
 
 function buildMenu() {
@@ -391,6 +393,10 @@ ipcMain.handle('config:set', (_e, c) => {
   const secretsChanged = JSON.stringify(c.secrets) !== JSON.stringify(cfg.secrets);
   const oldSecrets = cfg.secrets || [];
   cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts, remoteDevices: cfg.remoteDevices });
+  if (typeof remote !== 'undefined' && remote?.events) {
+    pruneRemoteTabs();
+    remote.events.emit('config-changed');
+  }
   remoteService.sync();
   awake.sync();
   for (const old of oldSecrets) {
@@ -414,6 +420,48 @@ ipcMain.handle('config:set', (_e, c) => {
   return publicConfig;
 });
 ipcMain.handle('remote:status', () => remoteService.status());
+const pendingRemoteTabs = new Map();
+function knownRemoteProjects() {
+  return new Set([...(cfg.openProjects || []), cfg.activeProject,
+    ...[...chats.values()].map((session) => session.cwd), ...[...remote.sessions.values()].map((entry) => entry.project)]
+    .filter(Boolean).map((project) => path.resolve(project)));
+}
+function pruneRemoteTabs() {
+  const known = knownRemoteProjects();
+  for (const key of remote.tabs.keys()) if (!known.has(key)) {
+    remote.tabs.delete(key);
+    remote.events.emit('tabs', key);
+  }
+  for (const [key, state] of pendingRemoteTabs) if (!known.has(key)) {
+    clearTimeout(state.timer);
+    pendingRemoteTabs.delete(key);
+  }
+}
+function clearRemoteTabs() {
+  for (const state of pendingRemoteTabs.values()) clearTimeout(state.timer);
+  pendingRemoteTabs.clear();
+  remote.clearTabs();
+}
+ipcMain.handle('remote:tabs', (_e, payload) => {
+  const known = knownRemoteProjects();
+  if (!validateTabsPayload(payload, known)) return { error: 'Invalid tab summary.' };
+  const project = path.resolve(payload.project);
+  pruneRemoteTabs();
+  const queued = pendingRemoteTabs.get(project);
+  if (queued) { queued.tabs = payload.tabs; return { ok: true }; }
+  remote.setTabs(project, payload.tabs);
+  const state = { tabs: null };
+  pendingRemoteTabs.set(project, state);
+  const flush = () => {
+    if (!state.tabs) { pendingRemoteTabs.delete(project); return; }
+    const tabs = state.tabs;
+    state.tabs = null;
+    remote.setTabs(project, tabs);
+    state.timer = setTimeout(flush, 250);
+  };
+  state.timer = setTimeout(flush, 250);
+  return { ok: true };
+});
 ipcMain.handle('remote:pair', () => remoteService.pair());
 ipcMain.handle('remote:revoke', (_e, { id }) => remoteService.revoke(id));
 ipcMain.handle('remote:tailscale', () => remoteService.tailscale());
@@ -1381,11 +1429,11 @@ ipcMain.handle('chat:suggest', (_e, { text, account }) => {
   return suggest.suggest({ text, dir: a && a.dir, bin: claudeCmd().trim().split(/\s+/)[0] });
 });
 ipcMain.handle('chat:stop', (_e, id) => { const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
-ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { return chat.saveChat(project, c); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { const result = chat.saveChat(project, c); if (result.ok) remote.events.emit('chat-saved', project); return result; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));
 ipcMain.handle('chat:personas', () => chat.listPersonas());
 ipcMain.handle('chat:load', (_e, { project, id }) => chat.loadChat(project, id));
-ipcMain.handle('chat:delete', (_e, { project, id }) => { const result = chat.deleteChat(project, id); if (result.ok && !chats.has(id)) remote.detach(id); return result; });
+ipcMain.handle('chat:delete', (_e, { project, id }) => { const result = chat.deleteChat(project, id); if (result.ok) { remote.events.emit('chat-saved', project); if (!chats.has(id)) remote.detach(id); } return result; });
 // What the sessions used over the last days, with each session's chat title where it still exists.
 ipcMain.handle('stats:get', (_e, days) => {
   try {

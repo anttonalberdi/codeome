@@ -1,12 +1,50 @@
 const { createRegistry } = require('./remote-decisions');
 const { createBuffer, fromSaved } = require('./remote-items');
 const { EventEmitter } = require('node:events');
+const path = require('node:path');
 
-function createRemote({ send, loadChat, exitGraceMs = 10 * 60 * 1000, setTimer = setTimeout, clearTimer = clearTimeout }) {
+const TAB_STATES = new Set(['waiting', 'working', 'ready', 'error', 'error-seen', 'idle', 'off']);
+function validateTabsPayload(payload, knownProjects, now = Date.now()) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+      Object.keys(payload).length !== 2 ||
+      typeof payload.project !== 'string' || !payload.project ||
+      ![...knownProjects].some((project) => typeof project === 'string' && project && path.resolve(project) === path.resolve(payload.project)) ||
+      !Array.isArray(payload.tabs) || payload.tabs.length > 50) return false;
+  const ids = new Set();
+  for (const tab of payload.tabs) {
+    if (!tab || typeof tab !== 'object' || Array.isArray(tab) ||
+        Object.keys(tab).length !== 9 ||
+        typeof tab.id !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(tab.id) || ids.has(tab.id) ||
+        typeof tab.title !== 'string' || tab.title.length > 200 ||
+        typeof tab.label !== 'string' || tab.label.length > 100 ||
+        !TAB_STATES.has(tab.state) || !Number.isInteger(tab.jobs) || tab.jobs < 0 || tab.jobs > 1000 ||
+        !['claude', 'codex'].includes(tab.engine) || typeof tab.role !== 'string' || tab.role.length > 100 ||
+        typeof tab.active !== 'boolean' || !Number.isSafeInteger(tab.updatedAt)) return false;
+    tab.updatedAt = Math.max(0, Math.min(tab.updatedAt, now + 86400000));
+    ids.add(tab.id);
+  }
+  return true;
+}
+
+function createRemote({ send, loadChat, exitGraceMs = 10 * 60 * 1000, setTimer = setTimeout, clearTimer = clearTimeout, now = Date.now }) {
   const registry = createRegistry();
   const buffers = new Map();
   const sessions = new Map();
   const events = new EventEmitter();
+  const tabs = new Map();
+
+  function setTabs(project, summary) {
+    if (!validateTabsPayload({ project, tabs: summary }, new Set([project]), now())) return false;
+    project = path.resolve(project);
+    tabs.set(project, { tabs: summary.map((tab) => ({ ...tab })), receivedAt: now() });
+    events.emit('tabs', project);
+    return true;
+  }
+  function clearTabs() {
+    const projects = [...tabs.keys()];
+    tabs.clear();
+    for (const project of projects) events.emit('tabs', project);
+  }
 
   registry.on('decided', ({ requestId, chatId, source, decision, answers }) => {
     buffers.get(chatId)?.markDecided(requestId, decision, source, answers);
@@ -24,7 +62,7 @@ function createRemote({ send, loadChat, exitGraceMs = 10 * 60 * 1000, setTimer =
     }
     registry.clearChat(chatId, true);
     buffers.delete(chatId);
-    events.emit('chat-detached', chatId);
+    events.emit('chat-detached', chatId, entry?.project);
   }
 
   function attach(session, chatId, { project, engine, role, seed } = {}) {
@@ -41,6 +79,12 @@ function createRemote({ send, loadChat, exitGraceMs = 10 * 60 * 1000, setTimer =
     buffers.set(chatId, buffer);
     const onMessage = (message) => {
       buffer.push(message);
+      const entry = sessions.get(chatId);
+      if (entry) {
+        entry.lastActivityAt = now();
+        if (message?.type === 'result') { entry.busy = false; entry.lastOutcome = message.is_error ? 'error' : ''; }
+        else if (message?.type === 'user' || message?.type === 'assistant' || message?.type === 'text_delta') entry.busy = true;
+      }
       if (message?.type === 'control_request') registry.add(chatId, session, message);
       else if (message?.type === 'control_cancel_request') registry.cancel(chatId, message.request_id);
       events.emit('message', chatId);
@@ -57,7 +101,7 @@ function createRemote({ send, loadChat, exitGraceMs = 10 * 60 * 1000, setTimer =
     };
     session.on('message', onMessage);
     session.on('exit', onExit);
-    sessions.set(chatId, { session, onMessage, onExit, project, engine, role });
+    sessions.set(chatId, { session, onMessage, onExit, project, engine, role, busy: false, lastOutcome: '', lastActivityAt: now() });
     events.emit('chat-started', chatId);
     return buffer;
   }
@@ -77,8 +121,12 @@ function createRemote({ send, loadChat, exitGraceMs = 10 * 60 * 1000, setTimer =
     return { ok: true };
   }
 
-  return { attach, detach, registry, buffers, sessions, events, respond,
-    recordUser: (chatId, text) => buffers.get(chatId)?.addUser(text, 'desktop') };
+  return { attach, detach, registry, buffers, sessions, events, tabs, setTabs, clearTabs, respond,
+    recordUser: (chatId, text, source = 'desktop') => {
+      buffers.get(chatId)?.addUser(text, source);
+      const entry = sessions.get(chatId);
+      if (entry) { entry.busy = true; entry.lastOutcome = ''; entry.lastActivityAt = now(); events.emit('message', chatId); }
+    } };
 }
 
-module.exports = { createRemote };
+module.exports = { createRemote, validateTabsPayload };

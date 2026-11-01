@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const { validateRemoteConfig } = require('../main/remote-server');
-const { createRemote } = require('../main/remote');
+const { createRemote, validateTabsPayload } = require('../main/remote');
 
 const main = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
 const preload = fs.readFileSync(path.join(__dirname, '../main/preload.js'), 'utf8');
@@ -19,8 +19,12 @@ function section(start, end) {
 
 test('config IPC hides device credentials and preserves them on renderer save', () => {
   const handlers = {};
+  let configChanges = 0;
+  const events = new EventEmitter();
+  events.on('config-changed', () => configChanges++);
   const context = { cfg: { remoteDevices: [{ id: 'private', tokenHash: 'secret' }],
     remote: { enabled: false }, accounts: {}, secrets: [], gitAccounts: [], projectAccounts: {} },
+  remote: { events }, pruneRemoteTabs() {},
   ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },
   config: { save: (value) => { const error = validateRemoteConfig(value.remote); if (error) throw new Error(error); return value; } },
   usage: { ENV_VAR: {} }, awake: { sync() {} }, remoteService: { sync() {} },
@@ -33,6 +37,7 @@ test('config IPC hides device credentials and preserves them on renderer save', 
   const result = handlers['config:set'](null, { ...publicConfig, remote: { enabled: true } });
   assert.equal(result.remoteDevices, undefined);
   assert.equal(context.cfg.remoteDevices[0].tokenHash, 'secret');
+  assert.equal(configChanges, 1);
   const forged = handlers['config:set'](null, { ...result, remoteDevices: [{ id: 'forged' }] });
   assert.equal(forged.remoteDevices, undefined);
   assert.equal(context.cfg.remoteDevices[0].tokenHash, 'secret');
@@ -75,6 +80,42 @@ test('device rename and HPC file rename use distinct IPC routes', async () => {
   assert.match(settings, /result\.error === 'no-magicdns' \? "Tailscale's HTTPS name is not available\. Follow the Tailscale setup steps above/);
   assert.match(settings, /void checkTailscale\(\);\s*try \{ paintStatus/);
   assert.match(settings, /App\.setup\.install\(\['tailscale'\]/);
+});
+
+test('remote tabs IPC accepts known projects, coalesces latest payload and prunes old projects', () => {
+  const handlers = {};
+  const remote = createRemote({ send() {} });
+  const timers = new Map();
+  let nextTimer = 0;
+  const setTimeout = (fn) => { const id = ++nextTimer; timers.set(id, fn); return id; };
+  const clearTimeout = (id) => timers.delete(id);
+  const tick = () => { const pending = [...timers.values()]; timers.clear(); pending.forEach((fn) => fn()); };
+  const context = { ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, remote,
+    path, setTimeout, clearTimeout, validateTabsPayload, cfg: { openProjects: ['/known'], activeProject: '/known' }, chats: new Map() };
+  vm.runInNewContext(section('const pendingRemoteTabs', "ipcMain.handle('remote:pair'"), context);
+  const tab = { id: 'chat', title: 'Chat', state: 'idle', label: 'Finished; session open',
+    jobs: 0, engine: 'claude', role: '', active: true, updatedAt: 12 };
+  assert.equal(handlers['remote:tabs'](null, { project: '/known', tabs: [tab] }).ok, true);
+  assert.equal(remote.tabs.get('/known').tabs[0].id, 'chat');
+  handlers['remote:tabs'](null, { project: '/known/', tabs: [{ ...tab, title: 'Second' }] });
+  handlers['remote:tabs'](null, { project: '/known', tabs: [{ ...tab, title: 'Latest' }] });
+  assert.equal(remote.tabs.get('/known').tabs[0].title, 'Chat');
+  tick();
+  assert.equal(remote.tabs.get('/known').tabs[0].title, 'Latest');
+  tick();
+  assert.equal(timers.size, 0);
+  assert.match(handlers['remote:tabs'](null, { project: '/forged', tabs: [] }).error, /Invalid/);
+  assert.match(handlers['remote:tabs'](null, { project: '/known', tabs: [{ ...tab, jobs: NaN }] }).error, /Invalid/);
+  context.cfg = { openProjects: ['/other'], activeProject: '/other' };
+  handlers['remote:tabs'](null, { project: '/other', tabs: [] });
+  assert.deepEqual([...remote.tabs.keys()], ['/other']);
+  context.clearRemoteTabs();
+  tick();
+  assert.equal(remote.tabs.size, 0);
+  assert.equal(timers.size, 0);
+  assert.match(main, /win\.webContents\.on\('render-process-gone', clearRemoteTabs\)/);
+  assert.match(main, /win\.webContents\.on\('destroyed', clearRemoteTabs\)/);
+  assert.match(preload, /tabs: \(payload\) => ipcRenderer\.invoke\('remote:tabs', payload\)/);
 });
 
 test('a failed chat start detaches the remote session', () => {
