@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.4.2
 
 ### Added
 - **Send from phone in auto mode**: Settings → Phone companion → Phone approvals has a new *Send from phone* setting. The default, *Default mode only*, keeps the old rule (no messages from the phone while a chat is in auto, accept-edits or bypass mode). *Also auto mode* lets messages through in auto mode, and *Also accept-edits and bypass* allows every mode. Those modes run the agent with no approval step, so a stolen phone could drive it; leave the setting at its default unless you need it.
