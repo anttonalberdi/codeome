@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.4.0
 
 ### Added
 - **Chat tab names**: after five of your messages, a chat that still carries the first words of its first message as its title offers two 1–3 word names as buttons above the message box, plus *Other…* to type your own and × to keep the name. Turn it off in Settings → Chat (*Tab names*) or per project in Project settings (*Suggest tab names*).
