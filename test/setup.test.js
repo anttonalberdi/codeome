@@ -47,6 +47,13 @@ test('install plans group Homebrew formulae, casks and other installers', () => 
   assert.strictEqual(setup.installCommand(['nope']), null);
 });
 
+test('Tailscale installs the app cask with its bundled CLI', () => {
+  const ic = setup.installCommand(['tailscale']);
+  assert.strictEqual(ic.command, 'brew install --cask tailscale-app');
+  assert.strictEqual(ic.brew, true);
+  assert.deepStrictEqual(ic.labels, ['Tailscale']);
+});
+
 test('ssh -G output gives the login, keys and any proxy', () => {
   const o = setup.parseSshG('user alice\nhostname login.hpc.example.org\nport 22\nidentityfile ~/.ssh/id_ed25519\nproxyjump none\nproxycommand none\n');
   assert.deepStrictEqual(o, { identityFiles: ['~/.ssh/id_ed25519'], user: 'alice', hostname: 'login.hpc.example.org', port: 22 });

@@ -72,7 +72,9 @@ test('device rename and HPC file rename use distinct IPC routes', async () => {
   assert.match(preload, /rename: \(from, to\) => ipcRenderer\.invoke\('remote:rename', \{ from, to \}\)/);
   assert.match(preload, /renameDevice: \(id, label\) => ipcRenderer\.invoke\('remote:renameDevice', \{ id, label \}\)/);
   assert.match(settings, /codeome\.remote\.renameDevice\(device\.id, next\)/);
-  assert.match(settings, /result\.error === 'no-magicdns' \? "Tailscale's HTTPS name is not available: check Tailscale and the Serve command above"/);
+  assert.match(settings, /result\.error === 'no-magicdns' \? "Tailscale's HTTPS name is not available\. Follow the Tailscale setup steps above/);
+  assert.match(settings, /void checkTailscale\(\);\s*try \{ paintStatus/);
+  assert.match(settings, /App\.setup\.install\(\['tailscale'\]/);
 });
 
 test('a failed chat start detaches the remote session', () => {

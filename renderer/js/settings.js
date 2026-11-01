@@ -1337,7 +1337,7 @@
         const result = await codeome.remote.pair();
         if (!active) return;
         if (result.error) throw new Error(result.error === 'not-listening' ? 'Enable the companion and wait until it is listening.' :
-          result.error === 'no-magicdns' ? "Tailscale's HTTPS name is not available: check Tailscale and the Serve command above" : result.error);
+          result.error === 'no-magicdns' ? "Tailscale's HTTPS name is not available. Follow the Tailscale setup steps above, then check Tailscale and run the Serve command." : result.error);
         pairing = result;
         const svg = new DOMParser().parseFromString(CodeomeQR.toSvg(CodeomeQR.encode(result.payload)), 'image/svg+xml').documentElement;
         const qr = document.importNode(svg, true);
@@ -1439,34 +1439,49 @@
         }
       } catch (error) { ntfyResult.textContent = sayError(error); }
     }
+    async function checkTailscale() {
+      tailscaleResult.textContent = 'Checking Tailscale…';
+      try {
+        const value = await codeome.remote.tailscale();
+        if (!active) return;
+        const command = value.command;
+        const steps = h('ol',
+          h('li', 'Open Tailscale and sign in on this Mac.'),
+          h('li', 'Install the Tailscale app on your iPhone and sign in with the same account.'),
+          h('li', 'In the Tailscale admin console, open DNS and enable HTTPS Certificates (needed for Serve mode).'),
+          h('li', 'Press Check Tailscale.'));
+        const missing = !value.installed;
+        const ready = value.running && value.loggedIn;
+        // replaceChildren turns a null into the text "null", so leave out the parts that do not apply.
+        tailscaleResult.replaceChildren(...[
+          missing ? stepRow('todo', 'Tailscale', 'Not installed on this Mac.', btn('Install…', async () => {
+            if (await App.setup.install(['tailscale'], 'Tailscale connects your Mac and phone privately.')) checkTailscale();
+          })) : ready ? stepRow('ok', 'Tailscale', `Signed in · ${value.dnsName || 'no MagicDNS name yet'}`) :
+            stepRow('todo', 'Tailscale', 'Tailscale is installed but not running or not signed in. Open Tailscale and sign in.'),
+          App.cfg.remote.mode === 'tailnet' && missing ? h('strong.phone-warning', 'Tailnet mode needs Tailscale to provide an address.') : null,
+          steps,
+          value.funnel ? h('strong.phone-warning', value.warning || 'WARNING: Tailscale Funnel is enabled.') : null,
+          command ? h('div.phone-copy', h('code.sp-code', command), h('button.btn.small', { onclick: async () => {
+            try {
+              if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(command);
+              else {
+                const temporary = h('textarea', { value: command, readonly: true });
+                document.body.append(temporary); temporary.select();
+                const copied = document.execCommand('copy'); temporary.remove();
+                if (!copied) throw new Error('Clipboard unavailable.');
+              }
+              flash('Copied');
+            } catch (error) { App.err(`Could not copy: ${sayError(error)}`); }
+          } }, 'Copy')) : null].filter(Boolean));
+      } catch (error) { if (active) tailscaleResult.textContent = `Tailscale check failed: ${sayError(error)}`; }
+    }
     const result = section('phone', 'Phone companion', 'Use your paired phone to follow chats and approve agent actions. Codeome binds only to this Mac’s loopback or Tailscale tailnet address, never directly to the public internet. Keep Tailscale Funnel off.',
       card('Connection',
         row('Enable', check('Enable phone companion', () => remote.enabled, (value) => { App.cfg.remote.enabled = value; if (!value) clearPair(); })),
-        row('Mode', select([{ value: 'serve', label: 'Tailscale Serve · HTTPS, installable PWA' }, { value: 'tailnet', label: 'Tailnet IP · plain HTTP' }], remote.mode || 'serve', (value) => { App.cfg.remote.mode = value; clearPair(); commit(); }, 'Phone companion mode'), 'Serve binds to 127.0.0.1 and needs a separate Tailscale Serve command. Tailnet binds to this Mac’s tailnet IP.'),
+        row('Mode', select([{ value: 'serve', label: 'Tailscale Serve · HTTPS, installable PWA' }, { value: 'tailnet', label: 'Tailnet IP · plain HTTP' }], remote.mode || 'serve', (value) => { App.cfg.remote.mode = value; clearPair(); commit(); void checkTailscale(); }, 'Phone companion mode'), 'Serve binds to 127.0.0.1 and needs a separate Tailscale Serve command. Tailnet binds to this Mac’s tailnet IP.'),
         row('Port', h('div.phone-field', port, portError), 'Empty uses 47821.'),
         row('Status', status)),
-      card('Tailscale Serve', h('div.sp-tools', h('button.btn.small', { onclick: async () => {
-        tailscaleResult.textContent = 'Checking Tailscale…';
-        try {
-          const value = await codeome.remote.tailscale();
-          const command = value.command;
-          tailscaleResult.replaceChildren(info(value.available ? 'Tailscale CLI found.' : 'Tailscale CLI not found.'),
-            info(value.dnsName ? `MagicDNS: ${value.dnsName}` : 'No MagicDNS name found.'),
-            value.funnel ? h('strong.phone-warning', value.warning || 'WARNING: Tailscale Funnel is enabled.') : null,
-            command ? h('div.phone-copy', h('code.sp-code', command), h('button.btn.small', { onclick: async () => {
-              try {
-                if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(command);
-                else {
-                  const temporary = h('textarea', { value: command, readonly: true });
-                  document.body.append(temporary); temporary.select();
-                  const copied = document.execCommand('copy'); temporary.remove();
-                  if (!copied) throw new Error('Clipboard unavailable.');
-                }
-                flash('Copied');
-              } catch (error) { App.err(`Could not copy: ${sayError(error)}`); }
-            } }, 'Copy')) : null);
-        } catch (error) { tailscaleResult.textContent = `Tailscale check failed: ${sayError(error)}`; }
-      } }, 'Check Tailscale')),
+      card('Tailscale Serve', h('div.sp-tools', h('button.btn.small', { onclick: checkTailscale }, 'Check Tailscale')),
       tailscaleResult, h('div.sp-foot.hint', 'Run the displayed command yourself in Terminal. Codeome never runs Tailscale Serve. Disable Funnel to keep access on your tailnet.')),
       card('Pair a phone', h('div.sp-tools', pairButton), pairResult),
       card('Paired phones', devices),
@@ -1495,6 +1510,7 @@
       start: async () => {
         active = true;
         unsubscribe = codeome.remote.onStatus(paintStatus);
+        void checkTailscale();
         try { paintStatus(await codeome.remote.status()); }
         catch (error) {
           if (active) {

@@ -18,6 +18,7 @@ function fixture(options = {}) {
     fetch: options.fetch, retryMs: options.retryMs,
     getDevices: () => devices, saveDevices: (value) => { devices = value; }, staticDir: '/unused',
     networkInterfaces: () => options.networkInterfaces ? options.networkInterfaces() : options.interfaces || {},
+    fileExists: options.fileExists || (() => false),
     createServer() {
       const server = new EventEmitter();
       server.listens = [];
@@ -188,19 +189,61 @@ test('Serve refuses pairing without MagicDNS; tailnet pairing still uses its add
   await tailnet.service.stop();
 });
 
-test('tailscale only runs fixed read commands and warns when Funnel is enabled', async () => {
-  const f = fixture({ execFile: (file, args, callback) => {
+test('tailscale reports when neither PATH nor the app has a CLI', async () => {
+  const f = fixture();
+  const state = await f.service.tailscale();
+  assert.equal(state.installed, false);
+  assert.equal(state.available, false);
+  assert.equal(state.running, false);
+  assert.equal(state.loggedIn, false);
+  assert.equal(state.cliPath, null);
+  assert.equal(state.command, null);
+  assert.deepEqual(f.calls.map(({ file, args }) => [file, args]),
+    [['tailscale', ['status', '--json']], ['tailscale', ['version']]]);
+});
+
+test('tailscale reports an installed CLI that needs sign-in', async () => {
+  const f = fixture({ execFile: (_file, args, callback) => callback(null,
+    args[0] === 'status' ? JSON.stringify({ BackendState: 'NeedsLogin' }) : '{}') });
+  const state = await f.service.tailscale();
+  assert.equal(state.installed, true);
+  assert.equal(state.available, true);
+  assert.equal(state.running, false);
+  assert.equal(state.loggedIn, false);
+  assert.equal(state.cliPath, 'tailscale');
+  assert.equal(state.command, 'tailscale serve --bg --https=443 http://127.0.0.1:47821');
+});
+
+test('tailscale uses the PATH CLI when it is running', async () => {
+  const f = fixture({ execFile: (_file, args, callback) => callback(null,
+    args[0] === 'status' ? JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.tailnet.ts.net.' } }) : '{}') });
+  const state = await f.service.tailscale();
+  assert.equal(state.installed, true);
+  assert.equal(state.running, true);
+  assert.equal(state.loggedIn, true);
+  assert.equal(state.cliPath, 'tailscale');
+  assert.equal(state.dnsName, 'mac.tailnet.ts.net');
+  assert.equal(state.command, 'tailscale serve --bg --https=443 http://127.0.0.1:47821');
+});
+
+test('tailscale uses the quoted app CLI and only fixed read commands', async () => {
+  const app = '/Applications/Tailscale.app/Contents/MacOS/Tailscale';
+  const f = fixture({ fileExists: (file) => file === app, execFile: (file, args, callback) => {
     if (file === 'tailscale') return callback(Object.assign(new Error('not found'), { code: 'ENOENT' }));
-    callback(null, args[0] === 'status' ? JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }) :
+    callback(null, args[0] === 'status' ? JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.tailnet.ts.net.' } }) :
       JSON.stringify({ AllowFunnel: { 'mac.tailnet.ts.net:443': true } }));
   } });
   const state = await f.service.tailscale();
+  assert.equal(state.installed, true);
   assert.equal(state.available, true);
+  assert.equal(state.running, true);
+  assert.equal(state.loggedIn, true);
+  assert.equal(state.cliPath, app);
   assert.equal(state.dnsName, 'mac.tailnet.ts.net');
   assert.equal(state.funnel, true);
   assert.match(state.warning, /Funnel/);
-  assert.equal(state.command, 'tailscale serve --bg --https=443 http://127.0.0.1:47821');
-  assert.deepEqual(f.calls.map(({ args }) => args), [['status', '--json'], ['status', '--json'], ['serve', 'status', '--json']]);
+  assert.equal(state.command, `"${app}" serve --bg --https=443 http://127.0.0.1:47821`);
+  assert.deepEqual(f.calls.map(({ args }) => args), [['status', '--json'], ['version'], ['status', '--json'], ['serve', 'status', '--json']]);
   assert.ok(f.calls.every(({ settings }) => settings.timeout <= 3000));
   assert.ok(f.calls.every(({ args }) => !args.includes('--bg') && !args.includes('funnel')));
 });

@@ -1,4 +1,5 @@
 const os = require('node:os');
+const fs = require('node:fs');
 const { EventEmitter } = require('node:events');
 const { createNotifier } = require('./remote-ntfy');
 const { validateRemoteConfig } = require('./remote-server');
@@ -25,7 +26,7 @@ function funnelEnabled(value) {
 
 function createService({ createServer, createAuth, createLimiter, remote, sessions, loadChat, listChats,
   getConfig, saveDevices, getDevices, getSecret, setSecret, staticDir,
-  networkInterfaces = os.networkInterfaces, execFile, send, fetch, logger, retryMs = 30000 }) {
+  networkInterfaces = os.networkInterfaces, fileExists = fs.existsSync, execFile, send, fetch, logger, retryMs = 30000 }) {
   const service = new EventEmitter();
   const auth = createAuth({ store: { get: getDevices, set: saveDevices } });
   const limiter = createLimiter();
@@ -33,7 +34,8 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
   let binding = null;
   let listening = false;
   let error = null;
-  let tailState = { available: false, dnsName: null, command: null, funnel: false, warning: null };
+  let tailState = { installed: false, running: false, loggedIn: false, available: false, cliPath: null,
+    dnsName: null, command: null, funnel: false, warning: null };
   let queue = Promise.resolve();
   let notifier = null;
   let retryTimer = null;
@@ -164,18 +166,25 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
   }
   async function tailscale() {
     const port = selectedPort();
-    const command = Number.isInteger(port) && port > 0 && port <= 65535 ?
-      `tailscale serve --bg --https=443 http://127.0.0.1:${port}` : null;
-    let cli = null, info = null;
-    for (const file of ['tailscale', TAILSCALE_APP]) {
-      try { info = JSON.parse(await run(file, ['status', '--json'])); cli = file; break; }
-      catch { /* Try the bundled CLI when the PATH command is absent or fails. */ }
+    const appExists = fileExists(TAILSCALE_APP);
+    let cliPath = null, info = null;
+    for (const file of ['tailscale', ...(appExists ? [TAILSCALE_APP] : [])]) {
+      try { info = JSON.parse(await run(file, ['status', '--json'])); cliPath = file; break; }
+      catch {
+        try { await run(file, ['version']); cliPath = file; break; }
+        catch { /* Try the bundled CLI when the PATH command is absent or fails. */ }
+      }
     }
     let serve = null;
-    if (cli) try { serve = JSON.parse(await run(cli, ['serve', 'status', '--json'])); } catch {}
+    if (cliPath) try { serve = JSON.parse(await run(cliPath, ['serve', 'status', '--json'])); } catch {}
     const dnsName = typeof info?.Self?.DNSName === 'string' ? info.Self.DNSName.replace(/\.$/, '') : null;
     const funnel = funnelEnabled(serve);
-    tailState = { available: !!cli, dnsName, command, funnel,
+    const installed = !!cliPath || appExists;
+    const running = !!info && info.BackendState !== 'NeedsLogin' && info.BackendState !== 'Stopped';
+    const loggedIn = !!info && info.BackendState !== 'NeedsLogin';
+    const command = cliPath && Number.isInteger(port) && port > 0 && port <= 65535 ?
+      `${cliPath === 'tailscale' ? 'tailscale' : '"' + cliPath + '"'} serve --bg --https=443 http://127.0.0.1:${port}` : null;
+    tailState = { installed, running, loggedIn, available: installed, cliPath, dnsName, command, funnel,
       warning: funnel ? 'Funnel is enabled; disable it to keep the companion private.' : null };
     emitStatus();
     return { ...tailState };
