@@ -45,6 +45,29 @@ In Serve mode (HTTPS), use the browser's share menu and choose *Add to Home Scre
 
 *Paired phones* lists each device with the dates it was paired and last seen, and a dot showing whether it is connected. **Rename** changes its name. **Revoke** disconnects it at once; it needs a new pairing code to come back. A revoked or unpaired phone shows "This phone was unpaired or revoked" and asks for a new QR code.
 
+## Find a chat
+
+The phone page has three levels. The **Back** button at the top, the browser's back button and a reload keep your place (the address of the page records it).
+
+1. **Home** lists **Pending decisions** at the top, then **Projects**: one card per project, most recently active first. A card shows the project's name and folder, when it was last active, and chips for what is going on in it, like the markers on the desktop tabs: *waiting*, *working*, *ready* (reply ready), *error* and *specialists* running. Only chips with a count above zero appear. At most the 30 most recently active projects are listed.
+2. Tap a project to list its chat tabs. Each row has a state dot and one of these labels:
+   - *Waiting for you*: a decision is pending.
+   - *Working*: the agent is running a turn.
+   - *Reply ready — not seen yet*: a reply you have not opened.
+   - *Stopped with an error — not seen yet*: the last turn failed and you have not opened it.
+   - *Last turn ended with an error*: the same, once you have opened the chat.
+   - *Finished; session open*: idle, with the agent session open.
+   - *Session closed*.
+
+   A row also shows its specialists count, engine, role and when it was last active. Below the tabs, **Earlier chats (N)** is collapsed; tap it to list saved chats that are not open as tabs (the 30 most recent, with title and time).
+3. Tap a chat to open it.
+
+Pending decisions stay pinned at the top of the home page, and show the project and chat title as the Mac has them. A decision for the chat you have open also appears above its log.
+
+The *Reply ready* and *Stopped with an error* markers clear on the phone when you open the chat. This is remembered only in the phone's browser (the last 500 chats); the marker on the Mac's tab is not changed, and the Mac keeps its own.
+
+The Codeome window on the Mac reports its tabs to the Mac's server, so the phone shows the same tabs. With the window closed, the phone falls back to the chats with a live session and the saved chats. It then has no *reply ready* markers, and chats without a live session appear only under *Earlier chats*.
+
 ## What the phone may approve
 
 Each decision card on the phone shows the tool and its full input. For questions the agent asks, the phone offers the options and an "Other answer" field and a *Submit answers* button. For tool requests, *Allow once* and *Deny*. Deny always works.
