@@ -1,13 +1,22 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const state = { token: null, chats: [], groups: [], expandedGroups: new Set(), pending: [], chatId: null, items: [], hasMore: false,
+  const state = { token: null, projects: [], expandedEarlier: new Set(), seen: Object.create(null), loaded: false,
+    pending: [], chatId: null, projectKey: null, items: [], hasMore: false,
     loadingOlder: false, firstIndex: null, stream: null, lastEventId: '', imageUrls: new Map(),
     imageObserver: null, reconnect: 1000, refreshing: false, refreshAgain: false };
   const inFlight = new Set();
   const completed = new Set();
   const cardSources = new WeakMap();
   const MAX_SSE_CHARS = 1024 * 1024;
+  const SEEN_KEY = 'codeome-phone-seen';
+  try {
+    const saved = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}');
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+      for (const [id, value] of Object.entries(saved).slice(-500))
+        if (Render.validId(id) && Number.isFinite(value) && value > 0) state.seen[id] = value;
+    }
+  } catch { /* Private storage can be unavailable. */ }
   const errorText = (error) => {
     const code = error?.code || '';
     if (code === 'needs-desktop') return 'This action needs the desktop. You can still deny it here.';
@@ -28,7 +37,7 @@
     try { localStorage.removeItem('codeome-phone-token'); } catch { /* Private storage can be unavailable. */ }
     state.stream?.abort(); state.stream = null;
     state.chatId = null;
-    $('inbox').hidden = true; $('chat').hidden = true; $('back').hidden = true;
+    $('inbox').hidden = true; $('project').hidden = true; $('chat').hidden = true; $('back').hidden = true;
     $('heading').textContent = 'Codeome';
     notice('This phone was unpaired or revoked — scan a new QR code on the Mac.');
     connection('Unpaired');
@@ -39,12 +48,24 @@
     if (response.status === 401) { unpaired(); throw { code: 'unauthorized' }; }
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw { code: body.error, message: `Request failed (${response.status}).` };
+      throw { code: body.error, status: response.status, message: `Request failed (${response.status}).` };
     }
     return response;
   }
   async function json(path, options) { return (await request(path, options)).json(); }
-  function chatOf(id) { return state.chats.find((chat) => chat.id === id); }
+  function chatOf(id) { return Render.chatOf(state.projects, id); }
+  function names() { return Render.projectLabels(state.projects); }
+  function saveSeen(id, updatedAt) {
+    const at = Number(updatedAt);
+    if (!Number.isFinite(at) || at <= 0 || (state.seen[id] || 0) >= at) return;
+    delete state.seen[id]; state.seen[id] = at;
+    const keys = Object.keys(state.seen);
+    for (const old of keys.slice(0, Math.max(0, keys.length - 500))) delete state.seen[old];
+    try { localStorage.setItem(SEEN_KEY, JSON.stringify(state.seen)); } catch { /* Private storage can be unavailable. */ }
+  }
+  function saveOpenChatSeen() {
+    if (state.chatId) saveSeen(state.chatId, Render.openChatSeenAt(state.projects, state.chatId));
+  }
   function cardKey(pending) { return `${pending.chatId}/${pending.requestId}`; }
   function syncCards(target, entries, chats, showEmpty = false) {
     if (!entries.length) {
@@ -89,33 +110,63 @@
     while (next) { const stale = next; next = next.nextSibling; stale.remove(); }
   }
   function renderPending() {
-    const chats = new Map(state.groups.flatMap((group) => group.chats.map((chat) =>
-      [chat.id, { ...chat, projectName: group.name }])));
+    const labels = names();
+    const chats = new Map(state.projects.flatMap((project) =>
+      [...(project.tabs || []), ...(project.earlier || [])].map((chat) =>
+        [chat.id, { ...chat, project: project.path, projectName: labels.get(project.key) || project.name }])));
     const ordered = [...state.pending].sort((a, b) => a.createdAt - b.createdAt);
     syncCards($('pending-list'), ordered, chats, true);
     const pinned = ordered.filter((entry) => entry.chatId === state.chatId);
     syncCards($('chat-pending'), pinned, chats);
   }
-  function renderChats() {
-    replaceMarkup($('chat-list'), Render.renderChatGroups(state.groups, state.expandedGroups));
+  function renderProjects() {
+    const labels = names();
+    replaceMarkup($('project-list'), state.projects.length ? state.projects.map((project) =>
+      Render.renderProjectCard(Render.phoneProject(project, state.seen), labels.get(project.key))).join('') :
+      '<p class="empty">No projects yet.</p>');
+  }
+  function renderProject(project) {
+    const labels = names();
+    const name = labels.get(project.key) || project.name;
+    const heading = $('heading');
+    const title = document.createElement('span'); title.className = 'heading-title';
+    title.textContent = Render.visibleText(name);
+    const path = document.createElement('small'); path.className = 'heading-path';
+    path.textContent = Render.visibleText(project.path);
+    heading.replaceChildren(title, path);
+    const phone = Render.phoneProject(project, state.seen);
+    replaceMarkup($('tab-list'), phone.tabs.length ? phone.tabs.map((tab) => Render.renderTabRow(tab)).join('') :
+      '<p class="empty">No open tabs.</p>');
+    const earlier = Array.isArray(project.earlier) ? project.earlier : [];
+    $('earlier-toggle').textContent = `Earlier chats (${earlier.length})`;
+    const expanded = state.expandedEarlier.has(project.key);
+    $('earlier-toggle').setAttribute('aria-expanded', String(expanded));
+    $('earlier-list').hidden = !expanded;
+    replaceMarkup($('earlier-list'), earlier.length ? earlier.map((chat) => Render.renderEarlierRow(chat)).join('') :
+      '<p class="empty">No earlier chats.</p>');
   }
   function renderChatHeading() {
-    const chat = chatOf(state.chatId);
-    const group = state.groups.find((entry) => entry.key === (chat?.project || ''));
+    const entry = chatOf(state.chatId);
+    const chat = entry?.chat;
+    const projectData = entry?.project;
     const heading = $('heading');
     const title = document.createElement('span');
     title.className = 'heading-title';
     title.textContent = Render.visibleText(chat?.title || 'Chat');
     const project = document.createElement('small');
     project.className = 'heading-project';
-    project.textContent = Render.visibleText(group?.name || 'No project');
+    project.textContent = Render.visibleText(names().get(projectData?.key) || projectData?.name || 'No project');
     heading.replaceChildren(title, project);
-    if (group?.path) {
+    if (projectData?.path) {
       const path = document.createElement('small');
       path.className = 'heading-path';
-      path.textContent = Render.visibleText(group.path);
+      path.textContent = Render.visibleText(projectData.path);
       heading.append(path);
     }
+    const status = document.createElement('small'); status.className = 'heading-status';
+    const tab = entry && !entry.earlier ? Render.phoneProject(projectData, state.seen).tabs.find((item) => item.id === state.chatId) : null;
+    status.textContent = Render.visibleText(tab?.label || (entry?.earlier ? 'Earlier chat' : ''));
+    heading.append(status);
   }
   async function refreshState() {
     if (!state.token) return;
@@ -123,14 +174,14 @@
     state.refreshing = true;
     try {
       const data = await json('/api/state');
-      state.chats = Array.isArray(data.chats) ? data.chats : [];
-      state.groups = Render.groupChats(state.chats);
+      saveOpenChatSeen();
+      state.projects = Array.isArray(data.projects) ? data.projects : [];
+      saveOpenChatSeen();
+      state.loaded = true;
       const pending = Array.isArray(data.pending) ? data.pending : [];
       for (const key of completed) if (!pending.some((entry) => cardKey(entry) === key)) completed.delete(key);
       state.pending = pending.filter((entry) => !completed.has(cardKey(entry)));
-      renderPending(); renderChats();
-      if (state.chatId) renderChatHeading();
-      if (!state.chatId) { $('inbox').hidden = false; notice(''); }
+      renderPending(); renderProjects(); applyRoute();
     } catch (error) { if (state.token) notice(errorText(error)); }
     finally {
       state.refreshing = false;
@@ -198,6 +249,12 @@
       renderLog(before == null && atBottom);
       if (before != null) requestAnimationFrame(() => window.scrollTo(0, document.documentElement.scrollHeight - oldHeight + oldScroll));
     } catch (error) {
+      if (state.chatId !== chatId) return;
+      if (error.status === 404) {
+        $('reply-form').hidden = true;
+        replaceMarkup($('log'), '<p class="empty">This chat is no longer available.</p><button type="button" id="chat-unavailable-back">Back</button>');
+        return;
+      }
       if (state.token) notice(errorText(error));
       if (before == null && !state.items.length) replaceMarkup($('log'), '<p class="empty">Messages unavailable.</p><button type="button" id="reload-log">Retry</button>');
     }
@@ -209,19 +266,59 @@
     state.loadingOlder = false;
   }
   async function openChat(chatId) {
-    if (!Render.validId(chatId)) { notice('Invalid chat ID.'); return; }
+    if (!Render.validId(chatId)) { invalidRoute(); return; }
     if (state.chatId !== chatId) { clearImages(); state.items = []; state.hasMore = false; }
     state.chatId = chatId;
-    $('inbox').hidden = true; $('chat').hidden = false; $('back').hidden = false;
+    $('inbox').hidden = true; $('project').hidden = true; $('chat').hidden = false; $('back').hidden = false;
+    $('back').textContent = '‹ Project';
+    $('reply-form').hidden = false;
     renderChatHeading();
     renderPending(); replaceMarkup($('log'), '<p class="empty">Loading messages…</p>'); notice('');
     await loadLog();
     requestAnimationFrame(scrollBottom);
   }
-  function showInbox() {
+  function showHome() {
     state.chatId = null; clearImages();
-    $('chat').hidden = true; $('inbox').hidden = false; $('back').hidden = true;
-    $('heading').textContent = 'Codeome'; notice(''); renderPending();
+    state.projectKey = null;
+    $('chat').hidden = true; $('project').hidden = true; $('inbox').hidden = false; $('back').hidden = true;
+    $('heading').textContent = 'Codeome'; notice(''); renderPending(); renderProjects();
+  }
+  function showProject(project) {
+    state.chatId = null; state.projectKey = project.key; clearImages();
+    $('chat').hidden = true; $('inbox').hidden = true; $('project').hidden = false; $('back').hidden = false;
+    $('back').textContent = '‹ Projects';
+    notice(''); renderProject(project);
+  }
+  function invalidRoute() {
+    history.replaceState({ codeomeRoute: 'home' }, '', '#/');
+    showHome(); notice('That page is unavailable.');
+  }
+  function navigate(hash) {
+    history.pushState({ codeomeRoute: Render.parseRoute(hash).type }, '', hash);
+    applyRoute();
+  }
+  function applyRoute() {
+    if (!state.loaded || !state.token) return;
+    const route = Render.resolveRoute(location.hash, state.projects);
+    if (state.chatId && (route.type !== 'chat' || route.id !== state.chatId)) saveOpenChatSeen();
+    if (route.type === 'home' || route.type === 'pair') { showHome(); return; }
+    if (route.type === 'invalid') { invalidRoute(); return; }
+    if (route.type === 'unknown-project') { invalidRoute(); return; }
+    if (route.type === 'project') {
+      const project = state.projects.find((entry) => entry.key === route.key);
+      if (!project) { invalidRoute(); return; }
+      showProject(project); return;
+    }
+    const entry = route.entry;
+    // A direct chat link needs a project history entry for the chat back button.
+    if (entry && !history.state?.codeomeRoute) {
+      history.replaceState({ codeomeRoute: 'project' }, '', `#/p/${entry.project.key}`);
+      history.pushState({ codeomeRoute: 'chat' }, '', `#/c/${encodeURIComponent(route.id)}`);
+    }
+    state.projectKey = entry?.project.key || null;
+    if (state.chatId === route.id) { saveOpenChatSeen(); renderChatHeading(); return; }
+    if (entry && !entry.earlier) saveSeen(route.id, entry.chat.updatedAt);
+    openChat(route.id);
   }
   function answerValues(card, pending) {
     const questions = pending.input?.questions || [];
@@ -328,6 +425,12 @@
     setTimeout(() => { if (state.token && state.stream === controller) connectEvents(); }, wait);
   }
   function handleEvent(type, data) {
+    if (type === 'tabs' && data && /^[a-f0-9]{12}$/.test(data.key)) {
+      saveOpenChatSeen();
+      state.projects = Render.applyTabsEvent(state.projects, data);
+      saveOpenChatSeen();
+      renderPending(); renderProjects(); applyRoute();
+    }
     if (['added', 'decided', 'cancelled', 'chat-started', 'chat-exit'].includes(type)) {
       refreshState(); if (state.chatId && data.chatId === state.chatId) loadLog();
     }
@@ -350,13 +453,22 @@
   }
   document.addEventListener('click', (event) => {
     const target = event.target.closest('button'); if (!target) return;
-    if (target.id === 'back') { showInbox(); return; }
+    if (target.id === 'back' || target.id === 'chat-unavailable-back') {
+      if (state.chatId && state.projectKey) history.back();
+      else navigate('#/');
+      return;
+    }
     if (target.id === 'load-older') { older(); return; }
     if (target.id === 'reload-log') { loadLog(); return; }
-    if (target.hasAttribute('data-project-more')) {
-      state.expandedGroups.add(target.dataset.projectMore); renderChats(); return;
+    if (target.id === 'earlier-toggle') {
+      if (state.expandedEarlier.has(state.projectKey)) state.expandedEarlier.delete(state.projectKey);
+      else state.expandedEarlier.add(state.projectKey);
+      const project = state.projects.find((entry) => entry.key === state.projectKey);
+      if (project) renderProject(project);
+      return;
     }
-    if (target.dataset.chat) { openChat(target.dataset.chat); return; }
+    if (target.dataset.project) { navigate(`#/p/${encodeURIComponent(target.dataset.project)}`); return; }
+    if (target.dataset.chat) { navigate(`#/c/${encodeURIComponent(target.dataset.chat)}`); return; }
     if (target.dataset.tool) { loadTool(target); return; }
     if (target.dataset.option) {
       const card = target.closest('[data-pending]'); const pending = state.pending.find((entry) => cardKey(entry) === card?.dataset.pending);
@@ -392,6 +504,7 @@
   }, { passive: true });
   window.addEventListener('offline', () => connection('Offline'));
   window.addEventListener('online', () => { if (state.token) { state.stream?.abort(); connectEvents(); } });
+  window.addEventListener('hashchange', applyRoute);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
   let pairCode = null;
   if (location.hash.startsWith('#pair=')) {

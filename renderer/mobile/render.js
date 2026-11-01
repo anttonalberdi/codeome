@@ -30,58 +30,97 @@
   }
   const count = (value) => Math.max(0, Number.isFinite(Number(value)) ? Math.floor(Number(value)) : 0);
   const timestamp = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
-  const compareText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-  function projectParts(project) {
-    return project.split('/').filter(Boolean);
-  }
-  function groupChats(chats) {
-    const groups = new Map();
-    for (const chat of Array.isArray(chats) ? chats : []) {
-      if (!chat || typeof chat !== 'object' || Array.isArray(chat)) continue;
-      const path = typeof chat.project === 'string' ? chat.project : '';
-      if (!groups.has(path)) groups.set(path, { key: path, name: '', path, chats: [], pending: 0, running: 0, updatedAt: 0 });
-      const group = groups.get(path);
-      group.chats.push(chat);
-      group.pending += count(chat.pending);
-      group.running += chat.running ? 1 : 0;
-      group.updatedAt = Math.max(group.updatedAt, timestamp(chat.updatedAt));
+  function projectParts(project) { return text(project).split('/').filter(Boolean); }
+  function projectLabels(projects) {
+    const result = new Map();
+    const entries = Array.isArray(projects) ? projects : [];
+    const bases = new Map();
+    for (const project of entries) {
+      const base = text(project?.name) || projectParts(project?.path).at(-1) || 'No project';
+      bases.set(base, (bases.get(base) || 0) + 1);
     }
-    const result = [...groups.values()];
-    const baseCounts = new Map();
-    for (const group of result) {
-      if (!group.path) continue;
-      const parts = projectParts(group.path);
-      const base = parts.at(-1) || '/';
-      baseCounts.set(base, (baseCounts.get(base) || 0) + 1);
+    for (const project of entries) {
+      const parts = projectParts(project?.path);
+      const base = text(project?.name) || parts.at(-1) || 'No project';
+      result.set(project.key, bases.get(base) > 1 ? `${base} · ${parts.at(-2) || text(project?.path)}` : base);
     }
-    for (const group of result) {
-      if (!group.path) {
-        group.name = 'No project';
-      } else {
-        const parts = projectParts(group.path);
-        const base = parts.at(-1) || '/';
-        group.name = baseCounts.get(base) > 1 ? `${base} · ${parts.at(-2) || group.path}` : base;
-      }
-      group.chats.sort((a, b) => Number(count(b.pending) > 0) - Number(count(a.pending) > 0) ||
-        Number(!!b.running) - Number(!!a.running) || timestamp(b.updatedAt) - timestamp(a.updatedAt) ||
-        compareText(text(a.id), text(b.id)) || compareText(text(a.title), text(b.title)) ||
-        compareText(text(a.engine), text(b.engine)) || compareText(text(a.role), text(b.role)));
-    }
-    // Projects with the same parent and basename need another ancestor to stay distinguishable.
-    const maxDepth = Math.max(3, ...result.map((group) => projectParts(group.path).length + 1));
+    const maxDepth = Math.max(3, ...entries.map((project) => projectParts(project?.path).length + 1));
     for (let depth = 3; depth <= maxDepth; depth++) {
       const names = new Map();
-      for (const group of result) names.set(group.name, (names.get(group.name) || 0) + 1);
-      const duplicates = result.filter((group) => group.path && names.get(group.name) > 1);
+      for (const name of result.values()) names.set(name, (names.get(name) || 0) + 1);
+      const duplicates = entries.filter((project) => names.get(result.get(project.key)) > 1);
       if (!duplicates.length) break;
-      for (const group of duplicates) {
-        const parts = projectParts(group.path);
-        group.name = parts.length >= depth ? [parts.at(-1), ...parts.slice(-depth, -1).reverse()].join(' · ') :
-          `${parts.at(-1) || '/'} · ${group.path}`;
+      for (const project of duplicates) {
+        const parts = projectParts(project.path);
+        result.set(project.key, parts.length >= depth ? [text(project.name) || parts.at(-1), ...parts.slice(-depth, -1).reverse()].join(' · ') :
+          `${text(project.name) || parts.at(-1) || 'No project'} · ${text(project.path)}`);
       }
     }
-    return result.sort((a, b) => Number(b.pending > 0) - Number(a.pending > 0) ||
-      Number(b.running > 0) - Number(a.running > 0) || b.updatedAt - a.updatedAt || compareText(a.key, b.key));
+    return result;
+  }
+  const stateLabels = {
+    waiting: 'Waiting for you', working: 'Working', ready: 'Reply ready — not seen yet',
+    error: 'Stopped with an error — not seen yet', 'error-seen': 'Last turn ended with an error',
+    idle: 'Finished; session open', off: 'Session closed'
+  };
+  function displayedState(tab, seen) {
+    const state = Object.hasOwn(stateLabels, tab?.state) ? tab.state : 'off';
+    const seenAt = seen && Object.hasOwn(seen, tab.id) ? timestamp(seen[tab.id]) : 0;
+    if (seenAt && seenAt >= timestamp(tab.updatedAt)) {
+      if (state === 'ready') return 'idle';
+      if (state === 'error') return 'error-seen';
+    }
+    return state;
+  }
+  function phoneProject(project, seen) {
+    const tabs = (Array.isArray(project.tabs) ? project.tabs : []).map((tab) => {
+      const state = displayedState(tab, seen);
+      return { ...tab, state, label: state === tab.state ? tab.label : stateLabels[state] };
+    });
+    return { ...project, tabs, counts: { ...project.counts,
+      ready: tabs.filter((tab) => tab.state === 'ready').length,
+      error: tabs.filter((tab) => tab.state === 'error').length } };
+  }
+  function parseRoute(hash) {
+    if (!hash || hash === '#/' || hash === '#') return { type: 'home' };
+    if (hash.startsWith('#pair=')) return { type: 'pair' };
+    const match = /^#\/(p|c)\/([^/?#]+)$/.exec(hash);
+    if (!match) return { type: 'invalid' };
+    let id;
+    try { id = decodeURIComponent(match[2]); } catch { return { type: 'invalid' }; }
+    if (match[1] === 'p') return /^[a-f0-9]{12}$/.test(id) ? { type: 'project', key: id } : { type: 'invalid' };
+    return validId(id) ? { type: 'chat', id } : { type: 'invalid' };
+  }
+  function chatOf(projects, id) {
+    for (const project of projects) {
+      const tab = (project.tabs || []).find((entry) => entry.id === id);
+      if (tab) return { chat: tab, project, earlier: false };
+      const earlier = (project.earlier || []).find((entry) => entry.id === id);
+      if (earlier) return { chat: earlier, project, earlier: true };
+    }
+    return null;
+  }
+  function resolveRoute(hash, projects) {
+    const route = parseRoute(hash);
+    if (route.type === 'project') return (projects || []).some((project) => project.key === route.key) ? route :
+      { type: 'unknown-project', key: route.key };
+    if (route.type === 'chat') return { ...route, entry: chatOf(projects || [], route.id) };
+    return route;
+  }
+  function applyTabsEvent(projects, data) {
+    if (!data || typeof data.key !== 'string' || !/^[a-f0-9]{12}$/.test(data.key)) return projects;
+    const remaining = projects.filter((project) => project.key !== data.key);
+    if (data.removed === true) return remaining;
+    remaining.push(data);
+    return remaining.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  }
+  function openChatSeenAt(projects, chatId) {
+    if (!chatId) return 0;
+    for (const project of projects) {
+      const tab = (project.tabs || []).find((entry) => entry.id === chatId);
+      if (tab) return timestamp(tab.updatedAt);
+    }
+    return 0;
   }
   function relativeTime(value, now) {
     const at = timestamp(value);
@@ -94,23 +133,22 @@
     if (hours < 24) return `${hours} hr ago`;
     return `${Math.floor(hours / 24)} d ago`;
   }
-  function renderChatGroups(groups, expanded = new Set(), now = Date.now()) {
-    if (!groups.length) return '<p class="empty">No chats yet.</p>';
-    return groups.map((group) => {
-      const nonRunning = group.chats.filter((chat) => !chat.running);
-      const visibleNonRunning = new Set([...nonRunning].sort((a, b) =>
-        timestamp(b.updatedAt) - timestamp(a.updatedAt) || compareText(text(a.id), text(b.id))).slice(0, 10));
-      const isExpanded = expanded.has(group.key);
-      const visible = [];
-      for (const chat of group.chats) {
-        if (!chat.running && !isExpanded && !visibleNonRunning.has(chat)) continue;
-        const pending = count(chat.pending);
-        const recent = relativeTime(chat.updatedAt, now);
-        visible.push(`<button type="button" class="chat-entry" data-chat="${display(chat.id)}"><strong>${display(chat.title || 'Untitled chat')}</strong><span class="meta">${chat.running ? 'Running' : `Recent${recent ? ` · ${recent}` : ''}`}${pending ? ` · ${pending} pending` : ''}</span></button>`);
-      }
-      const hiddenCount = isExpanded ? 0 : Math.max(0, nonRunning.length - 10);
-      return `<section class="chat-group" aria-label="${display(group.name)}"><header class="chat-group-header"><h3>${display(group.name)}</h3><div class="group-badges">${group.pending ? `<span class="group-badge waiting">${group.pending} waiting</span>` : ''}${group.running ? `<span class="group-badge">${group.running} running</span>` : ''}</div>${group.path ? `<p class="project-path">${display(group.path)}</p>` : ''}</header><div class="group-chats">${visible.join('')}</div>${hiddenCount ? `<button type="button" class="show-more" data-project-more="${display(group.key)}">Show ${hiddenCount} more</button>` : ''}</section>`;
-    }).join('');
+  function renderProjectCard(project, name, now = Date.now()) {
+    const counts = project.counts || {};
+    const chips = [['waiting', 'waiting'], ['working', 'working'], ['ready', 'ready'], ['error', 'error'], ['jobs', 'specialists']]
+      .map(([key, label]) => count(counts[key]) ? `<span class="marker-chip ${key}">${key === 'jobs' ? '' : `<span class="state-dot ${key}" aria-hidden="true"></span>`}${count(counts[key])} ${label}</span>` : '').join('');
+    const recent = relativeTime(project.updatedAt, now);
+    return `<button type="button" class="project-card card" data-project="${display(project.key)}"><span class="project-title">${display(name || project.name)}</span><span class="project-path">${display(project.path)}</span>${recent ? `<span class="meta">Last activity ${recent}</span>` : ''}${chips ? `<span class="marker-chips">${chips}</span>` : ''}</button>`;
+  }
+  function renderTabRow(tab, now = Date.now()) {
+    const state = Object.hasOwn(stateLabels, tab.state) ? tab.state : 'off';
+    const recent = relativeTime(tab.updatedAt, now);
+    const label = tab.label || stateLabels[state];
+    return `<button type="button" class="tab-row${tab.active ? ' active' : ''}" data-chat="${display(tab.id)}"${tab.active ? ' aria-current="true"' : ''}><span class="state-dot ${state}" aria-hidden="true"></span><span class="tab-content"><span class="tab-title">${display(tab.title || 'Untitled chat')}</span><span class="tab-label">${display(label)}</span><span class="tab-meta">${count(tab.jobs) ? `<span class="tab-badge">${count(tab.jobs)} specialist${count(tab.jobs) === 1 ? '' : 's'}</span>` : ''}${tab.engine ? `<span class="tab-chip">${display(tab.engine)}</span>` : ''}${tab.role ? `<span class="tab-chip">${display(tab.role)}</span>` : ''}${recent ? `<span class="meta">${recent}</span>` : ''}</span></span></button>`;
+  }
+  function renderEarlierRow(chat, now = Date.now()) {
+    const recent = relativeTime(chat.updatedAt, now);
+    return `<button type="button" class="earlier-row" data-chat="${display(chat.id)}"><span>${display(chat.title || 'Untitled chat')}</span>${recent ? `<small class="meta">${recent}</small>` : ''}</button>`;
   }
   function images(item) {
     return (Array.isArray(item.images) ? item.images : []).map((ref) =>
@@ -135,9 +173,14 @@
   }
   function renderPending(pending, chat) {
     const detail = describeDecision(pending);
-    const chatName = chat?.title || 'Untitled chat';
-    const projectPath = chat?.project || '';
-    const projectName = chat?.projectName || groupChats(chat ? [chat] : [])[0]?.name || 'No project';
+    const serverPath = typeof pending.project === 'string';
+    const projectPath = serverPath ? pending.project : chat?.project || '';
+    const serverName = typeof pending.projectName === 'string';
+    const projectName = serverName ? (pending.projectName || projectParts(serverPath ? pending.project : '').at(-1) || 'No project') :
+      serverPath ? (projectParts(projectPath).at(-1) || 'No project') :
+        (chat?.projectName || projectParts(projectPath).at(-1) || 'No project');
+    const chatName = (typeof pending.chatTitle === 'string' ? pending.chatTitle : chat?.title) ||
+      pending.chatId || 'Untitled chat';
     const key = `${pending.chatId}/${pending.requestId}`;
     const question = pending.toolName === 'AskUserQuestion';
     const questions = question && Array.isArray(pending.input?.questions) ? pending.input.questions : [];
@@ -162,7 +205,9 @@
         q.header ? `<p>${display(q.header)}</p>` : ''}${(Array.isArray(q.options) ? q.options : []).map((option, n) =>
           `<button type="button" class="option" data-option="${index}:${n}" aria-pressed="false">${display(option.label)}${option.description ? `<small>${display(option.description)}</small>` : ''}</button>`).join('')}<label>Other answer (optional)<input data-other="${index}" type="text" autocomplete="off"></label><p class="field-error" data-error="${index}" role="alert"></p></fieldset>`).join('') : ''}<div class="actions"><button type="button" class="primary" data-decision="allow"${detail.allowDisabled || missingQuestions ? ' disabled' : ''}>${question ? 'Submit answers' : 'Allow once'}</button><button type="button" data-decision="deny">Deny</button></div><p class="decision-error" role="alert"></p></article>`;
   }
-  const api = { esc, display, inputText, visibleText, validId, groupChats, renderChatGroups, renderItem, renderPending, describeDecision, stateOf };
+  const api = { esc, display, inputText, visibleText, validId, projectLabels, displayedState, phoneProject,
+    parseRoute, chatOf, resolveRoute, applyTabsEvent, openChatSeenAt, relativeTime, renderProjectCard,
+    renderTabRow, renderEarlierRow, renderItem, renderPending, describeDecision, stateOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Render = api;
 })(typeof window !== 'undefined' ? window : globalThis);

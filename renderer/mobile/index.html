@@ -14,10 +14,11 @@
 </head>
 <body>
   <div id="app">
-    <header class="topbar"><button id="back" type="button" hidden>‹ Inbox</button><h1 id="heading">Codeome</h1><span id="connection" role="status">Connecting</span></header>
+    <header class="topbar"><button id="back" type="button" hidden>‹ Back</button><h1 id="heading">Codeome</h1><span id="connection" role="status">Connecting</span></header>
     <main id="main">
       <section id="notice" class="notice" hidden role="alert"></section>
-      <section id="inbox" aria-label="Inbox"><h2>Pending decisions</h2><div id="pending-list"><p class="empty">Loading decisions…</p></div><h2>Chats</h2><div id="chat-list"><p class="empty">Loading chats…</p></div></section>
+      <section id="inbox" aria-label="Home"><h2>Pending decisions</h2><div id="pending-list"><p class="empty">Loading decisions…</p></div><h2>Projects</h2><div id="project-list"><p class="empty">Loading projects…</p></div></section>
+      <section id="project" aria-label="Project" hidden><div id="tab-list"></div><section class="earlier-section"><button id="earlier-toggle" type="button" aria-expanded="false">Earlier chats (0)</button><div id="earlier-list" hidden></div></section></section>
       <section id="chat" aria-label="Chat" hidden><div id="chat-pending"></div><div id="log" role="log" aria-live="polite"></div><form id="reply-form"><label for="reply">Reply</label><textarea id="reply" rows="2" maxlength="20000" required></textarea><p id="reply-error" class="field-error" role="alert"></p><div class="actions"><button id="send" type="submit" class="primary">Send</button><button id="stop" type="button">Stop</button></div></form></section>
     </main>
   </div>
