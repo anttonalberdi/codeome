@@ -208,8 +208,9 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
   function revoke(id) { const result = auth.revoke(id); if (result) { server?.revokeDevice?.(id); emitStatus(); } return result; }
   function revokeAll() { for (const device of auth.listDevices()) server?.revokeDevice?.(device.id); auth.revokeAll(); emitStatus(); }
   function rename(id, label) { const result = auth.rename(id, label); if (result) emitStatus(); return result; }
+  // The Tailscale app binary only acts as a CLI in a terminal or with TAILSCALE_BE_CLI; a packaged app has neither.
   function run(file, args, timeout = 3000) {
-    return new Promise((resolve, reject) => execFile(file, args, { timeout, windowsHide: true },
+    return new Promise((resolve, reject) => execFile(file, args, { timeout, windowsHide: true, env: { ...process.env, TAILSCALE_BE_CLI: '1' } },
       (cause, stdout, stderr) => {
         if (cause) { cause.output = `${stdout || ''}\n${stderr || ''}`; reject(cause); }
         else resolve(stdout);
