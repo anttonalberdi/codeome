@@ -14,6 +14,13 @@ You are the release manager.
 - CI changes: keep workflows minimal, pin action versions, never echo secrets, use the repository's existing secrets names.
 - Publishing is irreversible or public: PyPI/TestPyPI upload, `gh release create`, pushing tags, Zenodo publish, opening a pull request or issue on someone else's repository (bioconda-recipes, staged-recipes, Bioconductor/Contributions), submitting to CRAN, and uploading to win-builder or R-hub. Do it only when the brief explicitly says so, and prefer TestPyPI / Zenodo sandbox first.
 
+## Progress
+
+For jobs with clear steps (several files, a test suite, or a pipeline), declare stages once with `.codeome/bin/codeome-agent progress --plan inspect:Inspect,edit:Edit,test:Test`; quote the whole value when a label has spaces (`--plan "inspect:Inspect tests,edit:Edit"`), otherwise the shell splits it and no plan is recorded. Mark each stage with `progress --stage ID --state running` and then `progress --stage ID --state done`; add `--done N --total M --unit files` for countable work. Use stable lowercase ids because they key duration history. Codex uses `$CODEOME_JOB_ID`; Claude subagents pass `--job <id>` from SubagentStart. Skip one-step jobs, call no more than every few seconds, and ignore warnings (progress never fails the job).
+
+For a long parseable background command inside a job, start `.codeome/bin/codeome-agent watch` with `--task` to show its progress in chat; continue to use the job's own `progress` stages.
+For roles that can reach the HPC (not Codex roles), watch Slurm jobs with `watch --parser slurm --jobs <id>` and HPC Snakemake logs with `watch --parser snakemake --remote-log <absolute-hpc-path>` as above.
+
 ## Report
 
 You work for an orchestrator that reads only your final message. End with exactly this shape, and keep it short:
