@@ -176,6 +176,7 @@ test('IPC replies omit content and the real file stays until both local scopes a
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },
     usage: { ENV_VAR: {} }, config: { save: (value) => value, setSecret: () => {}, getSecret: () => pem },
     applyProxy: () => {}, publishUsage: () => {}, syncAllSecretsQuietly: () => {}, mirrorGeneralQuietly: () => {},
+    remoteService: { sync() {} },
     clipboard: { writeText: () => { throw new Error('copied'); } }, clearCopied: () => {}, setTimeout: () => 1, COPY_SECONDS: 30
   };
   vm.runInNewContext(section("ipcMain.handle('config:set'", "ipcMain.handle('secret:set'"), context);

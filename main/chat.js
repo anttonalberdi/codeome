@@ -263,9 +263,10 @@ class Session extends EventEmitter {
   // shell: a login shell, so the agent's tools see the same PATH as a terminal.
   // autoAllow(request): true for tool requests the host approves without asking.
   // meter: where a resumed conversation's token meter picks up (see stats.Meter).
-  constructor({ id, cwd, shell, bin, args, env, prefix = [], autoAllow, meter, policy }) {
+  constructor({ id, cwd, shell, bin, args, env, prefix = [], autoAllow, meter, policy, mode = 'default' }) {
     super();
     Object.assign(this, { id, cwd, shell, bin, args, env, prefix, autoAllow, policy });
+    this.permissionMode = mode;
     this.env = { ...(env || process.env) };
     delete this.env.CODEOME_HPC_HOST;
     delete this.env.CODEOME_HPC_SOCKET;
@@ -332,7 +333,7 @@ class Session extends EventEmitter {
     const rid = 'codeome-' + (++this.seq);
     return new Promise((resolve) => {
       const t = setTimeout(() => { this.waiting.delete(rid); resolve({ error: 'No answer from Claude Code.' }); }, timeoutMs);
-      this.waiting.set(rid, (r) => { clearTimeout(t); resolve(r); });
+      this.waiting.set(rid, (r) => { clearTimeout(t); if (!r?.error && request?.subtype === 'set_permission_mode') this.permissionMode = request.mode; resolve(r); });
       this.write({ type: 'control_request', request_id: rid, request });
     });
   }

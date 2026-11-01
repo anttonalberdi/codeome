@@ -56,6 +56,24 @@ const DEFAULTS = {
   },
   // Agent jobs are held back once the 5-hour or weekly limit passes this percentage.
   usage: { stopAt: 90, codexRefreshSeconds: 180 },
+  remote: {
+    enabled: false,
+    mode: 'serve',         // 'serve' or 'tailnet'
+    port: 0,               // 0 uses port 47821
+    phoneBashAllow: ['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'echo', 'git status', 'git diff', 'git log', 'git show', 'git branch', 'npm test', 'npm run test', 'node --test', 'pytest', 'grep', 'rg', 'find', 'which', 'date'],
+    requireDesktopFor: [
+      { tool: 'Bash', pattern: '\\brm\\s+-(?:rf|fr)\\b' },
+      { tool: 'Bash', pattern: '\\bsudo\\b' },
+      { tool: 'Bash', pattern: '\\b(?:curl|wget)\\b[^\\n|]{0,200}\\|\\s*(?:ba)?sh\\b' },
+      { tool: 'Bash', pattern: '\\bgit\\s+push\\b' },
+      { tool: 'Bash', pattern: '\\bssh\\b' },
+      { tool: 'Write', outsideProject: true },
+      { tool: 'Edit', outsideProject: true },
+      { role: 'hpc-operator' }
+    ],
+    ntfy: { enabled: false, server: 'https://ntfy.sh' },
+    notifyOnlyWhenAway: true
+  },
   // model: the orchestrator's Claude model; '' uses the command's own. modelPicked: chosen in Settings.
   // effort: its effort level (low … max); '' leaves it to the model.
   // quick: messages sent often, listed under the button beside the message box.
@@ -76,6 +94,7 @@ const DEFAULTS = {
   projectHpc: {},         // project → { paths: [HPC folders] }; first folder is the root
   gitAccounts: [],        // GitHub account metadata; tokens stay in the encrypted secret store
   projectAccounts: {},    // project → GitHub account id; kept when the project is closed
+  remoteDevices: [],      // paired device metadata and token hashes; never plaintext tokens
   policyDefaults: {},     // app-wide agent policy switch values
   projectPolicy: {},      // project path → agent policy switch values
   projectChat: {},        // project path → agent chat defaults
@@ -149,11 +168,15 @@ function load() {
 }
 
 function save(cfg) {
+  const { validateRemoteConfig } = require('./remote-server');
+  const error = validateRemoteConfig(cfg.remote);
+  if (error) throw new Error(error);
   cfg.forum = forumSettings(cfg.forum);
   cfg.projectHpc = projectHpcSettings(cfg.projectHpc);
   cfg.secrets = secretSettings(cfg.secrets);
   fs.mkdirSync(app.getPath('userData'), { recursive: true });
-  fs.writeFileSync(file('config.json'), JSON.stringify(cfg, null, 2));
+  fs.writeFileSync(file('config.json'), JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  if (typeof fs.chmodSync === 'function') fs.chmodSync(file('config.json'), 0o600);
   return cfg;
 }
 

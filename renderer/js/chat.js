@@ -127,6 +127,8 @@
       const c = C.byId[id] || await codeome.chat.load(project, id).then((x) => (x && x.items ? live(x) : null));
       if (c) tabs.push(c);
     }
+    const pending = codeome.chat.pending ? await codeome.chat.pending().catch(() => []) : [];
+    for (const c of tabs) reconcilePending(c, pending);
     if (!tabs.length) tabs.push(blank(project));
     return { tabs, active: tabs.find((c) => c.id === saved.active) || tabs[0] };
   }
@@ -181,6 +183,7 @@
       if (!c) return App.err('That conversation could not be loaded.');
       t.tabs.push(c);
     }
+    reconcilePending(c, codeome.chat.pending ? await codeome.chat.pending().catch(() => []) : []);
     C.activate(c);
   };
 
@@ -523,6 +526,16 @@
 
   // ---------- events from the session ----------
   codeome.chat.onEvent(({ id, msg }) => { const chat = C.byId[id]; if (chat) handle(chat, msg); });
+  codeome.chat.onDecided?.(({ id, requestId, decision, source, answers }) => {
+    const chat = C.byId[id];
+    if (!chat) return;
+    const it = chat.requests[requestId]?.item || chat.items.find((item) => item.requestId === requestId);
+    if (!it || it.decided || it.answers) return;
+    delete chat.requests[requestId];
+    it.decided = decision; it.expired = false; it.source = source;
+    if (answers) it.answers = answers;
+    update(chat, it); paintState(); save(chat);
+  });
   codeome.chat.onExit(({ id, code, signal, stderr }) => {
     const chat = C.byId[id];
     if (!chat) return;
@@ -875,15 +888,30 @@
   };
 
   // ---------- permission prompts and questions ----------
-  function request(chat, m) {
+  function request(chat, m, notify = true) {
     const r = m.request || {};
-    if (r.subtype !== 'can_use_tool') return;
+    if (r.subtype !== 'can_use_tool' || chat.requests[m.request_id]) return;
     const it = r.tool_name === 'AskUserQuestion'
       ? { t: 'ask', requestId: m.request_id, questions: (r.input || {}).questions || [] }
       : { t: 'perm', requestId: m.request_id, tool: r.tool_name, title: r.title || null, reason: r.decision_reason || null, input: slimInput(r.input || {}), suggestions: r.permission_suggestions || null };
     chat.requests[m.request_id] = { input: r.input || {}, item: it };
     push(chat, it);
-    attention(chat, it.t === 'ask' ? 'The agent has a question.' : `The agent asks to use ${r.tool_name}.`);
+    if (notify) attention(chat, it.t === 'ask' ? 'The agent has a question.' : `The agent asks to use ${r.tool_name}.`);
+  }
+
+  function reconcilePending(chat, records) {
+    for (const record of records) {
+      if (record.chatId !== chat.id || chat.requests[record.requestId]) continue;
+      const it = [...chat.items].reverse().find((item) => item.requestId === record.requestId);
+      if (it && !it.decided && !it.answers) {
+        it.expired = false;
+        chat.requests[record.requestId] = { input: record.input || {}, item: it };
+      } else if (!it) request(chat, { request_id: record.requestId, request: {
+        subtype: 'can_use_tool', tool_name: record.toolName, input: record.input,
+        title: record.title, decision_reason: record.decisionReason, permission_suggestions: record.permissionSuggestions
+      } }, false);
+      chat.running = true; chat.busy = true; chat.busySince ||= Date.now();
+    }
   }
 
   async function decide(chat, it, decision, feedback) {
@@ -894,6 +922,7 @@
       ? { behavior: 'deny', message: feedback || 'The user declined this.' }
       : { behavior: 'allow', updatedInput: req.input, ...(decision === 'always' && it.suggestions ? { updatedPermissions: it.suggestions } : {}) };
     const r = await codeome.chat.respond(chat.id, it.requestId, resp);
+    if (r.already) return;
     if (r.error) { chat.requests[it.requestId] = req; return App.err(r.error); }
     it.decided = decision;
     update(chat, it); save(chat);
@@ -917,6 +946,7 @@
     if (!req) return;
     delete chat.requests[it.requestId];
     const r = await codeome.chat.respond(chat.id, it.requestId, { behavior: 'allow', updatedInput: { ...req.input, answers } });
+    if (r.already) return;
     if (r.error) { chat.requests[it.requestId] = req; return App.err(r.error); }
     it.answers = answers;
     update(chat, it); save(chat);
@@ -1161,11 +1191,12 @@
       done ? h('div.ask-done', status) : h('div.row.wrap.ask-btns',
         h('button.btn.small.primary', { onclick: () => decide(chat, it, 'allow') }, it.tool === 'ExitPlanMode' ? 'Approve' : 'Allow'),
         it.suggestions && it.suggestions.length && it.tool !== 'ExitPlanMode' ? h('button.btn.small', { onclick: () => decide(chat, it, 'always') }, 'Always allow') : null,
-        h('button.btn.small', { onclick: () => decide(chat, it, 'deny', it.tool === 'ExitPlanMode' ? 'The user wants to keep planning. Wait for their feedback.' : null) }, it.tool === 'ExitPlanMode' ? 'Keep planning' : 'Deny')));
+        h('button.btn.small', { onclick: () => decide(chat, it, 'deny', it.tool === 'ExitPlanMode' ? 'The user wants to keep planning. Wait for their feedback.' : null) }, it.tool === 'ExitPlanMode' ? 'Keep planning' : 'Deny')),
+      it.source === 'phone' ? h('div.sub', 'Answered from phone: ' + (it.decided === 'deny' ? 'Deny' : 'Allow')) : null);
   }
 
   function askCard(chat, it) {
-    const done = it.answers || it.expired;
+    const done = it.answers || it.decided || it.expired;
     const picks = it.questions.map(() => new Set());
     const others = it.questions.map(() => null);
     const single = it.questions.length === 1 && !it.questions[0].multiSelect;
@@ -1188,7 +1219,7 @@
       it.questions.map((q, k) => h('div.ask-q',
         q.header ? h('span.pill', q.header) : null,
         h('div.ask-h', linkPaths(q.question)),
-        done ? h('div.ask-done', it.answers ? (it.answers[q.question] || '—') : 'No longer waiting') : h('div.ask-opts',
+        done ? h('div.ask-done', it.answers ? (it.answers[q.question] || '—') : it.decided ? (it.decided === 'deny' ? 'Declined' : 'Answered') : 'No longer waiting') : h('div.ask-opts',
           q.options.map((o) => {
             const b = h('button.ask-opt', { title: o.description || '', 'aria-pressed': 'false', onclick: () => {
               if (single) return answer(chat, it, { [q.question]: o.label });
@@ -1206,7 +1237,8 @@
               if (single && e.target.value.trim()) answer(chat, it, { [q.question]: e.target.value.trim() });
               else if (submitBtn) submitBtn.click();
             } }))))),
-      done || single ? null : h('div.row.ask-btns', submitBtn));
+      done || single ? null : h('div.row.ask-btns', submitBtn),
+      it.source === 'phone' ? h('div.sub', 'Answered from phone: ' + (it.decided === 'deny' ? 'Deny' : 'Answered')) : null);
   }
 
   // ---------- view ----------

@@ -106,7 +106,7 @@ test('config changes remove a placed file only when no local scope remains or ac
     secrets, placedSecrets, secretFileStore: { remove: (name) => removed.push(name) },
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, usage: { ENV_VAR: {} },
     awake: { track() {}, sync() {}, dispose() {} }, config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
-    syncAllSecretsQuietly: () => {}, mirrorGeneralQuietly: () => {}
+    syncAllSecretsQuietly: () => {}, mirrorGeneralQuietly: () => {}, remoteService: { sync() {} }
   };
   vm.runInNewContext(section("ipcMain.handle('config:set'", "ipcMain.handle('secret:set'"), context);
   const save = (change) => handlers['config:set'](null, { ...context.cfg, secrets: [{ ...context.cfg.secrets[0], ...change }] });
@@ -127,7 +127,7 @@ test('config cleanup clears placed state when file removal fails', () => {
     secrets, placedSecrets, secretFileStore: { remove: () => { throw new Error('private content'); } },
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, usage: { ENV_VAR: {} },
     awake: { track() {}, sync() {}, dispose() {} }, config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
-    syncAllSecretsQuietly: () => {}, mirrorGeneralQuietly: () => {}
+    syncAllSecretsQuietly: () => {}, mirrorGeneralQuietly: () => {}, remoteService: { sync() {} }
   };
   vm.runInNewContext(section("ipcMain.handle('config:set'", "ipcMain.handle('secret:set'"), context);
   const result = handlers['config:set'](null, { ...context.cfg, secrets: [{ ...old, terminals: false }] });
@@ -148,7 +148,8 @@ test('agent secret metadata exposes file kind and quit hooks clean up files', ()
   vm.runInNewContext(section("app.on('before-quit'", "app.on('window-all-closed'"), {
     app: { on: (name, fn) => { hooks[name] = fn; } }, secretFileStore: { cleanupAll: () => cleaned.push(true) },
     awake: { track() {}, sync() {}, dispose() {} }, forumHost: { disposeAll: () => {} }, clearCopied: () => {}, stopLogins: () => {}, tunnel: null,
-    heartbeatTimer: null, clearInterval: () => {}, flushRendererLogs: () => {}, crashlog: { markClean: () => {} }
+    heartbeatTimer: null, clearInterval: () => {}, flushRendererLogs: () => {}, crashlog: { markClean: () => {} },
+    remoteService: { stop() {} }
   });
   hooks['before-quit']();
   hooks['will-quit']();

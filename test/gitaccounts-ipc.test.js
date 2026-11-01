@@ -24,7 +24,7 @@ test('config:set keeps main-process GitHub bindings and renderer policy and chat
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },
     usage: { ENV_VAR: {} },
     config: { save: (cfg) => cfg },
-    applyProxy: () => {}, publishUsage: () => {}, refreshUsage: () => {}
+    applyProxy: () => {}, publishUsage: () => {}, refreshUsage: () => {}, remoteService: { sync() {} }
   };
   vm.runInNewContext(section("ipcMain.handle('config:set'", "ipcMain.handle('secret:set'"), context);
   const saved = handlers['config:set'](null, {

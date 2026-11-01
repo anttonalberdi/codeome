@@ -48,9 +48,15 @@ contextBridge.exposeInMainWorld('codeome', {
   },
   setup: { status: invoke('setup:status'), testLogin: invoke('setup:testLogin'), testVpn: invoke('setup:testVpn'), install: invoke('setup:install'), addHost: invoke('setup:addHost') },
   remote: {
+    status: invoke('remote:status'), pair: invoke('remote:pair'),
+    revoke: (id) => ipcRenderer.invoke('remote:revoke', { id }),
+    tailscale: invoke('remote:tailscale'), ntfy: (action) => ipcRenderer.invoke('remote:ntfy', action),
+    onStatus: on('remote:status'),
     list: invoke('remote:list'), read: invoke('remote:read'),
     write: (path, content) => ipcRenderer.invoke('remote:write', { path, content }),
-    mkdir: invoke('remote:mkdir'), rename: (from, to) => ipcRenderer.invoke('remote:rename', { from, to }),
+    mkdir: invoke('remote:mkdir'),
+    rename: (from, to) => ipcRenderer.invoke('remote:rename', { from, to }),
+    renameDevice: (id, label) => ipcRenderer.invoke('remote:renameDevice', { id, label }),
     delete: invoke('remote:delete'), du: invoke('remote:du')
   },
   storage: {
@@ -117,9 +123,9 @@ contextBridge.exposeInMainWorld('codeome', {
     respond: (id, requestId, response) => ipcRenderer.invoke('chat:respond', { id, requestId, response }),
     control: (id, request) => ipcRenderer.invoke('chat:control', { id, request }),
     save: (project, chat) => ipcRenderer.invoke('chat:save', { project, chat }),
-    list: invoke('chat:list'), load: (project, id) => ipcRenderer.invoke('chat:load', { project, id }),
+    list: invoke('chat:list'), load: (project, id) => ipcRenderer.invoke('chat:load', { project, id }), pending: invoke('chat:pending'),
     delete: (project, id) => ipcRenderer.invoke('chat:delete', { project, id }),
-    onEvent: on('chat:event'), onExit: on('chat:exit')
+    onEvent: on('chat:event'), onExit: on('chat:exit'), onDecided: on('chat:decided')
   },
   forum: {
     create: invoke('forum:create'), open: (project, id) => ipcRenderer.invoke('forum:open', { project, id }),

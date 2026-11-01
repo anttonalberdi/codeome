@@ -23,6 +23,11 @@ const projectChat = require('./projectchat');
 const policy = require('./policy');
 const resources = require('./resources');
 const { createAwake } = require('./awake');
+const { createRemote } = require('./remote');
+const { createServer } = require('./remote-server');
+const { createAuth, createLimiter } = require('./remote-auth');
+const { createService } = require('./remote-service');
+const { execFile } = require('node:child_process');
 const forumstore = require('./forumstore');
 const { createHost } = require('./forumhost');
 const rtools = require('./rtools');
@@ -107,6 +112,13 @@ function logRendererLine(message, source) {
 }
 
 function send(channel, payload) { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); }
+const remote = createRemote({ send, loadChat: chat.loadChat });
+const remoteService = createService({ createServer, createAuth, createLimiter, remote, sessions: chats,
+  loadChat: chat.loadChat, listChats: chat.listChats, getConfig: () => cfg,
+  getSecret: config.getSecret, setSecret: config.setSecret,
+  getDevices: () => cfg.remoteDevices, saveDevices: (devices) => { cfg = config.save({ ...cfg, remoteDevices: devices }); },
+  staticDir: path.join(__dirname, '..', 'renderer', 'mobile'), execFile, send });
+remoteService.on('status-changed', (state) => send('remote:status', state));
 
 function createWindow() {
   win = new BrowserWindow({
@@ -350,7 +362,7 @@ ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const p = ptys.get(id); i
 ipcMain.on('pty:kill', (_e, { id }) => { spawning.delete(id); const p = ptys.get(id); if (p) { try { p.kill(); } catch {} ptys.delete(id); } });
 
 // ---------- config & secrets ----------
-ipcMain.handle('config:get', () => cfg);
+ipcMain.handle('config:get', () => { const { remoteDevices, ...publicConfig } = cfg; return publicConfig; });
 ipcMain.on('log:renderer', (event, payload) => {
   if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
   if (typeof payload !== 'string' && (!payload || typeof payload !== 'object' || Array.isArray(payload))) return;
@@ -378,7 +390,8 @@ ipcMain.handle('config:set', (_e, c) => {
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
   const secretsChanged = JSON.stringify(c.secrets) !== JSON.stringify(cfg.secrets);
   const oldSecrets = cfg.secrets || [];
-  cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts });
+  cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts, remoteDevices: cfg.remoteDevices });
+  remoteService.sync();
   awake.sync();
   for (const old of oldSecrets) {
     if (!old || secrets.kindOf(old) !== 'file') continue;
@@ -397,8 +410,14 @@ ipcMain.handle('config:set', (_e, c) => {
   // The new list shows at once; who is signed in and the Codex limits follow.
   publishUsage();
   if (accountsChanged) refreshUsage(true);
-  return cfg;
+  const { remoteDevices, ...publicConfig } = cfg;
+  return publicConfig;
 });
+ipcMain.handle('remote:status', () => remoteService.status());
+ipcMain.handle('remote:pair', () => remoteService.pair());
+ipcMain.handle('remote:revoke', (_e, { id }) => remoteService.revoke(id));
+ipcMain.handle('remote:tailscale', () => remoteService.tailscale());
+ipcMain.handle('remote:ntfy', (_e, action) => remoteService.ntfy(action));
 ipcMain.handle('secret:set', (_e, { key, value }) => { config.setSecret(key, value); return true; });
 ipcMain.handle('secret:has', (_e, key) => config.hasSecret(key));
 // Your own secrets. The window names them and never reads a value back: a copy goes from
@@ -703,7 +722,10 @@ ipcMain.handle('remote:list', (_e, dir) => ssh.list(cfg.hpc.host, dir));
 ipcMain.handle('remote:read', (_e, p) => ssh.readFile(cfg.hpc.host, p));
 ipcMain.handle('remote:write', (_e, { path: p, content }) => ssh.writeFile(cfg.hpc.host, p, content));
 ipcMain.handle('remote:mkdir', async (_e, p) => { const r = await ssh.exec(cfg.hpc.host, `mkdir -p ${q(p)}`); return r.code === 0 ? { ok: true } : { error: r.stderr.trim() }; });
-ipcMain.handle('remote:rename', async (_e, { from, to }) => { const r = await ssh.exec(cfg.hpc.host, `mv ${q(from)} ${q(to)}`); return r.code === 0 ? { ok: true } : { error: r.stderr.trim() }; });
+ipcMain.handle('remote:renameDevice', (_e, { id, label }) => remoteService.rename(id, label));
+ipcMain.handle('remote:rename', async (_e, { from, to }) => {
+  const r = await ssh.exec(cfg.hpc.host, `mv ${q(from)} ${q(to)}`); return r.code === 0 ? { ok: true } : { error: r.stderr.trim() };
+});
 ipcMain.handle('remote:delete', async (_e, p) => { const r = await ssh.exec(cfg.hpc.host, `rm -rf -- ${q(p)}`); return r.code === 0 ? { ok: true } : { error: r.stderr.trim() }; });
 ipcMain.handle('remote:du', async (_e, p) => { const r = await ssh.exec(cfg.hpc.host, `du -sh ${q(p)} 2>/dev/null | cut -f1`, { timeout: 120000 }); return { size: r.stdout.trim() }; });
 ipcMain.handle('remote:quota', async () => {
@@ -1221,9 +1243,10 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
       instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, secrets: secretsInfo, persona, cwd: project, policyAtSpawn }), model: chatDefaults.codexModel, effort: chatDefaults.codexEffort });
   } else {
     if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy });
+    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy, mode });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
+  s.permissionMode = mode;
   awake.track(id, s);
   s.on('exit', (r) => {
     crashlog.log(r.code === 0 && !r.signal ? 'info' : 'warn', 'chat exit',
@@ -1240,13 +1263,14 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
   try {
     const { s, acct } = createAgentSession({ id, project, engine, account, resume, mode, meter, persona });
     s.on('message', (msg) => send('chat:event', { id, msg }));
+    remote.attach(s, id, { project, engine, role: persona, seed: resume });
     // Codex limits are read from its app-server by the usage poll, so only Claude's are recorded here.
     s.on('turn', (t) => { if (scratch.isScratch(project)) return; try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, engine, ...t }); } catch (e) { console.error('chat stats', e); } });
     s.on('exit', (r) => { chats.delete(id); send('chat:exit', { id, ...r }); });
     s.start();
     chats.set(id, s);
     return { ok: true, account: acct.info };
-  } catch (e) { return { error: String(e.message || e) }; }
+  } catch (e) { remote.detach(id); return { error: String(e.message || e) }; }
 });
 
 const forumHost = createHost({ getCfg: () => cfg, send, claudeCmd, codexCmd, launchOn, stats,
@@ -1347,9 +1371,10 @@ ipcMain.handle('chat:move', (_e, { id, from, to, engine }) => {
     return { ok: true };
   } catch (e) { return { error: String(e.message || e) }; }
 });
-ipcMain.handle('chat:send', (_e, { id, text }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.user(text); return { ok: true }; });
-ipcMain.handle('chat:respond', (_e, { id, requestId, response }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.respond(requestId, response); return { ok: true }; });
-ipcMain.handle('chat:control', (_e, { id, request }) => { const s = chats.get(id); return s ? s.control(request) : { error: 'The session is not running.' }; });
+ipcMain.handle('chat:send', (_e, { id, text }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.user(text); remote.recordUser(id, text); return { ok: true }; });
+ipcMain.handle('chat:respond', (_e, { id, requestId, response }) => remote.respond(id, requestId, response, 'desktop'));
+ipcMain.handle('chat:pending', () => remote.registry.list());
+ipcMain.handle('chat:control', async (_e, { id, request }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; const result = await s.control(request); if (!result?.error && request?.subtype === 'set_permission_mode') s.permissionMode = request.mode; return result; });
 ipcMain.handle('chat:suggest', (_e, { text, account }) => {
   if ((cfg.chat || {}).suggest === false) return [];
   const a = cfg.accounts.claude.list.find((x) => x.name === account);
@@ -1360,7 +1385,7 @@ ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { return chat.sa
 ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));
 ipcMain.handle('chat:personas', () => chat.listPersonas());
 ipcMain.handle('chat:load', (_e, { project, id }) => chat.loadChat(project, id));
-ipcMain.handle('chat:delete', (_e, { project, id }) => chat.deleteChat(project, id));
+ipcMain.handle('chat:delete', (_e, { project, id }) => { const result = chat.deleteChat(project, id); if (result.ok && !chats.has(id)) remote.detach(id); return result; });
 // What the sessions used over the last days, with each session's chat title where it still exists.
 ipcMain.handle('stats:get', (_e, days) => {
   try {
@@ -1552,6 +1577,7 @@ app.whenReady().then(() => {
   const prev = crashlog.previousRun(logDir);
   crashlog.init({ dir: logDir, version: app.getVersion() });
   cfg = config.load();
+  remoteService.sync();
   applyProxy();
   app.setName('Codeome');
   // Packaged, the dock icon comes from build/icon.icns; under `npm start` it would be Electron's.
@@ -1589,6 +1615,7 @@ app.whenReady().then(() => {
 });
 app.on('before-quit', () => {
   quitting = true;
+  remoteService.stop();
   awake.dispose();
   try { forumHost.disposeAll(); clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); }
   finally { try { if (secretFileStore) secretFileStore.cleanupAll(); } catch {} clearInterval(heartbeatTimer); flushRendererLogs(); try { crashlog.markClean(); } catch {} }
