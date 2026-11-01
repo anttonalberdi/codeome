@@ -58,6 +58,9 @@
     const questions = question && Array.isArray(pending.input?.questions) ? pending.input.questions : [];
     const missingQuestions = question && !questions.length;
     const rawInput = inputText(pending.input);
+    // A plain question reads from its options, so the raw JSON is hidden; anything unexpected in it keeps the box.
+    const extraKeys = question && pending.input && typeof pending.input === 'object' ? Object.keys(pending.input).filter((key) => !['questions', 'answers', 'metadata'].includes(key)) : [];
+    const plainQuestion = question && !missingQuestions && !extraKeys.length;
     const warnings = Array.isArray(pending.warnings) ? pending.warnings : [];
     const shown = [rawInput, projectName, chatName, pending.toolName, pending.title, pending.decisionReason,
       ...warnings, ...questions.flatMap((q) => [q.question, q.header,
@@ -65,11 +68,11 @@
     const lines = rawInput.split('\n').length;
     const chars = Array.from(rawInput).length;
     const count = `${lines} ${lines === 1 ? 'line' : 'lines'}, ${chars} ${chars === 1 ? 'char' : 'chars'}`;
-    return `<article class="decision card" data-pending="${esc(key)}"><p class="eyebrow">${display(projectName)}</p><h3>${display(chatName)}</h3><p>${display(pending.toolName || 'Decision')}</p>${
+    return `<article class="decision card" data-pending="${esc(key)}"><p class="eyebrow">${display(projectName)}</p><h3>${display(chatName)}</h3><p>${display(question ? 'Question from the agent' : pending.toolName || 'Decision')}</p>${
       pending.title ? `<p>${display(pending.title)}</p>` : ''}${pending.decisionReason ? `<p>${display(pending.decisionReason)}</p>` : ''}${
       shown.some(hasHidden) ? '<p class="warning" role="status">contains hidden characters</p>' : ''}${
       warnings.map((warning) => `<p class="warning" role="status">${display(warning)}</p>`).join('')}${
-      detail.reason || missingQuestions ? `<p class="warning" role="status">${display(detail.reason || 'Question details unavailable. Answer on the desktop.')}</p>` : ''}<p class="input-count">${count}</p><pre class="full-input">${display(rawInput)}</pre>${
+      detail.reason || missingQuestions ? `<p class="warning" role="status">${display(detail.reason || 'Question details unavailable. Answer on the desktop.')}</p>` : ''}${plainQuestion ? '' : `<p class="input-count">${count}</p><pre class="full-input">${display(rawInput)}</pre>`}${
       question ? questions.map((q, index) => `<fieldset data-question="${index}"><legend>${display(q.question)}</legend>${
         q.header ? `<p>${display(q.header)}</p>` : ''}${(Array.isArray(q.options) ? q.options : []).map((option, n) =>
           `<button type="button" class="option" data-option="${index}:${n}" aria-pressed="false">${display(option.label)}${option.description ? `<small>${display(option.description)}</small>` : ''}</button>`).join('')}<label>Other answer (optional)<input data-other="${index}" type="text" autocomplete="off"></label><p class="field-error" data-error="${index}" role="alert"></p></fieldset>`).join('') : ''}<div class="actions"><button type="button" class="primary" data-decision="allow"${detail.allowDisabled || missingQuestions ? ' disabled' : ''}>${question ? 'Submit answers' : 'Allow once'}</button><button type="button" data-decision="deny">Deny</button></div><p class="decision-error" role="alert"></p></article>`;

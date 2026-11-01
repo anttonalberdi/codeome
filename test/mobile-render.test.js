@@ -43,6 +43,17 @@ test('permission and question history state is explicit', () => {
   assert.equal(Render.stateOf({ decided: 'allow' }), 'decided');
 });
 
+test('a plain question shows its options without the raw JSON input', () => {
+  const html = Render.renderPending({ chatId: 'chat', requestId: 'q1', toolName: 'AskUserQuestion',
+    input: { questions: [{ question: 'Which file?', header: 'File', multiSelect: false,
+      options: [{ label: 'a.txt', description: 'first' }, { label: 'b.txt' }] }] } });
+  assert.match(html, /Which file\?/);
+  assert.match(html, /data-option="0:1"/);
+  assert.match(html, /Submit answers/);
+  assert.match(html, /Question from the agent/);
+  assert.doesNotMatch(html, /full-input|input-count|AskUserQuestion|&quot;questions&quot;/);
+});
+
 test('pending card shows full input, options, and disabled reasons', () => {
   const pending = { chatId: 'chat', requestId: 'r1', toolName: 'AskUserQuestion',
     title: attack, decisionReason: attack,
