@@ -276,6 +276,8 @@
       card('Sessions',
         row('Agent sessions', check('Keep agent sessions on the HPC running in tmux', () => App.cfg.hpc.useTmux, (v) => { App.cfg.hpc.useTmux = v; }),
           'They reattach after a disconnect.'),
+        row('Connection', check('Reconnect automatically when the HPC connection drops', () => App.cfg.hpc.autoReconnect !== false, (v) => { App.cfg.hpc.autoReconnect = v; }),
+          'Tries again a few times. A saved password or an ssh key reconnects silently; a one-time code is asked for in the usual dialog.'),
         row('Refresh Slurm every', h('div.row', text(() => App.cfg.slurm.refreshSeconds, (v) => { App.cfg.slurm.refreshSeconds = Math.max(5, Number(v) || 20); }, { type: 'number', label: 'Seconds' }), h('span.hint', 'seconds')))));
   }
 

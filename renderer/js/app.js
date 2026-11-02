@@ -44,7 +44,23 @@
     if (!direct && !App.login.busy('hpc') && App.setup.tunnelOn() && !App.setup.vpnUp) return App.setup.startVpn({ thenConnect: true });
     App.login.start('hpc');
   };
-  App.disconnectHpc = async () => { await codeome.hpc.disconnect(); await App.pollHpc(); App.toast('Disconnected.'); };
+  App.disconnectHpc = async () => { rc.want = false; clearTimeout(rc.timer); await codeome.hpc.disconnect(); await App.pollHpc(); App.toast('Disconnected.'); };
+
+  // Reconnecting after a drop. Once the connection has been seen up and nobody disconnected it,
+  // a lost connection is opened again: at once, then after 15 s, 1 min and 3 min. A saved password
+  // or an ssh key reconnects silently; a one-time code is asked for in the usual dialog. Cancelling
+  // that dialog, or running out of tries, stops it until Connect is pressed.
+  const rc = { want: false, tries: 0, timer: null };
+  const RETRY_MS = [3000, 15000, 60000, 180000];
+  const retry = () => {
+    clearTimeout(rc.timer);
+    if (!rc.want || App.cfg.hpc.autoReconnect === false) return;
+    if (rc.tries >= RETRY_MS.length) {
+      rc.want = false;
+      return App.toast(`Could not reconnect to ${App.hpcName()}.`, { error: true, action: { label: 'Connect', run: () => App.connectHpc() } });
+    }
+    rc.timer = setTimeout(() => { if (rc.want && !App.hpcConnected && !App.login.busy('hpc')) { rc.tries++; App.connectHpc(); } }, RETRY_MS[rc.tries]);
+  };
 
   // ---------- long-term storage (SFTP) ----------
   // Same pattern as the HPC: a background login opens a shared connection the file browser reuses.
@@ -71,6 +87,8 @@
     const was = App.hpcConnected;
     App.hpcConnected = st.connected;
     if (was !== st.connected) App.emit('hpc', st.connected);
+    if (st.connected) { rc.want = true; rc.tries = 0; clearTimeout(rc.timer); }
+    else if (was && rc.want && App.cfg.hpc.autoReconnect !== false) { App.toast(`Lost the connection to ${App.hpcName()}. Reconnecting…`); retry(); }
     const wasStorage = App.storageConnected;
     App.storageConnected = so.connected;
     if (wasStorage !== so.connected) App.emit('storage', so.connected);
@@ -79,7 +97,13 @@
   };
   App.listen('jobs', (j) => { jobs = j; paint(); });
   App.listen('vpn', () => paint());
-  App.listen('login', () => paint());
+  App.listen('login', (t) => {
+    paint();
+    if (t !== 'hpc' || !rc.want) return;
+    const phase = App.login.state.hpc.phase;
+    if (phase === 'failed') retry();
+    else if (phase === 'stopped' && !App.hpcConnected) { rc.want = false; clearTimeout(rc.timer); }
+  });
   App.listen('config', () => paint());
 
   function paint() {
