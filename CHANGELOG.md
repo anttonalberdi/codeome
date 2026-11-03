@@ -4,7 +4,11 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+### Added
+- **Automatic HPC reconnect**: when the HPC connection drops, Codeome opens it again by itself: at once, then after 15 seconds, 1 minute and 3 minutes, and then stops with a *Connect* button. A saved password or an ssh key reconnects silently; a one-time code is asked for in the usual dialog, and cancelling that dialog stops the retries. Disconnecting yourself never triggers it. Turn it off in Settings → HPC → Sessions (*Connection*). The check runs every 15 seconds while the window is visible.
+
 ### Changed
+- **Projects list scrollbar on hover**: the scrollbar of the projects list now shows only while the pointer is over it.
 - **Agent kit 0.9.1**: a hook now refuses a Codex run that an agent detaches by hand (`nohup`, a trailing `&`, or a redirect to a log file) and tells it to use the tracked form with `run_in_background: true`. Runs started that way got no card in the chat, so you could not see their progress. The chat prompts and the orchestrate and delegate skills say the same. Projects with an older kit are offered the update.
 
 ## 1.4.2
