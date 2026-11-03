@@ -18,7 +18,7 @@ const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const agentBin = (project) => path.join(project, '.codeome', 'bin', 'codeome-agent');
 
 test('every role has the metadata the installer and router need', () => {
-  assert.strictEqual(kit.MANIFEST.version, '0.9.0');
+  assert.strictEqual(kit.MANIFEST.version, '0.9.1');
   assert.match(fs.readFileSync(path.join(__dirname, '../kit/roles/_report.md'), 'utf8'), /^## Progress$/m);
   const groups = Object.keys(kit.MANIFEST.groups);
   for (const r of kit.roles()) {
@@ -61,6 +61,7 @@ test('install writes roles, skills, routing, runner, hooks and gitignore', () =>
   assert.ok(fs.statSync(agentBin(p)).mode & 0o100);
   const s = readJson(path.join(p, '.claude/settings.json'));
   assert.strictEqual(s.hooks.PreToolUse[0].matcher, 'Agent');
+  assert.ok(s.hooks.PreToolUse.some((g) => g.matcher === 'Bash'));
   assert.ok(s.hooks.SubagentStop[0].hooks[0].command.includes('codeome-agent'));
   assert.ok(s.permissions.allow.includes('Bash(.codeome/bin/codeome-agent *)'));
   assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^node_modules\/\n\n# Codeome agent jobs\n\.codeome\/jobs\/\n/);
@@ -520,6 +521,17 @@ test('codeome-agent runs Codex jobs on an account with headroom and holds them a
   assert.match(held.stdout, /Every Codex account is past 90%/);
   assert.strictEqual(runAgent(p, ['codex', '--role', 'implementer', '--ignore-limits'], 'x', env).status, 0);
   assert.match(runAgent(p, ['usage'], '', env).stdout, /codex  Work +LIMIT/);
+});
+
+test('the hook refuses a hand-detached Codex run but not the tracked form', () => {
+  const p = tmp();
+  kit.install(p);
+  const ask = (command, bg) => runAgent(p, ['hook'], JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command, run_in_background: bg } })).stdout;
+  assert.match(ask('nohup .codeome/bin/codeome-agent codex --role implementer --title X < b > /tmp/l 2>&1 &'), /deny/);
+  assert.match(ask('.codeome/bin/codeome-agent codex --role implementer --title X <<EOF\nhi\nEOF\n> /tmp/log'), /deny/);
+  assert.strictEqual(ask('.codeome/bin/codeome-agent codex --role implementer --title X <<\'B\'\nuse a > b & c\nB\n', true), '');
+  assert.strictEqual(ask('.codeome/bin/codeome-agent codex --role implementer --title X <<\'B\'\nuse a > b & c\nB\n', false), '');
+  assert.strictEqual(ask('npm test > /tmp/log 2>&1 &'), '');
 });
 
 test('the hook refuses new Claude subagents when the session account is past the limit', async () => {

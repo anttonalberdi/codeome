@@ -1694,6 +1694,16 @@ def claude_gate():
             'otherwise stop and tell the user. %s' % (acct.get('name'), describe(acct, now), stop_at, where))
 
 
+CODEX_LAUNCH = re.compile(r'codeome-agent["\']?\s+codex\b|\bcodex(?:-companion(?:\.\w+)?)?["\']?\s+(?:exec|task)\b')
+DETACH = re.compile(r'\b(?:nohup|setsid|disown)\b|(?<![&>|])&\s*(?:$|;|\n|echo\b)|(?<![0-9&>])>{1,2}\s*[^&\s]')
+
+
+def untracked_codex(command):
+    """True when a Bash command detaches a Codex run by hand (nohup, trailing &, log redirect)."""
+    body = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?:\n|$)", '\n', command or '', flags=re.S)
+    return bool(CODEX_LAUNCH.search(body) and DETACH.search(body))
+
+
 def cmd_hook(_a):
     # A hook must never disturb the session: swallow every error, print nothing,
     # except for a usage-limit refusal or a new subagent's job id.
@@ -1711,6 +1721,13 @@ def cmd_hook(_a):
                 'type': inp.get('subagent_type') or 'general-purpose', 'description': inp.get('description') or '',
                 'toolUseId': ev.get('tool_use_id'),
                 'prompt': inp.get('prompt') or '', 'model': inp.get('model'), 'at': time.time()})
+        elif name == 'PreToolUse' and ev.get('tool_name') == 'Bash':
+            inp = ev.get('tool_input') or {}
+            if not inp.get('run_in_background') and untracked_codex(inp.get('command')):
+                print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                    'permissionDecisionReason': 'Codeome: do not detach a Codex run with nohup, &, or a log redirect: '
+                    'the user sees no card for it. Run it as a plain `.codeome/bin/codeome-agent codex --role <role> '
+                    '--title "<short title>"` call with the brief on stdin and run_in_background: true.'}}))
         elif name == 'SubagentStart' and ev.get('agent_type'):
             job_id = start_claude_job(ev)
             if job_id:

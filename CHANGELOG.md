@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Changed
+- **Agent kit 0.9.1**: a hook now refuses a Codex run that an agent detaches by hand (`nohup`, a trailing `&`, or a redirect to a log file) and tells it to use the tracked form with `run_in_background: true`. Runs started that way got no card in the chat, so you could not see their progress. The chat prompts and the orchestrate and delegate skills say the same. Projects with an older kit are offered the update.
+
 ## 1.4.2
 
 ### Added

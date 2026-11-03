@@ -167,12 +167,13 @@ function mergeSettings(project) {
   let s = {};
   if (raw !== null) { try { s = JSON.parse(raw); } catch { return { error: '.claude/settings.json is not valid JSON; hooks were not added.' }; } }
   s.hooks = s.hooks || {};
-  const ours = (groups) => (groups || []).some((g) => (g.hooks || []).some((h) => String(h.command || '').includes('codeome-agent')));
+  const ours = (groups, matcher) => (groups || []).some((g) => (g.matcher || undefined) === matcher && (g.hooks || []).some((h) => String(h.command || '').includes('codeome-agent')));
   const add = (event, matcher) => {
     s.hooks[event] = s.hooks[event] || [];
-    if (!ours(s.hooks[event])) s.hooks[event].push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: HOOK_CMD }] });
+    if (!ours(s.hooks[event], matcher)) s.hooks[event].push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: HOOK_CMD }] });
   };
   add('PreToolUse', 'Agent');
+  add('PreToolUse', 'Bash');
   add('SubagentStart');
   add('SubagentStop');
   s.permissions = s.permissions || {};
