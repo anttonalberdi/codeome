@@ -402,7 +402,7 @@ class CodexSession extends EventEmitter {
           touched.record(this.cwd, this.id, { engine: 'codex', title: this.getTitle() || '' }, filePath, block.name);
           const collisions = touched.conflicts(this.cwd, this.id, filePath);
           if (collisions.length) this.emit('message', { type: 'collision', path: collisions[0].path, tool: block.name,
-            others: collisions.map(({ chat_id, engine, title, ts }) => ({ chat_id, engine, title, ts })) });
+            others: collisions.map(({ chat_id, engine, title, ts, code, note }) => ({ chat_id, engine, title, ts, code, note })) });
         } catch (e) { if (!this.touchedErrorLogged) { this.touchedErrorLogged = true; console.error('codex touched', e); } }
       }
     }

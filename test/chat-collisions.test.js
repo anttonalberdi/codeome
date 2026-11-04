@@ -19,13 +19,23 @@ test('recent collisions keep five distinct paths and expire after 30 minutes', (
 
 test('collision text uses project paths, titles, short ids, and singular counts', () => {
   const collision = { path: '/project/src/a.js', others: [
-    { chat_id: '1234567890', engine: 'codex', title: 'Fix parser' },
+    { chat_id: '1234567890', engine: 'codex', code: 'BCDF', title: 'Fix parser', note: 'Review the  parser\n  changes' },
     { chat_id: 'abcdef1234', engine: 'claude', title: '' }
   ] };
-  assert.equal(Collisions.line(collision, '/project'), 'Also edited by Fix parser (Codex), abcdef12 (Claude): src/a.js');
+  assert.equal(Collisions.line(collision, '/project'), 'Also edited by BCDF Fix parser (Codex), abcdef12 (Claude): src/a.js — note: Review the parser changes');
+  assert.equal(Collisions.line({ path: '/project/src/a.js', others: [{ chat_id: '1234567890', engine: 'codex', title: 'Fix parser' }] }, '/project'),
+    'Also edited by Fix parser (Codex): src/a.js');
+  assert.equal(Collisions.line({ path: '/project/src/a.js', others: [{ engine: 'claude', code: 'GHJK', title: '<Other>', note: '  <Check>  ' }] }, '/project'),
+    'Also edited by GHJK <Other> (Claude): src/a.js — note: <Check>');
   assert.equal(Collisions.displayPath('/project-two/a.js', '/project'), '/project-two/a.js');
   assert.equal(Collisions.countText(1), '1 collision');
   assert.equal(Collisions.countText(2), '2 collisions');
+});
+
+test('collision notes stay short', () => {
+  const note = 'a'.repeat(90);
+  assert.equal(Collisions.line({ path: 'a.js', others: [{ code: 'BCDF', title: 'Other', note }] }),
+    `Also edited by BCDF Other (chat): a.js — note: ${'a'.repeat(79)}…`);
 });
 
 test('chat:event collision reaches the owning chat and project stats', () => {

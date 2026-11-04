@@ -25,6 +25,7 @@ const { Meter } = require('./stats');
 const { parseFrontmatter } = require('./kit');
 const projectPolicy = require('./policy');
 const touched = require('./touched');
+const ChatCode = require('../renderer/js/chat-code');
 
 const PROMPT = path.join(__dirname, '..', 'kit', 'chat.md');
 const PROMPT_CODEX = path.join(__dirname, '..', 'kit', 'chat-codex.md');
@@ -161,8 +162,10 @@ function secretsPrompt(secrets, engine = 'claude') {
 // The Codex orchestrator's instructions in full: its own prompt, then the same notes on
 // connected projects and the HPC. Codex has no command line to put them on; this is the
 // text CodexSession gets as `instructions`.
-function codexPrompt({ kitInstalled, linked = [], hpc = null, secrets = null, persona, cwd, policyAtSpawn } = {}) {
-  return (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'), cwd)) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex') + secretsPrompt(secrets, 'codex') + projectPolicy.policyPrompt(policyAtSpawn);
+const chatCodePrompt = (code) => ChatCode.isCode(code) ? `\nYour chat code is ${code} (shown on your tab; the user may refer to you by it).\n` : '';
+
+function codexPrompt({ kitInstalled, linked = [], hpc = null, secrets = null, persona, cwd, policyAtSpawn, code } = {}) {
+  return (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, fs.readFileSync(PROMPT_CODEX, 'utf8'), cwd)) + linkedPrompt(linked, kitInstalled, 'codex') + hpcPrompt(hpc, 'codex') + secretsPrompt(secrets, 'codex') + projectPolicy.policyPrompt(policyAtSpawn) + chatCodePrompt(code);
 }
 
 function forumPrompt(cwd) {
@@ -187,9 +190,9 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // extra: words after the CLI name in the configured command (e.g. --model opus).
 // linked: folders of the projects connected to this one. hpc: the HPC settings (host, agentRoot).
 // secrets: see secretsPrompt.
-function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, secrets = null, settings = '', persona, prompt, cwd, policyAtSpawn }) {
+function buildArgs({ id, resume, mode, kitInstalled, extra = [], model = '', effort = '', linked = [], hpc = null, secrets = null, settings = '', persona, prompt, cwd, policyAtSpawn, code }) {
   const args = [...withFlag(withModel(extra, model), '--effort', EFFORTS.includes(effort) ? effort : ''), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', (prompt === undefined ? (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, undefined, cwd)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) + secretsPrompt(secrets) : prompt) + projectPolicy.policyPrompt(policyAtSpawn)];
+    '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--append-system-prompt', (prompt === undefined ? (personaPrompt(persona, kitInstalled, cwd) || systemPrompt(kitInstalled, undefined, cwd)) + linkedPrompt(linked, kitInstalled) + hpcPrompt(hpc) + secretsPrompt(secrets) : prompt) + projectPolicy.policyPrompt(policyAtSpawn) + (prompt === undefined ? chatCodePrompt(code) : '')];
   for (const d of linked) args.push('--add-dir', d);
   const rules = projectPolicy.policySettings(policyAtSpawn);
   if (Object.keys(rules).length) {
@@ -333,7 +336,7 @@ class Session extends EventEmitter {
           touched.record(this.cwd, this.id, { engine: 'claude', title: this.getTitle() || '' }, filePath, block.name);
           const collisions = touched.conflicts(this.cwd, this.id, filePath);
           if (collisions.length) this.emit('message', { type: 'collision', path: collisions[0].path, tool: block.name,
-            others: collisions.map(({ chat_id, engine, title, ts }) => ({ chat_id, engine, title, ts })) });
+            others: collisions.map(({ chat_id, engine, title, ts, code, note }) => ({ chat_id, engine, title, ts, code, note })) });
         } catch (e) { if (!this.touchedErrorLogged) { this.touchedErrorLogged = true; console.error('chat touched', e); } }
       }
     }
@@ -362,14 +365,29 @@ const chatsDir = (project) => path.join(usage.home(), 'chats',
   safeName(path.basename(project)) + '-' + crypto.createHash('sha1').update(path.resolve(project)).digest('hex').slice(0, 10));
 const validId = (id) => /^[0-9a-f-]{36}$/.test(id || '');
 
+function writeChat(file, record) {
+  fs.writeFileSync(file + '.tmp', JSON.stringify(record));
+  fs.renameSync(file + '.tmp', file);
+}
+
 function saveChat(project, chat) {
   if (!project || !chat || !validId(chat.id)) return { error: 'Bad chat' };
   const d = chatsDir(project);
   fs.mkdirSync(d, { recursive: true });
   const p = path.join(d, chat.id + '.json');
-  fs.writeFileSync(p + '.tmp', JSON.stringify({ ...chat, project, updatedAt: Date.now() }));
-  fs.renameSync(p + '.tmp', p);
-  return { ok: true };
+  const record = { ...chat, project, updatedAt: Date.now() };
+  if (record.forum) delete record.code;
+  else {
+    let previous;
+    try { previous = JSON.parse(fs.readFileSync(p, 'utf8')).code; } catch {}
+    if (!ChatCode.isCode(record.code) || record.code !== previous) {
+      const taken = new Set(listChats(project).filter((c) => c.id !== chat.id).map((c) => c.code));
+      if (!ChatCode.isCode(record.code) || taken.has(record.code))
+        record.code = ChatCode.isCode(previous) && !taken.has(previous) ? previous : ChatCode.generate(taken);
+    }
+  }
+  writeChat(p, record);
+  return record.forum ? { ok: true } : { ok: true, code: record.code };
 }
 
 function listChats(project) {
@@ -379,7 +397,7 @@ function listChats(project) {
     if (!n.endsWith('.json')) continue;
     try {
       const c = JSON.parse(fs.readFileSync(path.join(chatsDir(project), n), 'utf8'));
-      out.push({ id: c.id, title: c.title || 'Untitled chat', account: c.accountName || c.account, engine: engineOf(c.engine), role: c.role || '', started: !!c.started, updatedAt: c.updatedAt || 0,
+      out.push({ id: c.id, code: c.forum ? undefined : c.code, title: c.title || 'Untitled chat', account: c.accountName || c.account, engine: engineOf(c.engine), role: c.role || '', started: !!c.started, updatedAt: c.updatedAt || 0,
         messages: (c.items || []).filter((x) => x.t === 'user').length });
     } catch {}
   }
@@ -388,7 +406,16 @@ function listChats(project) {
 
 function loadChat(project, id) {
   if (!validId(id)) return null;
-  try { return JSON.parse(fs.readFileSync(path.join(chatsDir(project), id + '.json'), 'utf8')); } catch { return null; }
+  const p = path.join(chatsDir(project), id + '.json');
+  try {
+    const record = JSON.parse(fs.readFileSync(p, 'utf8'));
+    if (!record.forum && !ChatCode.isCode(record.code)) {
+      const taken = new Set(listChats(project).filter((c) => c.id !== id).map((c) => c.code));
+      record.code = ChatCode.generate(taken);
+      writeChat(p, record);
+    }
+    return record;
+  } catch { return null; }
 }
 
 function deleteChat(project, id) {

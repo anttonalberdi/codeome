@@ -42,19 +42,23 @@ Each chat is a tab above the conversation and runs its own session, so one can p
 
 <Shot bare src="/screens/detail-chat-tabs.webp" alt="Chat tab bar with four chats and the summary line 4 chats, 1 working, 1 needs you, 1 reply ready, 1 subagent, 1 Codex job" caption="The line under the tabs counts chats, working, needs you, reply ready, subagents and Codex jobs." width="544" height="82" />
 
-Right-click a chat tab to see the conversation as a time tree, with job branches, plan boxes, timestamps and token counts.
+Every chat has a 4-letter code, shown in its tab between the status dot and the name (on inactive tabs it is hidden when more than five tabs are open) and in the tab tooltip. The code uses consonants only, so it never spells a word, and it is unique within the project and saved with the chat. Chats saved before codes existed get one when loaded; Forum seats have none. Right-click a tab and choose *Copy code XXXX* to copy it.
+
+To point one chat at another, give its code: "see what KFBT is doing". The agent looks the chat up with `codeome-agent sessions KFBT` and reads its status, note, running jobs and files. Each agent is told its own code when it starts, so chats started before the update need a restart to know theirs.
+
+Right-click a chat tab and choose *Overview* to see the conversation as a time tree, with job branches, plan boxes, timestamps and token counts.
 
 <Shot src="/screens/overview.webp" alt="A chat overview tab drawing the conversation as a tree over time with a plan box and job branches" caption="The overview draws one chat as a tree over time, with the plan in a box and a branch for each job." width="1500" height="940" />
 
 ### Two chats editing the same file
 
-Every live chat records the files it edits in `.codeome/touched/` (git-ignored); the record is deleted when the chat closes. If a Claude chat is about to edit a file that another live chat edited in the last 30 minutes, it asks you to approve the edit and names the other chat. It asks once per file. The chat then shows a yellow notice (*Also edited by <chat> (<engine>): <path>*), the other chat's tab gets a badge with a tooltip, and the line under the tabs adds *N collisions*, all for 30 minutes.
+Every live chat records the files it edits in `.codeome/touched/` (git-ignored); the record is deleted when the chat closes. If a Claude chat is about to edit a file that another live chat edited in the last 30 minutes, it asks you to approve the edit and names the other chat, with its code and note. It asks once per file. The chat then shows a yellow notice (*Also edited by <code> <chat> (<engine>): <path>*, followed by the other chat's note when it has one), the other chat's tab gets a badge with a tooltip, and the line under the tabs adds *N collisions*, all for 30 minutes.
 
 Codex chats get no approval prompt: their edits are recorded, they are warned through the prompt, and they can run `codeome-agent touched` themselves.
 
 To change how Claude reacts, set `CODEOME_COLLISIONS` in the environment Codeome starts from: `off`, `warn` (tell the agent, no prompt), `ask` (default) or `deny` (refuse the edit). There is no setting for it in the app yet.
 
-This is awareness, not locking: the check and the edit are not one step, and edits made through Bash (`sed`, formatters, `git checkout`) are not seen. The approval prompt needs the project's agent kit at 0.9.2; the banner offers the update.
+This is awareness, not locking: the check and the edit are not one step, and edits made through Bash (`sed`, formatters, `git checkout`) are not seen. The approval prompt needs the project's agent kit at 0.9.2, and codes and notes in it need 0.9.3; the banner offers the update.
 
 ## Saved conversations
 

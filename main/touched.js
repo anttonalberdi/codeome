@@ -1,12 +1,17 @@
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
+const { isCode } = require('../renderer/js/chat-code');
 
 const touchedDir = (cwd) => path.join(cwd, '.codeome', 'touched');
 // acked maps absolute paths to the last hook acknowledgement time. App writes preserve it.
 // updated_at describes writes; a record's mtime is its liveness heartbeat.
-const cleanTitle = (title) => title.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+const cleanText = (value, limit) => value.slice(0, 10240)
+  .replace(/[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\u{e0000}-\u{e007f}]/gu, ' ')
+  .replace(/\s+/g, ' ').trim().slice(0, limit);
+const cleanTitle = (title) => cleanText(title, 80);
 const MAX_RECORD_BYTES = 1024 * 1024;
+const STATUSES = new Set(['working', 'waiting', 'idle', 'unknown']);
 
 function cappedAcked(acked) {
   if (!acked || typeof acked !== 'object' || Array.isArray(acked)) return {};
@@ -43,10 +48,11 @@ function validRecord(record, chatId) {
       Number.isFinite(touch.ts) && typeof touch.tool === 'string');
 }
 
-function readRecord(file, chatId) {
+function readJSON(file) {
   let fd;
   try {
-    fd = fs.openSync(file, 'r');
+    if (!fs.lstatSync(file).isFile()) return null;
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | (fs.constants.O_NOFOLLOW || 0));
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.size > MAX_RECORD_BYTES) return null;
     const bytes = Buffer.allocUnsafe(stat.size);
@@ -58,12 +64,42 @@ function readRecord(file, chatId) {
     }
     const after = fs.fstatSync(fd);
     if (after.size > MAX_RECORD_BYTES || count !== after.size) return null;
-    const record = JSON.parse(bytes.toString('utf8', 0, count));
-    if (!validRecord(record, chatId)) return null;
-    record.title = cleanTitle(record.title);
-    return { record, mtime: after.mtimeMs / 1000 };
+    return { value: JSON.parse(bytes.toString('utf8', 0, count)), mtime: after.mtimeMs / 1000 };
   } catch { return null; }
   finally { if (fd !== undefined) try { fs.closeSync(fd); } catch {} }
+}
+
+function readRecord(file, chatId) {
+  const item = readJSON(file);
+  if (!item || !validRecord(item.value, chatId)) return null;
+  item.value.title = cleanTitle(item.value.title);
+  return { record: item.value, mtime: item.mtime };
+}
+
+function statusFields(value) {
+  const fields = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    code: isCode(fields.code) ? fields.code : '',
+    status: STATUSES.has(fields.status) ? fields.status : 'unknown',
+    status_at: Number.isFinite(fields.status_at) ? fields.status_at : 0,
+    first_request: typeof fields.first_request === 'string' ? cleanText(fields.first_request, 200) : '',
+    plan_title: typeof fields.plan_title === 'string' ? cleanText(fields.plan_title, 200) : '',
+    jobs: Array.isArray(fields.jobs) ? fields.jobs.filter((job) => typeof job === 'string')
+      .map((job) => cleanText(job, 80)).filter(Boolean).slice(0, 5) : [],
+  };
+}
+
+function mergeMeta(cwd, record, now = Date.now() / 1000) {
+  const dir = touchedDir(cwd);
+  const id = record.chat_id;
+  const status = statusFields(readJSON(path.join(dir, `${id}.status.json`))?.value);
+  const noteFile = readJSON(path.join(dir, `${id}.note.json`))?.value;
+  const note = noteFile && typeof noteFile === 'object' && !Array.isArray(noteFile) &&
+    typeof noteFile.note === 'string' && Number.isFinite(noteFile.at) && now - noteFile.at <= 86400 ? cleanText(noteFile.note, 200) : '';
+  return { ...record, code: status.code, note,
+    status: now - status.status_at > 600 ? 'unknown' : status.status,
+    status_at: status.status_at, first_request: status.first_request,
+    plan_title: status.plan_title, jobs: status.jobs };
 }
 
 function readRecords(cwd) {
@@ -73,15 +109,46 @@ function readRecords(cwd) {
     .map((name) => readRecord(path.join(touchedDir(cwd), name), name.slice(0, -5))).filter(Boolean);
 }
 
-function writeRecord(dir, chatId, value) {
-  const temp = path.join(dir, `${chatId}.${randomUUID()}.tmp`);
+function writeAtomic(dir, name, value) {
+  const temp = path.join(dir, `${name}.${randomUUID()}.tmp`);
   try {
     fs.writeFileSync(temp, JSON.stringify(value), { flag: 'wx' });
-    fs.renameSync(temp, path.join(dir, `${chatId}.json`));
+    fs.renameSync(temp, path.join(dir, `${name}.json`));
   } catch (e) {
     try { fs.unlinkSync(temp); } catch { /* Temp file may not exist. */ }
     throw e;
   }
+}
+
+function start(cwd, chatId, meta) {
+  try {
+    checkChatId(chatId);
+    if (!meta || !['claude', 'codex'].includes(meta.engine) || typeof meta.title !== 'string') return null;
+    const dir = touchedDir(cwd);
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, `${chatId}.json`);
+    const value = { chat_id: chatId, engine: meta.engine, title: cleanTitle(meta.title),
+      updated_at: Date.now() / 1000, files: {} };
+    try { fs.writeFileSync(target, JSON.stringify(value), { flag: 'wx' }); }
+    catch (e) { if (e.code !== 'EEXIST') throw e; }
+    const current = readRecord(target, chatId)?.record;
+    if (!current) return null;
+    try { writeStatus(cwd, chatId, { code: meta.code, status: 'unknown', jobs: [] }); }
+    catch { /* Presence must not interrupt the session. */ }
+    return readMeta(cwd, chatId) || current;
+  } catch { return null; }
+}
+
+function writeStatus(cwd, chatId, fields = {}) {
+  checkChatId(chatId);
+  const dir = touchedDir(cwd);
+  if (!readRecord(path.join(dir, `${chatId}.json`), chatId)) return;
+  const previous = statusFields(readJSON(path.join(dir, `${chatId}.status.json`))?.value);
+  const update = fields && typeof fields === 'object' && !Array.isArray(fields) ? fields : {};
+  for (const key of ['code', 'status', 'first_request', 'plan_title', 'jobs']) {
+    if (Object.hasOwn(update, key)) previous[key] = update[key];
+  }
+  writeAtomic(dir, `${chatId}.status`, statusFields({ ...previous, status_at: Date.now() / 1000 }));
 }
 
 function record(cwd, chatId, meta, filePath, tool) {
@@ -99,7 +166,7 @@ function record(cwd, chatId, meta, filePath, tool) {
   const title = cleanTitle(meta.title) || cleanTitle(existing?.title || '');
   const value = { chat_id: chatId, engine: meta.engine, title, updated_at: now, files };
   if (existing?.acked) value.acked = cappedAcked(existing.acked);
-  writeRecord(dir, chatId, value);
+  writeAtomic(dir, chatId, value);
   return value;
 }
 
@@ -115,7 +182,13 @@ function heartbeat(cwd, chatId) {
 }
 
 function list(cwd) {
-  return readRecords(cwd).map(({ record }) => record);
+  return readRecords(cwd).map(({ record }) => mergeMeta(cwd, record));
+}
+
+function readMeta(cwd, chatId) {
+  checkChatId(chatId);
+  const record = readRecord(path.join(touchedDir(cwd), `${chatId}.json`), chatId)?.record;
+  return record ? mergeMeta(cwd, record) : null;
 }
 
 function conflicts(cwd, chatId, filePath, { ttlSeconds = 1800, now = Date.now() / 1000 } = {}) {
@@ -125,14 +198,18 @@ function conflicts(cwd, chatId, filePath, { ttlSeconds = 1800, now = Date.now() 
     if (record.chat_id === chatId) return [];
     const touch = record.files[file];
     if (!touch || now - touch.ts >= ttlSeconds || now - mtime >= 120) return [];
-    return [{ chat_id: record.chat_id, engine: record.engine, title: record.title, path: file, ts: touch.ts, tool: touch.tool }];
+    const meta = mergeMeta(cwd, record, now);
+    return [{ chat_id: record.chat_id, engine: record.engine, title: meta.title, path: file,
+      ts: touch.ts, tool: touch.tool, code: meta.code, note: meta.note }];
   });
 }
 
 function clear(cwd, chatId) {
   checkChatId(chatId);
-  try { fs.unlinkSync(path.join(touchedDir(cwd), `${chatId}.json`)); }
-  catch (e) { if (e.code !== 'ENOENT') throw e; }
+  for (const suffix of ['', '.status', '.note']) {
+    try { fs.unlinkSync(path.join(touchedDir(cwd), `${chatId}${suffix}.json`)); }
+    catch (e) { if (e.code !== 'ENOENT') throw e; }
+  }
 }
 
-module.exports = { record, heartbeat, list, conflicts, clear };
+module.exports = { start, writeStatus, readMeta, record, heartbeat, list, conflicts, clear };

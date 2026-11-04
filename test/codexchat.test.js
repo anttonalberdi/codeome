@@ -241,6 +241,9 @@ test('Codex file changes record paths and report collisions only on shared files
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const other = 'other-chat';
   touched.record(dir, other, { engine: 'claude', title: 'Other chat' }, 'shared.txt', 'Write');
+  touched.writeStatus(dir, other, { code: 'BCDF' });
+  fs.writeFileSync(path.join(dir, '.codeome', 'touched', `${other}.note.json`),
+    JSON.stringify({ note: 'Other\n note', at: Date.now() / 1000 }));
   const peer = touched.list(dir)[0];
   let title = 'Codex\nchat';
   const s = new CodexSession({ id: 'codex-chat', cwd: dir, getTitle: () => title });
@@ -257,7 +260,7 @@ test('Codex file changes record paths and report collisions only on shared files
   assert.deepStrictEqual(Object.entries(own.files).map(([p, touch]) => [p, touch.tool]).sort(),
     [[path.join(dir, 'new.txt'), 'Write'], [file, 'Edit']].sort());
   assert.deepStrictEqual(seen.filter((m) => m.type === 'collision'), [{ type: 'collision', path: file, tool: 'Edit',
-    others: [{ chat_id: other, engine: 'claude', title: 'Other chat', ts: peer.files[file].ts }] }]);
+    others: [{ chat_id: other, engine: 'claude', title: 'Other chat', ts: peer.files[file].ts, code: 'BCDF', note: 'Other note' }] }]);
   title = 'Updated Codex chat';
   s.handle({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'shared.txt' } }] } });
   assert.strictEqual(touched.list(dir).find((r) => r.chat_id === 'codex-chat').title, title);

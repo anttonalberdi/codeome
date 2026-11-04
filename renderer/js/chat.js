@@ -7,6 +7,8 @@
   const h = App.h;
   const C = { byProject: {}, byId: {} }; // byProject[dir] = { tabs: [chat], active: chat }
   const Collisions = App.chatCollisions;
+  const ChatCode = App.chatCode;
+  const Presence = App.chatPresence;
   App.views.chat = C;
   const dom = new WeakMap(); // item → element
   let logEl, ta, attEl, sugEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl, noticeEl;
@@ -66,7 +68,7 @@
   // ---------- conversations ----------
   function blank(project, opts = {}) {
     const defaults = resolveDefaults(App.cfg, project, store.get('codeome.chat.mode', 'default'), opts);
-    const chat = { id: uuid(), project, title: '', engine: defaults.engine, role: '', account: opts.account || 'auto', accountName: null, mode: defaults.mode,
+    const chat = { id: uuid(), project, code: ChatCode.generate(tabsOf(project).map((c) => c.code)), title: '', engine: defaults.engine, role: '', account: opts.account || 'auto', accountName: null, mode: defaults.mode,
       enginePicked: Object.hasOwn(ENGINE, opts.engine), modePicked: MODES.some((m) => m.value === opts.mode),
       started: false, items: [], createdAt: Date.now() };
     return live(chat);
@@ -104,6 +106,15 @@
   C.title = () => { const c = cur(); return c && c.title; };
   const waiting = (c) => Object.keys(c.requests).length > 0;
   const runningJobs = (c) => c.items.filter((x) => x.t === 'job' && (x.status === 'running' || x.status === 'pausing'));
+  const presenceScheduler = Presence && codeome.chat.presence ? Presence.createScheduler({
+    getPayload: (chat) => Presence.presenceOf(chat, { waiting, runningJobs }),
+    push: (payload) => codeome.chat.presence(payload)
+  }) : null;
+  function schedulePresence(chat, force = false) {
+    try {
+      if (presenceScheduler && chat.running && tabsOf(chat.project).includes(chat)) presenceScheduler.schedule(chat, force);
+    } catch { /* Status reporting must not interrupt a chat. */ }
+  }
 
   // What the tabs, the summary line and the project cards show.
   C.stats = (project) => {
@@ -157,7 +168,8 @@
         if (item !== it) delete item.progress;
         return item.result && item.result.length > 4000 ? { ...item, result: item.result.slice(0, 4000) + '\n…' } : item;
       });
-      return codeome.chat.save(chat.project, { id: chat.id, title: chat.title, engine: engineOf(chat), role: chat.role || '', account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items });
+      return Promise.resolve(codeome.chat.save(chat.project, { id: chat.id, code: chat.code, title: chat.title, engine: engineOf(chat), role: chat.role || '', account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items }))
+        .then((result) => { if (result?.code && chat.code !== result.code) { chat.code = result.code; scheduleTabs(); } return result; });
     };
     if (now) return run(); else saveTimers[chat.id] = setTimeout(run, 800);
   }
@@ -196,6 +208,7 @@
     const old = t.active;
     if (old && ta && chat.project === App.project && old !== chat) old.draft = ta.value;
     t.active = chat;
+    schedulePresence(chat);
     if (chat.project !== App.project) return persistTabs(chat.project);
     if (ta && old !== chat) { ta.value = chat.draft || ''; autosize(); }
     paint();
@@ -212,6 +225,7 @@
     const i = t.tabs.indexOf(chat);
     if (i < 0) return;
     t.tabs.splice(i, 1);
+    presenceScheduler?.cancel(chat);
     clearTimeout(chat.collisionTimer);
     chat.collisions = [];
     chat.collisionTimer = null;
@@ -279,6 +293,7 @@
     state.tabs = state.tabs.filter((chat) => chat.started || chat.items.length);
     const moved = state.tabs.filter((chat) => ids.includes(chat.id));
     if (moved.length) state.active = moved[moved.length - 1];
+    for (const chat of moved) schedulePresence(chat);
     persistTabs(target);
   };
 
@@ -412,6 +427,7 @@
 
   C.closeProject = (project) => {
     for (const c of tabsOf(project)) {
+      presenceScheduler?.cancel(c);
       clearTimeout(c.collisionTimer);
       c.collisions = [];
       c.collisionTimer = null;
@@ -438,8 +454,10 @@
     App.emit('chat');
     if (!chat.running && !(await start(chat))) return;
     chat.busy = true; chat.busySince = Date.now(); paintState();
+    schedulePresence(chat);
     const r = await codeome.chat.send(chat.id, withFiles(text, files));
     if (r.error) { note(chat, r.error, 'error'); chat.busy = false; paintState(); }
+    schedulePresence(chat);
     chat.started = true;
     save(chat, true);
     persistTabs(chat.project);
@@ -448,10 +466,12 @@
   async function start(chat) {
     if (!(await App.setup.ensureCli(engineOf(chat)))) { note(chat, `${ENGINE[engineOf(chat)]} is not installed on this Mac, so this chat cannot start.`, 'error'); return false; }
     // A conversation lives in its account's config folder, so it resumes there.
-    const r = await codeome.chat.start({ id: chat.id, project: chat.project, engine: engineOf(chat), role: chat.role || '', account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
+    const r = await codeome.chat.start({ id: chat.id, project: chat.project, code: chat.code, engine: engineOf(chat), role: chat.role || '', account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
       meter: chat.usage ? { context: chat.usage.context, run: chat.usage.run } : null });
     if (r.error) { note(chat, r.error, 'error'); return false; }
+    if (r.code && chat.code !== r.code) { chat.code = r.code; scheduleTabs(); }
     chat.running = true;
+    schedulePresence(chat, true);
     const a = r.account;
     if (a && a.name) {
       chat.accountName = a.name;
@@ -538,7 +558,13 @@
   };
 
   // ---------- events from the session ----------
-  codeome.chat.onEvent(({ id, msg }) => { const chat = C.byId[id]; if (chat) handle(chat, msg); });
+  codeome.chat.onEvent(({ id, msg }) => {
+    const chat = C.byId[id];
+    if (!chat) return;
+    handle(chat, msg);
+    if (['assistant', 'user', 'result', 'control_request', 'control_cancel_request'].includes(msg.type) ||
+        (msg.type === 'system' && ['init', 'task_notification'].includes(msg.subtype))) schedulePresence(chat);
+  });
   codeome.chat.onDecided?.(({ id, requestId, decision, source, answers }) => {
     const chat = C.byId[id];
     if (!chat) return;
@@ -547,7 +573,7 @@
     delete chat.requests[requestId];
     it.decided = decision; it.expired = false; it.source = source;
     if (answers) it.answers = answers;
-    update(chat, it); paintState(); save(chat);
+    update(chat, it); paintState(); save(chat); schedulePresence(chat);
   });
   codeome.chat.onExit(({ id, code, signal, stderr }) => {
     const chat = C.byId[id];
@@ -560,6 +586,7 @@
       note(chat, `The agent session ended unexpectedly${code ? ' (exit code ' + code + ')' : ''}. Send a message to continue.` + (tail ? '\n' + tail : ''), 'error');
     }
     chat.stopping = false;
+    presenceScheduler?.cancel(chat);
     paintState(); App.emit('sessions'); save(chat);
   });
 
@@ -951,12 +978,13 @@
     const req = chat.requests[it.requestId];
     if (!req) return;
     delete chat.requests[it.requestId]; // one answer per request, however fast the clicks
+    schedulePresence(chat);
     const resp = decision === 'deny'
       ? { behavior: 'deny', message: feedback || 'The user declined this.' }
       : { behavior: 'allow', updatedInput: req.input, ...(decision === 'always' && it.suggestions ? { updatedPermissions: it.suggestions } : {}) };
     const r = await codeome.chat.respond(chat.id, it.requestId, resp);
     if (r.already) return;
-    if (r.error) { chat.requests[it.requestId] = req; return App.err(r.error); }
+    if (r.error) { chat.requests[it.requestId] = req; schedulePresence(chat); return App.err(r.error); }
     it.decided = decision;
     update(chat, it); save(chat);
   }
@@ -978,9 +1006,10 @@
     const req = chat.requests[it.requestId];
     if (!req) return;
     delete chat.requests[it.requestId];
+    schedulePresence(chat);
     const r = await codeome.chat.respond(chat.id, it.requestId, { behavior: 'allow', updatedInput: { ...req.input, answers } });
     if (r.already) return;
-    if (r.error) { chat.requests[it.requestId] = req; return App.err(r.error); }
+    if (r.error) { chat.requests[it.requestId] = req; schedulePresence(chat); return App.err(r.error); }
     it.answers = answers;
     update(chat, it); save(chat);
   }
@@ -988,6 +1017,7 @@
   function expire(chat) {
     for (const id of Object.keys(chat.requests)) { const it = chat.requests[id].item; it.expired = true; update(chat, it); }
     chat.requests = {};
+    schedulePresence(chat);
   }
 
   // Is this chat on screen right now?
@@ -1015,6 +1045,7 @@
   function push(chat, it) {
     if (!it.at) it.at = Date.now();
     chat.items.push(it);
+    if (['user', 'job', 'perm', 'ask'].includes(it.t)) schedulePresence(chat);
     if (chat === cur() && logEl) { const stick = atBottom(); logEl.querySelector('.chat-empty')?.remove(); logEl.append(render(chat, it)); paintThinking(); if (stick) scrollEnd(); }
   }
 
@@ -1047,6 +1078,7 @@
   let raf = new Set(), rafId = 0;
   function update(chat, it) {
     if (it.t === 'job') scheduleTabs();
+    if (it.t === 'job' || it.t === 'perm' || it.t === 'ask') schedulePresence(chat);
     if (chat !== cur() || !dom.get(it)) return;
     raf.add(it);
     if (!rafId) rafId = requestAnimationFrame(() => {
@@ -1309,6 +1341,7 @@
         if (ta) { ta.value = (cur() && cur().draft) || ''; autosize(); }
         paint(); App.emit('chat');
       }
+      for (const chat of tabsOf(p)) schedulePresence(chat);
     });
     App.listen('tab', () => paintNotice());
     App.listen('sessions', () => paintNotice());
@@ -1711,9 +1744,9 @@
       if (!activity || activity.state !== state) { activity = { state, at: Date.now() }; tabActivity.set(c, activity); }
       summary.push({ id: c.id, title, state, label, jobs: jobs.length, engine: engineOf(c), role: c.role || '', active,
         updatedAt: Math.max(Number.isFinite(c.updatedAt) ? c.updatedAt : 0, activity.at) });
-      const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ')
+      const tip = [c.code, title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ')
         + (collisions.length ? '\n' + collisions.map((collision) => Collisions.line(collision, c.project)).join('\n') : '');
-      const el = h('div.ctab.' + st + (active ? '.active' : ''), {
+      const el = h('div.ctab.' + st + (active ? '.active' : '') + (t.tabs.length <= 5 ? '.show-code' : ''), {
         role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
         draggable: 'true',
         ondragstart: (e) => { dragTab = c; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', title); },
@@ -1743,6 +1776,7 @@
         }
       },
       st === 'working' ? h('span.spinner.cdot') : h('i.cdot'),
+      c.code ? h('span.ccode', c.code) : null,
       engineOf(c) === 'codex' ? h('span.ceng', 'Codex') : null,
       c.role ? h('span.ceng.persona', { title: personaName(c.role) }, personaName(c.role)) : null,
       h('span.ct', title),
@@ -1776,6 +1810,7 @@
   function tabMenu(c) {
     const t = C.byProject[c.project];
     return [
+      c.code ? { label: `Copy code ${c.code}`, run: () => navigator.clipboard.writeText(c.code).then(() => App.toast(`Copied code ${c.code}.`)).catch(() => {}) } : null,
       { label: 'Rename…', run: () => renameTab(c) },
       { label: 'New chat', run: () => C.newChat() },
       '-',

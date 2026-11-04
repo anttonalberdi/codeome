@@ -790,6 +790,8 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .chat-notice[hidden] { display: none; }
 .chat-notice span { flex: 1; min-width: 160px; }
 .chat-notice.collision { border-left-color: var(--pend); }
+.ctab .ccode { flex: none; width: 4ch; font: 9px var(--mono); letter-spacing: -.2px; color: var(--muted); }
+.ctab:not(.active):not(.show-code) .ccode { display: none; }
 .ctab .ceng { flex: none; font-size: 10px; padding: 0 5px; border-radius: 8px; background: var(--sel); color: var(--text); }
 .ctab .ceng.persona { flex: 0 1 auto; min-width: 0; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stats-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 20px; background: var(--surface); }
@@ -835,7 +837,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .chat-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 4px 4px 0; gap: 2px; }
 .chat-tabs::-webkit-scrollbar { display: none; }
 .ctab { display: flex; align-items: center; gap: 5px; flex: 1 1 0; min-width: 40px; max-width: 160px; padding: 0 2px 0 8px; height: 27px; border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0; cursor: pointer; color: var(--muted); font-size: 12px; white-space: nowrap; position: relative; user-select: none; overflow: hidden; }
-.ctab.active { flex: 2.5 1 0; min-width: 92px; max-width: 180px; }
+.ctab.active { flex: 1.8 1 0; min-width: 92px; max-width: 180px; }
 .ctab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
 .ctab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .ctab:hover { color: var(--text); background: var(--line); }

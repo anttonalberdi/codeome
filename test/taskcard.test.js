@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { progressView } = require('../renderer/js/progress');
+const ChatCode = require('../renderer/js/chat-code');
 
 const source = fs.readFileSync(path.join(__dirname, '../renderer/js/chat.js'), 'utf8')
   .replace('  function openJob(it) {', '  C.testRender = render;\n  function openJob(it) {');
@@ -20,7 +21,7 @@ function harness(now = Date.parse('2026-10-22T08:03:00Z')) {
   let snapshot = {};
   let calls = [];
   let saved;
-  const App = { h, project, cfg: { chatTabs: {} }, currentView: 'other',
+  const App = { h, project, chatCode: ChatCode, cfg: { chatTabs: {} }, currentView: 'other',
     views: { agents: { pane: 'chat', refreshSoon() {} } }, emit() {} };
   const codeome = { chat: {
     onEvent(fn) { onEvent = fn; }, onExit() {}, save(_project, value) { saved = value; },

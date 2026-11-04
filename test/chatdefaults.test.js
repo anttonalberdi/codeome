@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const ChatCode = require('../renderer/js/chat-code');
 
 const project = '/work/project';
 
@@ -42,13 +43,14 @@ test('blank chats refresh defaults on activation and reuse, while explicit and s
   const source = fs.readFileSync(path.join(__dirname, '../renderer/js/chat.js'), 'utf8');
   let nextId = 0;
   const App = { h() {}, project, views: {}, cfg: { chat: { mode: 'auto', engine: 'claude' }, projectChat: {} },
-    emit() {}, saveConfig() {} };
+    chatCode: ChatCode, emit() {}, saveConfig() {} };
   const codeome = { chat: { onEvent() {}, onExit() {} } };
   vm.runInNewContext(source, { App, codeome, localStorage: { getItem: () => null },
     crypto: { randomUUID: () => String(++nextId) }, setTimeout: () => 0, clearTimeout() {} });
   const C = App.views.chat;
   await C.newChat();
   const blank = C.current();
+  assert.equal(ChatCode.isCode(blank.code), true);
   assert.equal(blank.engine, 'claude');
   assert.equal(blank.mode, 'auto');
   App.cfg.projectChat[project] = { engine: 'codex', mode: 'plan' };
@@ -70,6 +72,7 @@ test('blank chats refresh defaults on activation and reuse, while explicit and s
   blank.started = true;
   await C.newChat();
   assert.notEqual(C.current(), blank);
+  assert.notEqual(C.current().code, blank.code);
   C.activate(blank);
   assert.equal(blank.engine, 'codex');
   assert.equal(blank.mode, 'default');

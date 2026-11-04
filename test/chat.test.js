@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 
 process.env.CODEOME_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-home-'));
 const chat = require('../main/chat');
@@ -13,6 +14,9 @@ const scratch = require('../main/scratch');
 const touched = require('../main/touched');
 
 const ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
+const ChatCode = require('../renderer/js/chat-code');
+const chatFile = (project, id) => path.join(process.env.CODEOME_HOME, 'chats',
+  path.basename(project).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 40) + '-' + crypto.createHash('sha1').update(path.resolve(project)).digest('hex').slice(0, 10), id + '.json');
 
 test('the orchestrator prompt keeps only the part for this project', () => {
   const src = 'A\n<!-- if kit -->\nTEAM\n<!-- else -->\nSOLO\n<!-- end -->\nB\n';
@@ -22,6 +26,43 @@ test('the orchestrator prompt keeps only the part for this project', () => {
   for (const k of [true, false]) assert.ok(!/<!--/.test(chat.systemPrompt(k)));
   assert.ok(chat.systemPrompt(true).includes('codeome-agent codex'));
   assert.ok(!chat.systemPrompt(false).includes('codeome-agent codex'));
+});
+
+test('concurrent chat commands appear once in each kit prompt only', () => {
+  for (const file of ['chat.md', 'chat-codex.md', 'personas/_base.md']) {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'kit', file), 'utf8');
+    const section = source.match(/<!-- if kit -->\n## Concurrent chats\n([\s\S]*?)<!-- else -->/);
+    assert.ok(section, file);
+    for (const command of ['codeome-agent note', 'codeome-agent sessions']) {
+      assert.strictEqual(source.split(command).length - 1, 1, `${file}: ${command}`);
+      assert.ok(section[1].includes(command), `${file}: ${command} outside kit block`);
+      assert.ok(!chat.systemPrompt(false, source).includes(command), `${file}: ${command} without kit`);
+    }
+  }
+});
+
+test('chat code appears only in agent prompts with a valid code, including personas', () => {
+  const at = (options) => {
+    const args = chat.buildArgs({ id: ID, ...options });
+    return args[args.indexOf('--append-system-prompt') + 1];
+  };
+  const [persona] = chat.listPersonas();
+  assert.ok(persona);
+  for (const options of [{}, { persona: persona.id }]) {
+    for (const kitInstalled of [true, false]) {
+      const base = { ...options, kitInstalled };
+      for (const prompt of [at({ ...base, code: 'BCDF' }), chat.codexPrompt({ ...base, code: 'BCDF' })]) {
+        assert.match(prompt, /Your chat code is BCDF \(shown on your tab; the user may refer to you by it\)\./);
+      }
+      for (const code of [undefined, 'ABCD', 'bcdf', 'BCDE']) {
+        for (const prompt of [at({ ...base, code }), chat.codexPrompt({ ...base, code })]) {
+          assert.doesNotMatch(prompt, /Your chat code is/);
+        }
+      }
+    }
+  }
+  assert.doesNotMatch(at({ code: 'BCDF', prompt: chat.forumPrompt() }), /Your chat code is/);
+  assert.doesNotMatch(chat.forumPrompt(), /Your chat code is/);
 });
 
 test('arguments start a new session or resume one, with the configured extras first', () => {
@@ -235,6 +276,57 @@ test('conversations are saved per project and listed newest first', () => {
   assert.deepStrictEqual(chat.listChats(path.join(p, 'missing')), []);
 });
 
+test('saving assigns a code, keeps a unique code, and resolves a same-project clash', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-code-'));
+  const other = '5b650d99-454a-43a6-84dc-8211a4f6d408';
+  const third = 'd1b815e8-d36e-4518-96b4-1aa728552df7';
+  const first = chat.saveChat(project, { id: ID, title: 'First' });
+  assert.equal(ChatCode.isCode(first.code), true);
+  assert.equal(chat.loadChat(project, ID).code, first.code);
+  assert.deepStrictEqual(chat.saveChat(project, { id: ID, code: first.code, title: 'Updated' }), { ok: true, code: first.code });
+  const second = chat.saveChat(project, { id: other, code: first.code });
+  assert.equal(ChatCode.isCode(second.code), true);
+  assert.notEqual(second.code, first.code);
+  assert.equal(chat.loadChat(project, other).code, second.code);
+  assert.equal(chat.saveChat(project, { id: other, code: first.code }).code, second.code);
+  assert.equal(chat.listChats(project).find((c) => c.id === other).code, second.code);
+  const invalid = chat.saveChat(project, { id: third, code: 'AAAA' });
+  assert.equal(ChatCode.isCode(invalid.code), true);
+  assert.equal(chat.listChats(project).find((c) => c.id === third).code, invalid.code);
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-code-'));
+  assert.equal(chat.saveChat(elsewhere, { id: other, code: first.code }).code, first.code);
+});
+
+test('loading a legacy chat backfills and persists its code without changing its date', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-legacy-'));
+  const legacy = '667ca75c-bdca-488f-89e6-d25d97558bd6';
+  const existing = chat.saveChat(project, { id: ID });
+  const before = { id: legacy, title: 'Legacy', project, updatedAt: 12345, items: [] };
+  fs.writeFileSync(chatFile(project, legacy), JSON.stringify(before));
+  const loaded = chat.loadChat(project, legacy);
+  assert.equal(ChatCode.isCode(loaded.code), true);
+  assert.notEqual(loaded.code, existing.code);
+  assert.equal(loaded.updatedAt, before.updatedAt);
+  assert.equal(JSON.parse(fs.readFileSync(chatFile(project, legacy), 'utf8')).code, loaded.code);
+  assert.equal(chat.loadChat(project, legacy).code, loaded.code);
+});
+
+test('saving an unchanged valid code does not read sibling chats', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-code-cost-'));
+  const sibling = '5b650d99-454a-43a6-84dc-8211a4f6d408';
+  const code = chat.saveChat(project, { id: ID }).code;
+  chat.saveChat(project, { id: sibling });
+  const original = fs.readFileSync;
+  let siblingReads = 0;
+  fs.readFileSync = function (...args) {
+    if (args[0] === chatFile(project, sibling)) siblingReads++;
+    return original.apply(this, args);
+  };
+  try { assert.equal(chat.saveChat(project, { id: ID, code }).code, code); }
+  finally { fs.readFileSync = original; }
+  assert.equal(siblingReads, 0);
+});
+
 test('an Ideas chat moves into an existing project with its embedded project updated', () => {
   const from = scratch.dir(), to = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-promote-'));
   chat.saveChat(from, { id: ID, title: 'Idea', items: [{ t: 'user', text: 'hello' }] });
@@ -332,13 +424,16 @@ test('Claude edit tools record paths, report live collisions, and clear on stop'
   assert.deepStrictEqual(seen.filter((m) => m.type === 'collision'), []);
 
   touched.record(dir, other, { engine: 'codex', title: 'Other chat' }, 'notes.txt', 'Edit');
+  touched.writeStatus(dir, other, { code: 'BCDF' });
+  fs.writeFileSync(path.join(dir, '.codeome', 'touched', `${other}.note.json`),
+    JSON.stringify({ note: 'Other\n note', at: Date.now() / 1000 }));
   const peer = touched.list(dir).find((r) => r.chat_id === other);
   const file = path.join(dir, 'notes.txt');
   title = 'Updated chat';
   edit('Edit', { file_path: 'notes.txt' });
   assert.strictEqual(touched.list(dir).find((r) => r.chat_id === ID).title, title);
   assert.deepStrictEqual(seen.filter((m) => m.type === 'collision'), [{ type: 'collision', path: file, tool: 'Edit',
-    others: [{ chat_id: other, engine: 'codex', title: 'Other chat', ts: peer.files[file].ts }] }]);
+    others: [{ chat_id: other, engine: 'codex', title: 'Other chat', ts: peer.files[file].ts, code: 'BCDF', note: 'Other note' }] }]);
   s.stop();
   assert.deepStrictEqual(touched.list(dir).map((r) => r.chat_id), [other]);
 });
@@ -469,4 +564,12 @@ test('a saved chat lists its persona role, while older chats have an empty role'
   const by = Object.fromEntries(chat.listChats(project).map((c) => [c.id, c.role]));
   assert.deepStrictEqual(by, { [ID]: persona.id, [older]: '' });
   assert.strictEqual(chat.loadChat(project, ID).role, persona.id);
+});
+
+test('forum chats have no code and scratch chats do', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-forum-code-'));
+  assert.deepStrictEqual(chat.saveChat(project, { id: ID, forum: true, code: 'BDFG' }), { ok: true });
+  assert.equal(chat.loadChat(project, ID).code, undefined);
+  const scratchChat = chat.saveChat(scratch.dir(), { id: '7169d4b1-28f4-4672-8fce-a4066fc23ae1' });
+  assert.equal(ChatCode.isCode(scratchChat.code), true);
 });

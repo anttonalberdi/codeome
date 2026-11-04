@@ -6,6 +6,7 @@ const vm = require('vm');
 const { EventEmitter } = require('events');
 const projectChat = require('../main/projectchat');
 const resources = require('../main/resources');
+const ChatCode = require('../renderer/js/chat-code');
 
 test('forum sessions cannot inherit chat job auto-approval on either engine', () => {
   const source = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
@@ -15,7 +16,7 @@ test('forum sessions cannot inherit chat job auto-approval on either engine', ()
   const made = [];
   class Session extends EventEmitter { constructor(options) { super(); made.push(options); } }
   const cfg = { accounts: { claude: { list: [{ name: 'account' }] }, codex: { list: [{ name: 'account' }] } }, chat: {}, projectLinks: {} };
-  const context = { awake: { track() {}, sync() {}, dispose() {} }, fs, path, cfg, policy: require('../main/policy'), resources, statusline: null, Session, CodexSession: Session, scratch: { isScratch: () => false },
+  const context = { awake: { track() {}, sync() {}, dispose() {} }, fs, path, cfg, policy: require('../main/policy'), resources, ChatCode, statusline: null, Session, CodexSession: Session, scratch: { isScratch: () => false },
     kit: { status: () => ({ installed: true }) }, claudeCmd: () => 'claude', codexCmd: () => 'codex',
     launchOn: () => ({ info: { name: 'account' }, env: {}, unset: [] }),
     augmentedEnv: (env) => env, userSecretEnv: () => ({}), secretsSync: { plan: () => ({ names: [], path: '' }) }, config: { getSecret: () => '' }, loginShell: () => '/bin/sh',
@@ -23,13 +24,17 @@ test('forum sessions cannot inherit chat job auto-approval on either engine', ()
     console };
   const create = vm.runInNewContext(source.slice(start, end) + '\ncreateAgentSession;', context);
   for (const engine of ['claude', 'codex']) {
-    create({ id: 'chat', project: __dirname, engine });
+    create({ id: 'chat', project: __dirname, engine, code: 'BCDF' });
+    assert.equal(made.at(-1).env.CODEOME_CHAT_CODE, 'BCDF');
+    create({ id: 'invalid', project: __dirname, engine, code: 'AAAA' });
+    assert.equal(made.at(-1).env.CODEOME_CHAT_CODE, undefined);
     assert.equal(made.at(-1).autoAllow({ tool_name: 'Bash', input: { command: 'runner' } }), true);
     assert.equal(made.at(-1).policy().slurmSubmit, 'ask');
     context.cfg = { ...cfg, projectPolicy: { [__dirname]: { slurmSubmit: 'never' } } };
     assert.equal(made.at(-1).policy().slurmSubmit, 'never');
     context.cfg = cfg;
-    create({ id: 'forum', project: __dirname, engine, forum: true });
+    create({ id: 'forum', project: __dirname, engine, forum: true, code: 'BCDF' });
+    assert.equal(made.at(-1).env.CODEOME_CHAT_CODE, undefined);
     assert.equal(made.at(-1).autoAllow({ tool_name: 'Bash', input: { command: 'runner' } }), false);
   }
 });
@@ -44,7 +49,7 @@ test('chat and forum sessions receive the project model and effort', () => {
     chat: { model: 'sonnet', effort: 'low', codexModel: 'gpt-app', codexEffort: 'medium' },
     projectChat: { [__dirname]: { model: 'opus', effort: 'high', codexModel: 'gpt-project', codexEffort: 'xhigh' } },
     policyDefaults: { localResources: 'balanced' } };
-  const context = { awake: { track() {}, sync() {}, dispose() {} }, fs, path, cfg, policy: require('../main/policy'), resources, statusline: null, CodexSession: Session,
+  const context = { awake: { track() {}, sync() {}, dispose() {} }, fs, path, cfg, policy: require('../main/policy'), resources, ChatCode, statusline: null, CodexSession: Session,
     scratch: { isScratch: () => false }, kit: { status: () => ({ installed: false }) },
     claudeCmd: () => 'claude', codexCmd: () => 'codex',
     launchOn: () => ({ info: { name: 'account' }, env: { OMP_NUM_THREADS: '99' }, unset: [] }),

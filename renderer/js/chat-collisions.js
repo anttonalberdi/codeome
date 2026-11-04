@@ -18,12 +18,17 @@ const ChatCollisions = (() => {
   }
 
   function line(collision, project) {
+    const notes = [];
     const others = collision.others.map((other) => {
       const name = other.title || String(other.chat_id || '').slice(0, 8) || 'another chat';
       const engine = other.engine === 'codex' ? 'Codex' : other.engine === 'claude' ? 'Claude' : other.engine || 'chat';
-      return `${name} (${engine})`;
+      const note = typeof other.note === 'string' ? other.note.replace(/\s+/g, ' ').trim() : '';
+      const shortNote = note.length > 80 ? note.slice(0, 79) + '…' : note;
+      if (shortNote) notes.push(shortNote);
+      return `${other.code ? `${other.code} ` : ''}${name} (${engine})`;
     });
-    return `Also edited by ${others.join(', ') || 'another chat'}: ${displayPath(collision.path, project)}`;
+    return `Also edited by ${others.join(', ') || 'another chat'}: ${displayPath(collision.path, project)}`
+      + (notes.length ? ` — note: ${notes.join('; ')}` : '');
   }
 
   const countText = (count) => `${count} collision${count === 1 ? '' : 's'}`;

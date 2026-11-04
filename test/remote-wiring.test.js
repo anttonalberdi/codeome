@@ -198,7 +198,8 @@ test('a failed chat start detaches the remote session', () => {
   session.start = () => { throw new Error('failed start'); };
   vm.runInNewContext(section("ipcMain.handle('chat:start'", 'const forumHost ='), {
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },
-    chats: new Map(), fs: { existsSync: () => true }, chat: { engineOf: (value) => value },
+    ChatCode: require('../renderer/js/chat-code'),
+    chats: new Map(), fs: { existsSync: () => true }, chat: { engineOf: (value) => value, listChats: () => [] },
     createAgentSession: () => ({ s: session, acct: { info: { name: 'Default' } } }),
     remote: { attach: () => calls.push('attach'), detach: () => calls.push('detach') },
     send() {}, scratch: { isScratch: () => false }, stats: { record() {} }, console

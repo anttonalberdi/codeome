@@ -20,6 +20,8 @@ const stats = require('./stats');
 const { CodexSession } = require('./codexchat');
 const chat = require('./chat');
 const touched = require('./touched');
+const ChatCode = require('../renderer/js/chat-code');
+const { applyPresence, shouldRecord } = require('./presence');
 const projectChat = require('./projectchat');
 const policy = require('./policy');
 const resources = require('./resources');
@@ -1263,7 +1265,7 @@ const awake = createAwake({ blocker: powerSaveBlocker, enabled: () => !cfg || !c
   onChange: (held) => send('awake:state', held) });
 ipcMain.handle('awake:state', () => awake.held());
 
-function createAgentSession({ id, project, engine, account, resume, mode, meter, forum = false, persona }) {
+function createAgentSession({ id, project, engine, account, resume, mode, meter, forum = false, persona, code }) {
   const scratchMode = scratch.isScratch(project);
   let kitInstalled = false;
   if (!scratchMode) try { kitInstalled = kit.status(project).installed; } catch {}
@@ -1285,6 +1287,8 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   const localResources = resources.resolve(policyAtSpawn.localResources);
   if (localResources) Object.assign(env, localResources.env);
   env.CODEOME_CHAT_ID = id;
+  delete env.CODEOME_CHAT_CODE;
+  if (!forum && ChatCode.isCode(code)) env.CODEOME_CHAT_CODE = code;
   const prefix = localResources ? localResources.prefix : [];
   const chatDefaults = projectChat(cfg, project);
   const getTitle = () => chat.loadChat(project, id)?.title || '';
@@ -1299,13 +1303,14 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   let s;
   if (engine === 'codex') {
     s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked, policy: livePolicy, getTitle,
-      instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, secrets: secretsInfo, persona, cwd: project, policyAtSpawn }), model: chatDefaults.codexModel, effort: chatDefaults.codexEffort });
+      instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, secrets: secretsInfo, persona, cwd: project, policyAtSpawn, code }), model: chatDefaults.codexModel, effort: chatDefaults.codexEffort });
   } else {
     if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy, mode, getTitle });
+    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, code: forum ? undefined : code, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy, mode, getTitle });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
   s.permissionMode = mode;
+  if (!forum && ChatCode.isCode(code)) s.code = code;
   awake.track(id, s);
   s.on('exit', (r) => {
     crashlog.log(r.code === 0 && !r.signal ? 'info' : 'warn', 'chat exit',
@@ -1314,13 +1319,15 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   return { s, acct, dir };
 }
 
-ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, engine: asked, role }) => {
-  if (chats.has(id)) return { ok: true };
+ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, engine: asked, role, code: askedCode }) => {
+  if (chats.has(id)) return { ok: true, code: chats.get(id).code };
   if (!project || !fs.existsSync(project)) return { error: 'Project folder not found.' };
   const engine = chat.engineOf(asked);
   const persona = typeof role === 'string' ? role : undefined;
   try {
-    const { s, acct } = createAgentSession({ id, project, engine, account, resume, mode, meter, persona });
+    const taken = new Set(chat.listChats(project).filter((c) => c.id !== id).map((c) => c.code));
+    const code = ChatCode.isCode(askedCode) && !taken.has(askedCode) ? askedCode : ChatCode.generate(taken);
+    const { s, acct } = createAgentSession({ id, project, engine, account, resume, mode, meter, persona, code });
     s.on('message', (msg) => send('chat:event', { id, msg }));
     remote.attach(s, id, { project, engine, role: persona, seed: resume });
     // Codex limits are read from its app-server by the usage poll, so only Claude's are recorded here.
@@ -1328,9 +1335,13 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     s.on('exit', (r) => { try { touched.clear(project, id); } catch {} chats.delete(id); send('chat:exit', { id, ...r }); });
     s.start();
     chats.set(id, s);
-    return { ok: true, account: acct.info };
+    if (shouldRecord({ forum: false, scratch: scratch.isScratch(project), hasCodeomeDir: fs.existsSync(path.join(project, '.codeome')) })) {
+      try { touched.start(project, id, { engine, title: s.getTitle(), code }); } catch {}
+    }
+    return { ok: true, account: acct.info, code };
   } catch (e) { remote.detach(id); return { error: String(e.message || e) }; }
 });
+ipcMain.handle('chat:presence', (_e, payload) => applyPresence(chats, payload, { touched }));
 
 const forumHost = createHost({ getCfg: () => cfg, send, claudeCmd, codexCmd, launchOn, stats,
   makeAgentSession: (seat, project) => createAgentSession({ id: seat.sessionId, project, engine: seat.engine,
