@@ -18,7 +18,7 @@ const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const agentBin = (project) => path.join(project, '.codeome', 'bin', 'codeome-agent');
 
 test('every role has the metadata the installer and router need', () => {
-  assert.strictEqual(kit.MANIFEST.version, '0.9.1');
+  assert.strictEqual(kit.MANIFEST.version, '0.9.2');
   assert.match(fs.readFileSync(path.join(__dirname, '../kit/roles/_report.md'), 'utf8'), /^## Progress$/m);
   const groups = Object.keys(kit.MANIFEST.groups);
   for (const r of kit.roles()) {
@@ -62,9 +62,11 @@ test('install writes roles, skills, routing, runner, hooks and gitignore', () =>
   const s = readJson(path.join(p, '.claude/settings.json'));
   assert.strictEqual(s.hooks.PreToolUse[0].matcher, 'Agent');
   assert.ok(s.hooks.PreToolUse.some((g) => g.matcher === 'Bash'));
+  assert.ok(s.hooks.PreToolUse.some((g) => g.matcher === 'Edit|Write|MultiEdit|NotebookEdit'));
   assert.ok(s.hooks.SubagentStop[0].hooks[0].command.includes('codeome-agent'));
   assert.ok(s.permissions.allow.includes('Bash(.codeome/bin/codeome-agent *)'));
   assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^node_modules\/\n\n# Codeome agent jobs\n\.codeome\/jobs\/\n/);
+  assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^\.codeome\/touched\/$/m);
   const st = kit.status(p);
   assert.strictEqual(st.installed, true);
   assert.strictEqual(st.outdated, false);
@@ -74,7 +76,10 @@ test('install writes roles, skills, routing, runner, hooks and gitignore', () =>
 test('reinstall is idempotent and keeps existing settings', () => {
   const p = tmp();
   fs.mkdirSync(path.join(p, '.claude'));
-  fs.writeFileSync(path.join(p, '.claude/settings.json'), JSON.stringify({ model: 'opus', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } }));
+  fs.writeFileSync(path.join(p, '.claude/settings.json'), JSON.stringify({ model: 'opus', hooks: {
+    Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }],
+    PreToolUse: [{ matcher: 'Read', hooks: [{ type: 'command', command: 'my-read-hook' }] }]
+  } }));
   kit.install(p);
   const settings = fs.readFileSync(path.join(p, '.claude/settings.json'), 'utf8');
   const gi = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
@@ -85,6 +90,10 @@ test('reinstall is idempotent and keeps existing settings', () => {
   const s = JSON.parse(settings);
   assert.strictEqual(s.model, 'opus');
   assert.strictEqual(s.hooks.Stop[0].hooks[0].command, 'say done');
+  assert.deepStrictEqual(s.hooks.PreToolUse[0], { matcher: 'Read', hooks: [{ type: 'command', command: 'my-read-hook' }] });
+  const editHooks = s.hooks.PreToolUse.filter((g) => g.matcher === 'Edit|Write|MultiEdit|NotebookEdit');
+  assert.strictEqual(editHooks.length, 1);
+  assert.deepStrictEqual(editHooks[0].hooks, [{ type: 'command', command: 'python3 "$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent" hook' }]);
   assert.strictEqual(s.hooks.SubagentStart.length, 1);
 });
 

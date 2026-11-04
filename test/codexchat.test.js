@@ -7,6 +7,7 @@ const path = require('path');
 
 process.env.CODEOME_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-home-'));
 const { CodexSession, bare, rateLimits, savedThread } = require('../main/codexchat');
+const touched = require('../main/touched');
 
 // A stand-in for `codex app-server`: answers the handshake, and plays a scripted turn for each message.
 const FAKE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-codex-')), 'fake.js');
@@ -233,6 +234,50 @@ test('file changes show as one Edit or Write per file, with a permission request
   const ids = s.messages.filter((m) => m.type === 'user').map((m) => m.message.content[0].tool_use_id);
   assert.deepStrictEqual(ids, uses.map((u) => u.id));
   await done(s);
+});
+
+test('Codex file changes record paths and report collisions only on shared files', (t) => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-codex-edit-')));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const other = 'other-chat';
+  touched.record(dir, other, { engine: 'claude', title: 'Other chat' }, 'shared.txt', 'Write');
+  const peer = touched.list(dir)[0];
+  let title = 'Codex\nchat';
+  const s = new CodexSession({ id: 'codex-chat', cwd: dir, getTitle: () => title });
+  const seen = [];
+  s.on('message', (m) => seen.push(m));
+  s.item({ type: 'fileChange', id: 'change-1', changes: [
+    { path: 'new.txt', kind: { type: 'add' } },
+    { path: 'shared.txt', kind: { type: 'update' } },
+    { kind: { type: 'update' } }
+  ] }, false);
+  const file = path.join(dir, 'shared.txt');
+  const own = touched.list(dir).find((r) => r.chat_id === 'codex-chat');
+  assert.strictEqual(own.title, 'Codex chat');
+  assert.deepStrictEqual(Object.entries(own.files).map(([p, touch]) => [p, touch.tool]).sort(),
+    [[path.join(dir, 'new.txt'), 'Write'], [file, 'Edit']].sort());
+  assert.deepStrictEqual(seen.filter((m) => m.type === 'collision'), [{ type: 'collision', path: file, tool: 'Edit',
+    others: [{ chat_id: other, engine: 'claude', title: 'Other chat', ts: peer.files[file].ts }] }]);
+  title = 'Updated Codex chat';
+  s.handle({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'shared.txt' } }] } });
+  assert.strictEqual(touched.list(dir).find((r) => r.chat_id === 'codex-chat').title, title);
+  s.stop();
+  assert.deepStrictEqual(touched.list(dir).map((r) => r.chat_id), [other]);
+});
+
+test('Codex logs touched recording failures once per session', (t) => {
+  const originalRecord = touched.record;
+  const originalError = console.error;
+  t.after(() => { touched.record = originalRecord; console.error = originalError; });
+  touched.record = () => { throw new Error('touch failed'); };
+  const errors = [];
+  console.error = (...args) => errors.push(args);
+  const s = new CodexSession({ id: 'codex-chat', cwd: os.tmpdir() });
+  const edit = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'notes.txt' } }] } };
+  s.handle(edit);
+  s.handle(edit);
+  assert.strictEqual(errors.length, 1);
+  assert.match(errors[0][1].message, /touch failed/);
 });
 
 test('an MCP tool call is a tool named after the tool, with the server text as its result', async () => {

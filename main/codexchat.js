@@ -28,6 +28,7 @@ const { EventEmitter } = require('events');
 const usage = require('./usage');
 const { Meter } = require('./stats');
 const projectPolicy = require('./policy');
+const touched = require('./touched');
 
 // Claude Code's permission modes, as the nearest Codex approval and sandbox policy.
 const POLICIES = {
@@ -84,9 +85,9 @@ class CodexSession extends EventEmitter {
   // Also: instructions (developer instructions, set when the thread starts), resume (true: the
   // thread this chat id had; or a thread id), threadId, model, effort, mode (a Claude permission
   // mode), addDirs (more folders the agent may write in).
-  constructor({ id, cwd, shell, bin, args = [], env, prefix = [], autoAllow, meter, instructions = '', resume = false, threadId = null, model = '', effort = '', mode = 'default', addDirs = [], policy }) {
+  constructor({ id, cwd, shell, bin, args = [], env, prefix = [], autoAllow, meter, instructions = '', resume = false, threadId = null, model = '', effort = '', mode = 'default', addDirs = [], policy, getTitle = () => '' }) {
     super();
-    Object.assign(this, { id, cwd, shell, bin, args, env, prefix, autoAllow, instructions, model, effort, addDirs, projectPolicy: policy });
+    Object.assign(this, { id, cwd, shell, bin, args, env, prefix, autoAllow, instructions, model, effort, addDirs, projectPolicy: policy, getTitle });
     this.env = { ...(env || process.env) };
     delete this.env.CODEOME_HPC_HOST;
     delete this.env.CODEOME_HPC_SOCKET;
@@ -392,9 +393,22 @@ class CodexSession extends EventEmitter {
     }
     if (r && r.subtype === 'can_use_tool' && this.autoAllow && this.autoAllow(r)) return this.respond(m.request_id, { behavior: 'allow', updatedInput: r.input });
     this.emit('message', m);
+    if (m.type === 'assistant' && Array.isArray(m.message?.content)) {
+      for (const block of m.message.content) {
+        if (block?.type !== 'tool_use' || !['Write', 'Edit'].includes(block.name)) continue;
+        const filePath = block.input?.file_path;
+        if (typeof filePath !== 'string' || !filePath) continue;
+        try {
+          touched.record(this.cwd, this.id, { engine: 'codex', title: this.getTitle() || '' }, filePath, block.name);
+          const collisions = touched.conflicts(this.cwd, this.id, filePath);
+          if (collisions.length) this.emit('message', { type: 'collision', path: collisions[0].path, tool: block.name,
+            others: collisions.map(({ chat_id, engine, title, ts }) => ({ chat_id, engine, title, ts })) });
+        } catch (e) { if (!this.touchedErrorLogged) { this.touchedErrorLogged = true; console.error('codex touched', e); } }
+      }
+    }
   }
 
-  stop() { if (this.proc && this.proc.exitCode === null) { try { this.proc.stdin.end(); } catch {} try { this.proc.kill('SIGTERM'); } catch {} } }
+  stop() { try { touched.clear(this.cwd, this.id); } catch {} if (this.proc && this.proc.exitCode === null) { try { this.proc.stdin.end(); } catch {} try { this.proc.kill('SIGTERM'); } catch {} } }
 }
 
 module.exports = { CodexSession, POLICIES, bare, rateLimits, savedThread };

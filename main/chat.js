@@ -24,6 +24,7 @@ const config = require('./config');
 const { Meter } = require('./stats');
 const { parseFrontmatter } = require('./kit');
 const projectPolicy = require('./policy');
+const touched = require('./touched');
 
 const PROMPT = path.join(__dirname, '..', 'kit', 'chat.md');
 const PROMPT_CODEX = path.join(__dirname, '..', 'kit', 'chat-codex.md');
@@ -32,6 +33,7 @@ const PROMPT_FORUM = path.join(__dirname, '..', 'kit', 'forum.md');
 const ENGINES = ['claude', 'codex'];
 const engineOf = (e) => (ENGINES.includes(e) ? e : 'claude');
 const MODES = ['default', 'acceptEdits', 'auto', 'plan'];
+const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 // System messages the panel has no use for.
 const QUIET = new Set(['hook_started', 'hook_response', 'hook_progress', 'thinking_tokens', 'status']);
 const SCRATCH_NOTE = 'There is no project here. This is a free space to discuss ideas and possible new projects; no code base to edit unless the user asks to draft files.';
@@ -263,9 +265,9 @@ class Session extends EventEmitter {
   // shell: a login shell, so the agent's tools see the same PATH as a terminal.
   // autoAllow(request): true for tool requests the host approves without asking.
   // meter: where a resumed conversation's token meter picks up (see stats.Meter).
-  constructor({ id, cwd, shell, bin, args, env, prefix = [], autoAllow, meter, policy, mode = 'default' }) {
+  constructor({ id, cwd, shell, bin, args, env, prefix = [], autoAllow, meter, policy, mode = 'default', getTitle = () => '' }) {
     super();
-    Object.assign(this, { id, cwd, shell, bin, args, env, prefix, autoAllow, policy });
+    Object.assign(this, { id, cwd, shell, bin, args, env, prefix, autoAllow, policy, getTitle });
     this.permissionMode = mode;
     this.env = { ...(env || process.env) };
     delete this.env.CODEOME_HPC_HOST;
@@ -322,6 +324,19 @@ class Session extends EventEmitter {
     if (r && r.subtype === 'can_use_tool' && this.autoAllow && this.autoAllow(r)) return this.respond(m.request_id, { behavior: 'allow', updatedInput: r.input });
     const out = slim(m, this.stream);
     if (out) this.emit('message', out);
+    if (m.type === 'assistant' && Array.isArray(m.message?.content)) {
+      for (const block of m.message.content) {
+        if (block?.type !== 'tool_use' || !EDIT_TOOLS.has(block.name)) continue;
+        const filePath = block.input?.file_path || block.input?.notebook_path;
+        if (typeof filePath !== 'string' || !filePath) continue;
+        try {
+          touched.record(this.cwd, this.id, { engine: 'claude', title: this.getTitle() || '' }, filePath, block.name);
+          const collisions = touched.conflicts(this.cwd, this.id, filePath);
+          if (collisions.length) this.emit('message', { type: 'collision', path: collisions[0].path, tool: block.name,
+            others: collisions.map(({ chat_id, engine, title, ts }) => ({ chat_id, engine, title, ts })) });
+        } catch (e) { if (!this.touchedErrorLogged) { this.touchedErrorLogged = true; console.error('chat touched', e); } }
+      }
+    }
   }
 
   write(o) { if (this.proc && this.proc.stdin.writable) this.proc.stdin.write(JSON.stringify(o) + '\n'); }
@@ -338,7 +353,7 @@ class Session extends EventEmitter {
     });
   }
 
-  stop() { if (this.proc && this.proc.exitCode === null) { try { this.proc.stdin.end(); } catch {} try { this.proc.kill('SIGTERM'); } catch {} } }
+  stop() { try { touched.clear(this.cwd, this.id); } catch {} if (this.proc && this.proc.exitCode === null) { try { this.proc.stdin.end(); } catch {} try { this.proc.kill('SIGTERM'); } catch {} } }
 }
 
 // ---------- saved conversations ----------

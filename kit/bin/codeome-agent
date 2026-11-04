@@ -14,6 +14,7 @@ events.jsonl and result.md; Codeome's Agent chat and Jobs list read those folder
   codeome-agent pause ID
   codeome-agent progress [--job ID] [--stage ID] [--label TEXT] [--state waiting|running|done|failed] [--done N --total M --unit U] [--baseline SECONDS] [--plan id:label,id:label,...]
   codeome-agent watch --parser vitest|pytest|tsc|snakemake|regex|slurm --label TEXT --task KEY [--log FILE | --remote-log /ABS/PATH | --jobs ID[,ID...]] [--total N] [--pid P] [--stage ID] [--regex PATTERN] [--timeout SECONDS] [--quiet]
+  codeome-agent touched [--path P] [--json] [--all]
   codeome-agent hook            (Claude Code hook: PreToolUse/SubagentStart/SubagentStop JSON on stdin)
 """
 import argparse
@@ -1673,6 +1674,160 @@ def cmd_pause(a):
     print('Pausing %s' % j['id'])
 
 
+# ---------- touched files ----------
+TOUCH_TTL_S = 30 * 60
+TOUCH_LIVE_S = 120
+
+
+def touched_project(start=None):
+    project = os.environ.get('CLAUDE_PROJECT_DIR')
+    if project:
+        return os.path.realpath(project)
+    current = os.path.realpath(start or os.getcwd())
+    while True:
+        if os.path.isdir(os.path.join(current, '.codeome')):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
+
+
+def touched_path(project, file_path):
+    current = os.path.abspath(os.path.join(project, file_path))
+    missing = []
+    while True:
+        try:
+            os.stat(current)
+            return os.path.join(os.path.realpath(current), *reversed(missing))
+        except (FileNotFoundError, NotADirectoryError):
+            parent = os.path.dirname(current)
+            if parent == current:
+                raise
+            missing.append(os.path.basename(current))
+            current = parent
+
+
+def touched_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def touched_title(title):
+    return ' '.join(re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', title).split())[:80]
+
+
+def touched_read(project, chat_id):
+    file = os.path.join(project, '.codeome', 'touched', chat_id + '.json')
+    try:
+        info = os.stat(file)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 1024 * 1024:
+            return None
+        with open(file, 'rb') as f:
+            data = f.read(1024 * 1024 + 1)
+        if len(data) > 1024 * 1024:
+            return None
+        record = json.loads(data)
+        if not isinstance(record, dict) or record.get('chat_id') != chat_id or \
+                record.get('engine') not in ('claude', 'codex') or not isinstance(record.get('title'), str) or \
+                not touched_number(record.get('updated_at')) or not isinstance(record.get('files'), dict):
+            return None
+        for path, touch in record['files'].items():
+            if not os.path.isabs(path) or not isinstance(touch, dict) or \
+                    not touched_number(touch.get('ts')) or not isinstance(touch.get('tool'), str):
+                return None
+        record['title'] = touched_title(record['title'])
+        return record, info.st_mtime
+    except (OSError, ValueError, UnicodeError, TypeError, RecursionError):
+        return None
+
+
+def touched_records(project):
+    directory = os.path.join(project, '.codeome', 'touched')
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    records = []
+    for name in sorted(name for name in names if name.endswith('.json') and re.fullmatch(r'[A-Za-z0-9_-]+', name[:-5]))[:100]:
+        item = touched_read(project, name[:-5])
+        if item:
+            records.append(item)
+    return records
+
+
+def touched_live(record, mtime, now):
+    # updated_at describes writes; the file mtime is the liveness heartbeat.
+    return now - mtime < TOUCH_LIVE_S
+
+
+def touched_record(project, chat_id, file_path, tool, existing=None, ack_path=None):
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', chat_id):
+        return
+    directory = os.path.join(project, '.codeome', 'touched')
+    os.makedirs(directory, exist_ok=True)
+    previous = existing or touched_read(project, chat_id)
+    old = previous[0] if previous else None
+    now = time.time()
+    files = dict(old['files']) if old else {}
+    files[file_path] = {'ts': now, 'tool': tool}
+    for path, _ in sorted(files.items(), key=lambda item: item[1]['ts'])[:max(0, len(files) - 200)]:
+        del files[path]
+    record = {'chat_id': chat_id, 'engine': 'claude', 'title': touched_title(old['title']) if old and old['title'] else chat_id[:8],
+              'updated_at': now, 'files': files}
+    # Only the hook sets acked; other writers retain these per-path decisions.
+    acked = old.get('acked') if old else None
+    if isinstance(acked, dict) or ack_path:
+        acked = {path: ts for path, ts in (acked if isinstance(acked, dict) else {}).items()
+                 if isinstance(path, str) and os.path.isabs(path) and touched_number(ts)}
+        if ack_path:
+            acked[ack_path] = now
+        record['acked'] = dict(sorted(acked.items(), key=lambda item: item[1], reverse=True)[:200])
+    temp = os.path.join(directory, chat_id + '.' + secrets.token_hex(16) + '.tmp')
+    try:
+        with open(temp, 'x', encoding='utf-8') as f:
+            json.dump(record, f, separators=(',', ':'))
+        os.replace(temp, os.path.join(directory, chat_id + '.json'))
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+def cmd_touched(a):
+    project = touched_project()
+    if not project:
+        if a.json:
+            print('[]')
+        return
+    selected = touched_path(project, a.path) if a.path else None
+    caller = os.environ.get('CODEOME_CHAT_ID')
+    now = time.time()
+    rows = []
+    inactive = {}
+    for record, mtime in touched_records(project):
+        owner_live = touched_live(record, mtime, now)
+        for file_path, touch in record['files'].items():
+            if selected and file_path != selected:
+                continue
+            live = owner_live and now - touch['ts'] < TOUCH_TTL_S
+            if not a.all and (not live or record['chat_id'] == caller):
+                continue
+            rows.append({'path': file_path, 'chat_id': record['chat_id'], 'engine': record['engine'],
+                         'title': record['title'], 'ts': touch['ts'], 'tool': touch['tool'], 'live': live})
+            if not live:
+                inactive[(record['chat_id'], file_path)] = 'dead' if not owner_live else 'expired'
+    rows.sort(key=lambda row: (row['path'], row['chat_id']))
+    if a.json:
+        print(json.dumps(rows))
+        return
+    for row in rows:
+        age = max(0, int((now - row['ts']) // 60))
+        label = row['title'] or row['chat_id'][:8]
+        status = ' (own)' if row['chat_id'] == caller else ''
+        if not row['live']:
+            status += ' (%s)' % inactive[(row['chat_id'], row['path'])]
+        print('%s  %s (%s)  %dm ago%s' % (row['path'], label, row['engine'], age, status))
+
+
 # ---------- Claude Code hook ----------
 def claude_gate():
     """Why a new Claude subagent must wait: this session's account is past the limit."""
@@ -1706,7 +1861,7 @@ def untracked_codex(command):
 
 def cmd_hook(_a):
     # A hook must never disturb the session: swallow every error, print nothing,
-    # except for a usage-limit refusal or a new subagent's job id.
+    # except for a decision or context needed by the session.
     try:
         ev = json.load(sys.stdin)
         name = ev.get('hook_event_name')
@@ -1728,6 +1883,60 @@ def cmd_hook(_a):
                     'permissionDecisionReason': 'Codeome: do not detach a Codex run with nohup, &, or a log redirect: '
                     'the user sees no card for it. Run it as a plain `.codeome/bin/codeome-agent codex --role <role> '
                     '--title "<short title>"` call with the brief on stdin and run_in_background: true.'}}))
+        elif name == 'PreToolUse' and ev.get('tool_name') in ('Edit', 'Write', 'MultiEdit', 'NotebookEdit'):
+            mode = os.environ.get('CODEOME_COLLISIONS', 'ask')
+            if mode == 'off':
+                return
+            if mode not in ('warn', 'ask', 'deny'):
+                mode = 'ask'
+            inp = ev.get('tool_input') or {}
+            chat_id = ev.get('session_id')
+            project = touched_project(ev.get('cwd'))
+            file_path = inp.get('file_path') or inp.get('notebook_path')
+            if not isinstance(chat_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', chat_id) or \
+                    not isinstance(project, str) or not isinstance(file_path, str) or not file_path:
+                return
+            if not os.path.isdir(os.path.join(project, '.codeome')):
+                return
+            try:
+                file_path = touched_path(project, file_path)
+            except (OSError, ValueError):
+                try:
+                    file_path = os.path.abspath(os.path.join(project, file_path))
+                    if '\x00' in file_path:
+                        raise ValueError('NUL in path')
+                except (OSError, ValueError):
+                    if mode == 'deny':
+                        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+                            'permissionDecision': 'deny', 'permissionDecisionReason': "Could not check this path for other chats' edits"}}))
+                    return
+            own = touched_read(project, chat_id)
+            now = time.time()
+            acked = own[0].get('acked') if own else None
+            if isinstance(acked, dict) and touched_number(acked.get(file_path)) and now - acked[file_path] < TOUCH_TTL_S:
+                touched_record(project, chat_id, file_path, ev['tool_name'], own)
+                return
+            conflicts = [(record, record['files'][file_path]) for record, mtime in touched_records(project)
+                         if record['chat_id'] != chat_id and file_path in record['files'] and
+                         now - record['files'][file_path]['ts'] < TOUCH_TTL_S and touched_live(record, mtime, now)]
+            if conflicts:
+                reason = ' '.join("Chat '%s' (%s) edited %s %d min ago." %
+                                  (touched_title(record['title']) or record['chat_id'][:8], record['engine'], file_path,
+                                   max(0, int((now - touch['ts']) // 60))) for record, touch in conflicts)
+                if mode == 'ask':
+                    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+                        'permissionDecision': 'ask', 'permissionDecisionReason': reason}}))
+                    touched_record(project, chat_id, file_path, ev['tool_name'], own, ack_path=file_path)
+                    return
+                if mode == 'deny':
+                    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+                        'permissionDecision': 'deny', 'permissionDecisionReason': reason + ' Pick another file or ask the user.'}}))
+                    return
+                print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+                    'additionalContext': reason}, 'systemMessage': reason}))
+                touched_record(project, chat_id, file_path, ev['tool_name'], own, ack_path=file_path)
+                return
+            touched_record(project, chat_id, file_path, ev['tool_name'], own)
         elif name == 'SubagentStart' and ev.get('agent_type'):
             job_id = start_claude_job(ev)
             if job_id:
@@ -1861,6 +2070,11 @@ def main():
     wa.add_argument('--timeout')
     wa.add_argument('--quiet', action='store_true')
     wa.set_defaults(fn=cmd_watch)
+    to = sub.add_parser('touched', help='files edited by live chats')
+    to.add_argument('--path')
+    to.add_argument('--json', action='store_true')
+    to.add_argument('--all', action='store_true')
+    to.set_defaults(fn=cmd_touched)
     sub.add_parser('hook', help='Claude Code hook entry point').set_defaults(fn=cmd_hook)
     if sys.argv[1:2] in (['progress'], ['watch']):
         def progress_error(message):

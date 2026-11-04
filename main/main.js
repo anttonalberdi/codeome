@@ -19,6 +19,7 @@ const scratch = require('./scratch');
 const stats = require('./stats');
 const { CodexSession } = require('./codexchat');
 const chat = require('./chat');
+const touched = require('./touched');
 const projectChat = require('./projectchat');
 const policy = require('./policy');
 const resources = require('./resources');
@@ -1283,8 +1284,10 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   const policyAtSpawn = livePolicy();
   const localResources = resources.resolve(policyAtSpawn.localResources);
   if (localResources) Object.assign(env, localResources.env);
+  env.CODEOME_CHAT_ID = id;
   const prefix = localResources ? localResources.prefix : [];
   const chatDefaults = projectChat(cfg, project);
+  const getTitle = () => chat.loadChat(project, id)?.title || '';
   // Names of the secrets this session gets (never values), for the prompt.
   const secretsInfo = (() => {
     const local = new Set(Object.keys(userSecretEnv('agents', project)));
@@ -1295,11 +1298,11 @@ function createAgentSession({ id, project, engine, account, resume, mode, meter,
   })();
   let s;
   if (engine === 'codex') {
-    s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked, policy: livePolicy,
+    s = new CodexSession({ id, cwd: project, shell: loginShell(), bin, args: [], env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, resume: !!resume, addDirs: linked, policy: livePolicy, getTitle,
       instructions: forum ? chat.forumPrompt(project) + policy.policyPrompt(policyAtSpawn) : chat.codexPrompt({ kitInstalled, linked, hpc: cfg.hpc, secrets: secretsInfo, persona, cwd: project, policyAtSpawn }), model: chatDefaults.codexModel, effort: chatDefaults.codexEffort });
   } else {
     if (linked.length) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = '1';
-    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy, mode });
+    s = new chat.Session({ id, cwd: project, shell: loginShell(), bin, args: chat.buildArgs({ id, resume, mode, kitInstalled, extra, model: chatDefaults.model, effort: chatDefaults.effort, linked, hpc: cfg.hpc, secrets: secretsInfo, settings: statusline && statusline.settings, persona, cwd: project, policyAtSpawn, ...(forum ? { prompt: chat.forumPrompt(project) } : {}) }), env, prefix, autoAllow: forum ? () => false : autoAllow, meter: meterOpt, policy: livePolicy, mode, getTitle });
     s.on('rateLimits', (rl) => { if (rl) { try { chat.recordUsage(dir, rl); } catch (e) { console.error('chat usage', e); } } });
   }
   s.permissionMode = mode;
@@ -1322,7 +1325,7 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     remote.attach(s, id, { project, engine, role: persona, seed: resume });
     // Codex limits are read from its app-server by the usage poll, so only Claude's are recorded here.
     s.on('turn', (t) => { if (scratch.isScratch(project)) return; try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, engine, ...t }); } catch (e) { console.error('chat stats', e); } });
-    s.on('exit', (r) => { chats.delete(id); send('chat:exit', { id, ...r }); });
+    s.on('exit', (r) => { try { touched.clear(project, id); } catch {} chats.delete(id); send('chat:exit', { id, ...r }); });
     s.start();
     chats.set(id, s);
     return { ok: true, account: acct.info };
@@ -1658,6 +1661,9 @@ app.whenReady().then(() => {
   }
   let warnedWorkingSet = 0;
   heartbeatTimer = setInterval(() => {
+    for (const [id, session] of chats) {
+      try { touched.heartbeat(session.cwd, id); } catch (err) { crashlog.logError('touched heartbeat', err); }
+    }
     try {
       const mem = app.getAppMetrics().map((m) => ({ type: m.type, pid: m.pid, workingSetSize: m.memory.workingSetSize }));
       crashlog.heartbeat({ mem });

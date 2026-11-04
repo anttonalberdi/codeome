@@ -789,6 +789,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .chat-notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 10px 6px; padding: 6px 9px; font-size: 12px; border-left: 3px solid var(--line-strong); background: var(--surface-2); border-radius: 4px; }
 .chat-notice[hidden] { display: none; }
 .chat-notice span { flex: 1; min-width: 160px; }
+.chat-notice.collision { border-left-color: var(--pend); }
 .ctab .ceng { flex: none; font-size: 10px; padding: 0 5px; border-radius: 8px; background: var(--sel); color: var(--text); }
 .ctab .ceng.persona { flex: 0 1 auto; min-width: 0; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stats-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 20px; background: var(--surface); }
@@ -849,6 +850,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .ctab.error-seen .cdot { border-color: var(--fail); }
 .ctab.waiting .ct, .ctab.done .ct, .ctab.error .ct { color: var(--text); font-weight: 600; }
 .ctab .cjobs { font-size: 10px; font-weight: 600; line-height: 14px; min-width: 15px; padding: 0 4px; border-radius: 7px; text-align: center; background: color-mix(in srgb, var(--run) 18%, transparent); color: var(--run); font-variant-numeric: tabular-nums; }
+.ctab .ccollisions { font-size: 10px; font-weight: 600; line-height: 14px; min-width: 15px; padding: 0 4px; border-radius: 7px; text-align: center; background: color-mix(in srgb, var(--pend) 18%, transparent); color: var(--pend); font-variant-numeric: tabular-nums; }
 .ctab .cx { width: 18px; height: 18px; border: 0; background: transparent; border-radius: 4px; color: var(--muted); cursor: pointer; display: none; place-items: center; font-size: 14px; line-height: 1; flex: none; }
 .ctab:hover .cx, .ctab.active .cx, .ctab:focus-visible .cx { display: grid; }
 .ctab .cx:hover { background: var(--line-strong); color: var(--text); }
@@ -863,6 +865,7 @@ button.cs { cursor: pointer; text-decoration: underline; text-decoration-color: 
 button.cs:hover { text-decoration-color: currentColor; }
 .cs.working, .cs.working b, .cs.jobs b { color: var(--run); }
 .cs.waiting, .cs.waiting b { color: var(--pend); font-weight: 600; }
+.cs.collisions, .cs.collisions b { color: var(--pend); font-weight: 600; }
 .cs.done, .cs.done b { color: var(--accent); }
 .cs-sub { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .tool.run .tdot, .msg.md.live::after, .ctab.waiting .cdot { animation: none; } }

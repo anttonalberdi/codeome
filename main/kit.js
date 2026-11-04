@@ -25,7 +25,7 @@ const KIT = path.join(__dirname, '..', 'kit');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(KIT, 'manifest.json'), 'utf8'));
 const HOOK_CMD = 'python3 "$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent" hook';
 const PERMISSION = 'Bash(.codeome/bin/codeome-agent *)';
-const IGNORE = ['.codeome/jobs/', '.codeome/worktrees/', '.codeome/plans/', '.codeome/context/'];
+const IGNORE = ['.codeome/jobs/', '.codeome/worktrees/', '.codeome/plans/', '.codeome/context/', '.codeome/touched/'];
 const ENGINE_LABEL = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
 const ENGINES = Object.keys(ENGINE_LABEL);
 const ROUTING = '.claude/skills/orchestrate/routing.md';
@@ -174,6 +174,7 @@ function mergeSettings(project) {
   };
   add('PreToolUse', 'Agent');
   add('PreToolUse', 'Bash');
+  add('PreToolUse', 'Edit|Write|MultiEdit|NotebookEdit');
   add('SubagentStart');
   add('SubagentStop');
   s.permissions = s.permissions || {};

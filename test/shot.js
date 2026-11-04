@@ -149,6 +149,18 @@ const steps = {
   diff: [`App.views.editor.diff({key:'d',title:'x.R',original:'a <- 1\\nb <- 2\\n',modified:'a <- 1\\nb <- 3\\nc <- 4\\n',lang:'r'}); 0`],
   // SHOT_PROJECT: a folder with the agent kit installed and some jobs recorded.
   agents: [`App.openProject(${JSON.stringify(process.env.SHOT_PROJECT || path.resolve(__dirname, '..'))}).then(() => { App.setView('agents'); setTimeout(() => { const j = App.views.agents.jobs.find((x) => x.engine === 'codex'); if (j) App.views.agents.openJob(j); }, 1200); }); 0`],
+  'chat-collision': [`(async () => {
+    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    App.setView('agents'); App.views.agents.show('chat');
+    const C = App.views.chat;
+    for (let i = 0; i < 40 && !C.current(); i++) await new Promise((r) => setTimeout(r, 50));
+    const first = C.current();
+    first.title = 'Update parser'; first.started = true;
+    await C.newChat();
+    const second = C.current();
+    second.title = 'Review renderer'; second.started = true;
+    C.activate(second);
+  })(); 0`],
   // Run: npx electron test/shot.js <outdir> forum; use SHOT_DARK=1 for the dark theme.
   forum: [`(async () => {
     const project = ${JSON.stringify(path.resolve(__dirname, '..'))};
@@ -413,6 +425,20 @@ app.whenReady().then(() => {
     win.webContents.on('console-message', (_e, level, msg) => { if (level >= 1) console.log('[renderer]', msg); });
     for (const s of steps[scenario] || []) { try { await win.webContents.executeJavaScript(s); } catch (e) { console.log('step error', e.message); } }
     await new Promise((r) => setTimeout(r, Number(process.env.SHOT_WAIT) || 2500));
+    if (scenario === 'chat-collision') {
+      const chats = await win.webContents.executeJavaScript('App.views.chat.byProject[App.project].tabs.map((c) => ({ id: c.id, title: c.title }))');
+      const file = path.resolve(__dirname, '../renderer/js/chat.js');
+      win.webContents.send('chat:event', { id: chats[0].id, msg: { type: 'collision', path: file, tool: 'Edit', others: [{ chat_id: chats[1].id, engine: 'codex', title: chats[1].title, ts: Date.now() / 1000 }] } });
+      win.webContents.send('chat:event', { id: chats[1].id, msg: { type: 'collision', path: file, tool: 'Edit', others: [{ chat_id: chats[0].id, engine: 'claude', title: chats[0].title, ts: Date.now() / 1000 }] } });
+      await new Promise((r) => setTimeout(r, 150));
+      const visible = await win.webContents.executeJavaScript(`({ notice: document.querySelector('.chat-notice').textContent,
+        badges: document.querySelectorAll('.ctab .ccollisions').length,
+        summary: document.querySelector('.chat-sum').textContent,
+        tooltip: document.querySelector('.ctab.active').title })`);
+      if (!visible.notice.includes('Also edited by Update parser (Claude): renderer/js/chat.js') ||
+          visible.badges !== 2 || !visible.summary.includes('2 collisions') ||
+          !visible.tooltip.includes('renderer/js/chat.js')) throw new Error('Collision UI is missing its notice, badges, summary or tooltip.');
+    }
     if (scenario === 'stats') {
       const id = await win.webContents.executeJavaScript('App.views.chat.current().id');
       const say = (msg) => win.webContents.send('chat:event', { id, msg });

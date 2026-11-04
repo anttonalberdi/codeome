@@ -52,6 +52,19 @@ The Codeome agent kit is installed in this project. The roles and their default 
 The Codeome agent kit is not installed in this project. You have no specialist roles and no Codex runner, so do the work yourself. If a task is large enough that a team would help, or the user asks for Codex, tell them once that they can install the kit from the banner at the top of the chat.
 <!-- end -->
 
+<!-- if kit -->
+## Concurrent chats
+
+Several chats can run in this project at once. Codeome records the files each live chat edits.
+
+- Before editing a file that other work may share, especially for a multi-file change, run `.codeome/bin/codeome-agent touched --path <file>` for each file you plan to change. Plain `touched` lists everything other live chats have touched (`--json` for machine-readable output). It exits 0 either way.
+- Prefer files nobody else touched. If another chat touched one, tell the user and ask before editing it, or work on a different part.
+- Never revert or overwrite another chat's changes.
+- In Claude chats, editing a file another live chat recently edited asks the user for approval first. Codex chats get no such prompt, so the check is up to you. Don't rely on it either way: check first.
+- Edits made through Bash (sed, formatters, `git checkout`) are not tracked, so take the same care with them.
+<!-- else -->
+<!-- end -->
+
 ## Google Docs, Sheets and Slides
 
 Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive keeps on disk: a few lines of JSON whose `doc_id` is the document's id. Codeome shows the live document in a tab, so the user watches your edits arrive.

@@ -6,6 +6,7 @@
 (function () {
   const h = App.h;
   const C = { byProject: {}, byId: {} }; // byProject[dir] = { tabs: [chat], active: chat }
+  const Collisions = App.chatCollisions;
   App.views.chat = C;
   const dom = new WeakMap(); // item → element
   let logEl, ta, attEl, sugEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl, noticeEl;
@@ -85,7 +86,7 @@
   // Runtime-only state, rebuilt for a saved conversation.
   function live(chat) {
     if (typeof chat.role !== 'string') chat.role = '';
-    Object.assign(chat, { running: false, busy: false, stream: {}, tools: {}, requests: {}, attach: [] });
+    Object.assign(chat, { running: false, busy: false, stream: {}, tools: {}, requests: {}, attach: [], collisions: [], collisionTimer: null });
     for (const it of chat.items) {
       if (it.id) chat.tools[it.id] = it;
       if ((it.t === 'perm' || it.t === 'ask') && !it.decided && !it.answers) it.expired = true;
@@ -106,12 +107,13 @@
 
   // What the tabs, the summary line and the project cards show.
   C.stats = (project) => {
-    const s = { sessions: 0, live: 0, working: 0, waiting: 0, unread: 0, subagents: 0, codex: 0 };
+    const s = { sessions: 0, live: 0, working: 0, waiting: 0, unread: 0, subagents: 0, codex: 0, collisions: 0 };
     for (const c of tabsOf(project)) {
       s.sessions++;
       if (c.running) s.live++;
       if (waiting(c)) s.waiting++; else if (c.busy) s.working++;
       if (c.unread) s.unread++;
+      if (Collisions.recent(c.collisions).length) s.collisions++;
       for (const j of runningJobs(c)) if (j.engine === 'codex') s.codex++; else s.subagents++;
     }
     return s;
@@ -210,6 +212,9 @@
     const i = t.tabs.indexOf(chat);
     if (i < 0) return;
     t.tabs.splice(i, 1);
+    clearTimeout(chat.collisionTimer);
+    chat.collisions = [];
+    chat.collisionTimer = null;
     await save(chat, true);
     if (!t.tabs.length) t.tabs.push(blank(chat.project));
     if (t.active === chat) { t.active = null; C.activate(t.tabs[Math.min(i, t.tabs.length - 1)]); }
@@ -406,7 +411,12 @@
   function focus() { setTimeout(() => { if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }, 0); }
 
   C.closeProject = (project) => {
-    for (const c of tabsOf(project)) if (c.running) { c.stopping = true; codeome.chat.stop(c.id); }
+    for (const c of tabsOf(project)) {
+      clearTimeout(c.collisionTimer);
+      c.collisions = [];
+      c.collisionTimer = null;
+      if (c.running) { c.stopping = true; codeome.chat.stop(c.id); }
+    }
     delete C.byProject[project];
     pushTabs(project, [], true);
   };
@@ -555,6 +565,13 @@
 
   function handle(chat, m) {
     switch (m.type) {
+      case 'collision':
+        if (!tabsOf(chat.project).includes(chat)) break;
+        chat.collisions = Collisions.add(chat.collisions, m);
+        scheduleCollisionExpiry(chat);
+        if (chat === cur()) paintNotice();
+        scheduleTabs();
+        break;
       case 'system':
         if (m.subtype === 'init') { chat.busy = true; chat.busySince ||= Date.now(); chat.model = m.model; paintState(); }
         else if (m.subtype === 'task_notification') taskEnded(chat, m.tool_use_id, m.status);
@@ -586,6 +603,19 @@
         break;
       }
     }
+  }
+
+  function scheduleCollisionExpiry(chat) {
+    clearTimeout(chat.collisionTimer);
+    chat.collisionTimer = null;
+    if (!chat.collisions.length) return;
+    const firstExpiry = Math.min(...chat.collisions.map((c) => c.at)) + Collisions.TTL_MS;
+    chat.collisionTimer = setTimeout(() => {
+      chat.collisions = Collisions.recent(chat.collisions);
+      if (chat === cur()) paintNotice();
+      scheduleTabs();
+      scheduleCollisionExpiry(chat);
+    }, Math.max(1, firstExpiry - Date.now() + 1));
   }
 
   // ---------- token use ----------
@@ -1578,13 +1608,15 @@
     if (!noticeEl) return;
     const chat = cur(), E = App.views.editor, tab = E && E.cur && E.cur();
     const lastUser = chat && [...chat.items].reverse().find((x) => x.t === 'user');
-    const on = !!chat && engineOf(chat) === 'codex' && App.project === chat.project
+    const docNotice = !!chat && engineOf(chat) === 'codex' && App.project === chat.project
       && ((tab && E.isGdoc && tab.kind !== 'file' && String(tab.key || '').startsWith('gdoc:')) || GDOC_RE.test((ta && ta.value) || '') || !!(lastUser && GDOC_RE.test(lastUser.text || '')));
-    noticeEl.hidden = !on;
-    if (!on) return noticeEl.replaceChildren();
-    if (noticeEl.firstChild) return;
-    noticeEl.append(h('span', 'Codex can\'t edit Google Docs, Sheets or Slides. Start a Claude chat to edit this document.'),
-      h('button.btn.small', { onclick: () => C.newChat({ engine: 'claude' }) }, 'New Claude chat'));
+    const collisions = chat ? Collisions.recent(chat.collisions) : [];
+    noticeEl.hidden = !docNotice && !collisions.length;
+    noticeEl.classList.toggle('collision', !!collisions.length);
+    noticeEl.replaceChildren(...[
+      collisions.length ? h('span', Collisions.line(collisions[0], chat.project)) : null,
+      docNotice ? h('span', 'Codex can\'t edit Google Docs, Sheets or Slides. Start a Claude chat to edit this document.') : null,
+      docNotice ? h('button.btn.small', { onclick: () => C.newChat({ engine: 'claude' }) }, 'New Claude chat') : null].filter(Boolean));
   }
 
   function paintState() {
@@ -1671,6 +1703,7 @@
     for (const c of t.tabs) {
       const [st, label] = tabState(c);
       const jobs = runningJobs(c);
+      const collisions = Collisions.recent(c.collisions);
       const active = c === t.active;
       const title = c.title || 'New chat';
       const state = st === 'done' ? 'ready' : st;
@@ -1678,7 +1711,8 @@
       if (!activity || activity.state !== state) { activity = { state, at: Date.now() }; tabActivity.set(c, activity); }
       summary.push({ id: c.id, title, state, label, jobs: jobs.length, engine: engineOf(c), role: c.role || '', active,
         updatedAt: Math.max(Number.isFinite(c.updatedAt) ? c.updatedAt : 0, activity.at) });
-      const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ');
+      const tip = [title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ')
+        + (collisions.length ? '\n' + collisions.map((collision) => Collisions.line(collision, c.project)).join('\n') : '');
       const el = h('div.ctab.' + st + (active ? '.active' : ''), {
         role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
         draggable: 'true',
@@ -1713,6 +1747,7 @@
       c.role ? h('span.ceng.persona', { title: personaName(c.role) }, personaName(c.role)) : null,
       h('span.ct', title),
       jobs.length ? h('span.cjobs', { title: `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` }, String(jobs.length)) : null,
+      collisions.length ? h('span.ccollisions', { 'aria-hidden': 'true' }, String(collisions.length)) : null,
       h('button.cx', { title: 'Close chat', 'aria-label': 'Close ' + title, tabindex: '-1', onclick: (e) => { e.stopPropagation(); C.closeTab(c); } }, '×'));
       tabsEl.append(el);
     }
@@ -1727,13 +1762,15 @@
     const s = C.stats(App.project);
     const first = (f) => t.tabs.find(f);
     const part = (cls, n, one, many, go) => (n ? h(go ? 'button.cs.' + cls : 'span.cs.' + cls, go ? { onclick: () => C.activate(go), title: 'Show it' } : {}, h('b', String(n)), ' ', n > 1 ? many : one) : null);
+    const collisionChat = first((c) => Collisions.recent(c.collisions).length && c !== t.active);
     sumEl.append(...[
       h('span.cs', { title: `${s.live} of ${s.sessions} with an agent session open` }, h('b', String(s.sessions)), s.sessions > 1 ? ' chats' : ' chat'),
       part('working', s.working, 'working', 'working', s.working === 1 ? first((c) => c.busy && !waiting(c) && c !== t.active) : null),
       part('waiting', s.waiting, 'needs you', 'need you', first((c) => waiting(c) && c !== t.active)),
       part('done', s.unread, 'reply ready', 'replies ready', first((c) => c.unread && c !== t.active)),
       part('jobs', s.subagents, 'subagent', 'subagents', null),
-      part('jobs', s.codex, 'Codex job', 'Codex jobs', null)].filter(Boolean));
+      part('jobs', s.codex, 'Codex job', 'Codex jobs', null),
+      s.collisions ? h(collisionChat ? 'button.cs.collisions' : 'span.cs.collisions', collisionChat ? { onclick: () => C.activate(collisionChat), title: 'Show it' } : {}, Collisions.countText(s.collisions)) : null].filter(Boolean));
   }
 
   function tabMenu(c) {

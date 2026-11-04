@@ -10,6 +10,7 @@ const projectChat = require('../main/projectchat');
 const policy = require('../main/policy');
 const usage = require('../main/usage');
 const scratch = require('../main/scratch');
+const touched = require('../main/touched');
 
 const ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
@@ -310,6 +311,51 @@ test('a session relays messages, answers permission requests and its own control
   const exited = new Promise((resolve) => s.on('exit', resolve));
   s.stop();
   await exited;
+});
+
+test('Claude edit tools record paths, report live collisions, and clear on stop', (t) => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-chat-edit-')));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const other = '1f8fad5b-d9cb-469f-a165-70867728950e';
+  let title = 'First\nchat';
+  const s = new chat.Session({ id: ID, cwd: dir, getTitle: () => title });
+  const seen = [];
+  s.on('message', (m) => seen.push(m));
+  const edit = (name, input) => s.handle({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } });
+  edit('Write', { file_path: 'notes.txt' });
+  edit('MultiEdit', { file_path: 'multi.txt' });
+  edit('NotebookEdit', { notebook_path: 'book.ipynb' });
+  edit('Edit', {});
+  assert.deepStrictEqual(Object.keys(touched.list(dir)[0].files).sort(),
+    ['notes.txt', 'multi.txt', 'book.ipynb'].map((p) => path.join(dir, p)).sort());
+  assert.strictEqual(touched.list(dir)[0].title, 'First chat');
+  assert.deepStrictEqual(seen.filter((m) => m.type === 'collision'), []);
+
+  touched.record(dir, other, { engine: 'codex', title: 'Other chat' }, 'notes.txt', 'Edit');
+  const peer = touched.list(dir).find((r) => r.chat_id === other);
+  const file = path.join(dir, 'notes.txt');
+  title = 'Updated chat';
+  edit('Edit', { file_path: 'notes.txt' });
+  assert.strictEqual(touched.list(dir).find((r) => r.chat_id === ID).title, title);
+  assert.deepStrictEqual(seen.filter((m) => m.type === 'collision'), [{ type: 'collision', path: file, tool: 'Edit',
+    others: [{ chat_id: other, engine: 'codex', title: 'Other chat', ts: peer.files[file].ts }] }]);
+  s.stop();
+  assert.deepStrictEqual(touched.list(dir).map((r) => r.chat_id), [other]);
+});
+
+test('Claude logs touched recording failures once per session', (t) => {
+  const originalRecord = touched.record;
+  const originalError = console.error;
+  t.after(() => { touched.record = originalRecord; console.error = originalError; });
+  touched.record = () => { throw new Error('touch failed'); };
+  const errors = [];
+  console.error = (...args) => errors.push(args);
+  const s = new chat.Session({ id: ID, cwd: os.tmpdir() });
+  const edit = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'notes.txt' } }] } };
+  s.handle(edit);
+  s.handle(edit);
+  assert.strictEqual(errors.length, 1);
+  assert.match(errors[0][1].message, /touch failed/);
 });
 
 test('Claude permission checks use the latest project policy before auto approval', () => {

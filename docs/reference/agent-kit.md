@@ -91,6 +91,27 @@ Problems end the watch with a reason: three failed polls give "lost connection t
 
 Codeome's own task files under `.codeome/jobs/.tasks/` are pruned when a watch starts: folders older than 7 days, or beyond the newest 50, are removed. `.codeome/jobs/` is git-ignored. Slice 1's `progress` command is unchanged. Projects with an older kit see it as outdated until updated.
 
+## Touched files
+
+Codeome records the files each live chat edits in `.codeome/touched/<chat id>.json` (git-ignored) so chats can see each other's work. A record counts while its chat is live (the app refreshes the file every 30 seconds; it counts for 2 minutes after the last refresh) and the edit is under 30 minutes old. Records are deleted when the chat closes.
+
+```
+codeome-agent touched [--path P] [--json] [--all]
+```
+
+Lists the files other live chats touched, one per line: path, chat title and engine, and minutes since the edit. `--path P` limits it to one file, `--json` prints a list of objects (`path`, `chat_id`, `engine`, `title`, `ts`, `tool`, `live`), and `--all` also lists your own edits and records that are expired or whose chat is no longer live. It always exits 0.
+
+### Edit hook
+
+From kit 0.9.2 a PreToolUse hook on Edit, Write, MultiEdit and NotebookEdit records the edit and checks for a collision first. If another live chat edited the same file in the last 30 minutes, the hook reacts according to the `CODEOME_COLLISIONS` environment variable:
+
+- `ask` (default): the user is asked to approve the edit, with the other chat named. It asks once per file for 30 minutes.
+- `warn`: the edit goes ahead and the agent and the user are told.
+- `deny`: the edit is refused.
+- `off`: the hook does nothing.
+
+The hook is for Claude chats. Codex chats are recorded by the app and told about `touched` in their prompt, but get no approval prompt. Edits made through Bash are not seen, and the check is not a lock.
+
 ## Tools
 
 Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `sftp`, `quarto`, `R`, `Rscript`, `python3`, `tmux` (on the HPC), `claude`, `codex`. Settings shows which ones it found.

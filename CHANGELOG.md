@@ -5,9 +5,11 @@ What changed in each version of Codeome, newest first. The version is the one in
 ## Unreleased
 
 ### Added
+- **Warning when two chats edit the same file**: each live chat now records the files it edits (Claude's Write, Edit, MultiEdit and NotebookEdit, and Codex file changes) in `.codeome/touched/` (git-ignored). When a chat touches a file another live chat edited in the last 30 minutes, Claude asks you to approve the edit and names the other chat, once per file; Codex chats are only warned through their prompt. The chat shows a yellow notice (*Also edited by <chat> (<engine>): <path>*), the tab gets a badge and tooltip, and the line under the tabs adds *N collisions*, all for 30 minutes. Set `CODEOME_COLLISIONS` to `off`, `warn`, `ask` (default) or `deny` to change how the hook reacts. Edits made through Bash (`sed`, formatters, `git checkout`) are not seen, and it is a warning, not a lock. The prompt needs the project's kit updated to 0.9.2.
 - **Automatic HPC reconnect**: when the HPC connection drops, Codeome opens it again by itself: at once, then after 15 seconds, 1 minute and 3 minutes, and then stops with a *Connect* button. A saved password or an ssh key reconnects silently; a one-time code is asked for in the usual dialog, and cancelling that dialog stops the retries. Disconnecting yourself never triggers it. Turn it off in Settings → HPC → Sessions (*Connection*). The check runs every 15 seconds while the window is visible.
 
 ### Changed
+- **Agent kit 0.9.2**: a hook on Edit, Write, MultiEdit and NotebookEdit checks whether another live chat recently edited the file, and a new `codeome-agent touched` command lists the files other chats touched. The chat prompts describe both. Projects with an older kit are offered the update.
 - **Projects list scrollbar on hover**: the scrollbar of the projects list now shows only while the pointer is over it.
 - **Agent kit 0.9.1**: a hook now refuses a Codex run that an agent detaches by hand (`nohup`, a trailing `&`, or a redirect to a log file) and tells it to use the tracked form with `run_in_background: true`. Runs started that way got no card in the chat, so you could not see their progress. The chat prompts and the orchestrate and delegate skills say the same. Projects with an older kit are offered the update.
 

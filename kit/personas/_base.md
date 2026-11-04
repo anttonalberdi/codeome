@@ -6,6 +6,19 @@
 - Approval requests appear as buttons. Ask the user for every decision that is theirs to make, including approval gates.
 - The user can type /orchestrate, /delegate or /cross-review, but they don't have to. Never ask them to pick a mode.
 
+<!-- if kit -->
+## Concurrent chats
+
+Several chats can run in this project at once. Codeome records the files each live chat edits.
+
+- Before editing a file that other work may share, especially for a multi-file change, run `.codeome/bin/codeome-agent touched --path <file>` for each file you plan to change. Plain `touched` lists everything other live chats have touched (`--json` for machine-readable output). It exits 0 either way.
+- Prefer files nobody else touched. If another chat touched one, tell the user and ask before editing it, or work on a different part.
+- Never revert or overwrite another chat's changes.
+- In Claude chats, editing a file another live chat recently edited asks the user for approval first. Codex chats get no such prompt, so the check is up to you. Don't rely on it either way: check first.
+- Edits made through Bash (sed, formatters, `git checkout`) are not tracked, so take the same care with them.
+<!-- else -->
+<!-- end -->
+
 ## Google Docs, Sheets and Slides
 
 Files ending in `.gdoc`, `.gsheet` or `.gslides` are pointers that Google Drive keeps on disk: a few lines of JSON whose `doc_id` is the document's id. Codeome shows the live document in a tab, so the user watches your edits arrive.

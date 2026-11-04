@@ -46,6 +46,16 @@ Right-click a chat tab to see the conversation as a time tree, with job branches
 
 <Shot src="/screens/overview.webp" alt="A chat overview tab drawing the conversation as a tree over time with a plan box and job branches" caption="The overview draws one chat as a tree over time, with the plan in a box and a branch for each job." width="1500" height="940" />
 
+### Two chats editing the same file
+
+Every live chat records the files it edits in `.codeome/touched/` (git-ignored); the record is deleted when the chat closes. If a Claude chat is about to edit a file that another live chat edited in the last 30 minutes, it asks you to approve the edit and names the other chat. It asks once per file. The chat then shows a yellow notice (*Also edited by <chat> (<engine>): <path>*), the other chat's tab gets a badge with a tooltip, and the line under the tabs adds *N collisions*, all for 30 minutes.
+
+Codex chats get no approval prompt: their edits are recorded, they are warned through the prompt, and they can run `codeome-agent touched` themselves.
+
+To change how Claude reacts, set `CODEOME_COLLISIONS` in the environment Codeome starts from: `off`, `warn` (tell the agent, no prompt), `ask` (default) or `deny` (refuse the edit). There is no setting for it in the app yet.
+
+This is awareness, not locking: the check and the edit are not one step, and edits made through Bash (`sed`, formatters, `git checkout`) are not seen. The approval prompt needs the project's agent kit at 0.9.2; the banner offers the update.
+
 ## Saved conversations
 
 Conversations are saved (in `~/.codeome/chats/`) and keep running while you work in another tab or project. Open tabs come back when you reopen the project. Closing a tab stops its session, and the ⋯ menu reopens the conversation later. The ⋯ menu can also move the current chat into a Claude Code terminal session.
