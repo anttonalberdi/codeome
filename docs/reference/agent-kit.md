@@ -8,10 +8,14 @@ Agent chat → **Install…** (in the banner, or the ⋯ menu) writes into the p
 | `.claude/skills/{orchestrate,delegate,cross-review}/` | the slash commands |
 | `.claude/skills/release/` | registry playbooks, one file each (with the release & docs group) |
 | `.claude/skills/orchestrate/routing.md` | role → default engine; edit it to change routing for this project |
-| `.claude/settings.json` | hooks that record Claude subagent jobs, and permission to run the job runner (merged into your existing settings) |
+| `.claude/settings.json` | hooks that record Claude subagent jobs and refuse hand-detached Codex runs (kit 0.9.1), and permission to run the job runner (merged into your existing settings) |
 | `.codeome/bin/codeome-agent` | the job runner (Python 3, standard library only, so it also works on the HPC) |
 
 Commit `.claude/` and `.codeome/bin/` + `.codeome/kit.json` so collaborators get the same team. The chat approves its own job-runner calls (`codeome-agent` with a brief and no other shell syntax), except `--ignore-limits`; job records, plans and worktrees are git-ignored. Updating the kit never overwrites a role or skill you have edited. Codex jobs run in Codex's sandbox (read-only for reviewers and planners, workspace-write otherwise, no network). From a terminal: `.codeome/bin/codeome-agent list`, `show <id>`, `cancel <id>`, `usage`. Pass `--account <email>` to run a Codex job on a specific account, or `--ignore-limits` to start one past the threshold.
+
+## Codex runs and the detach hook
+
+Start a Codex job with `.codeome/bin/codeome-agent codex --role <role> --title "<short title>"`, the brief on stdin, as a Bash call with `run_in_background: true`. Codeome wakes the agent when the job ends, and the run gets a card in the chat. From kit 0.9.1 a PreToolUse hook on Bash refuses a Codex run that the agent detaches by hand with `nohup`, `setsid`, `disown`, a trailing `&` or a redirect to a log file, unless the call has `run_in_background: true`. The refusal tells the agent to use the tracked form. Runs started by hand got no card, so you could not see them. The same rule is in the chat's instructions (`kit/chat.md`), so agents are told before the hook has to step in.
 
 ## Job progress
 

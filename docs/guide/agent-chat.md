@@ -2,7 +2,7 @@
 
 Open the Agent chat with `⌘1`. It gives you agent chats per project, instead of separate Claude Code and Codex windows. Behind each chat is a headless Claude Code session acting as the orchestrator. It answers questions and makes small changes itself. For anything bigger it plans the work, checks with you, and hands it to specialists, whether Claude subagents or Codex jobs. To give the agent a team of roles, see [The team](/guide/team).
 
-<Shot src="/screens/agent-chat.webp" alt="Agent chat with four chat tabs, a Codex debugger job and a Claude explorer job running, and a message box with a permission selector" caption="The chat sits in the middle column, with tabs for each chat, job cards under the message and the permission selector below the message box." width="1500" height="940" />
+<Shot src="/screens/agent-chat.webp" alt="Agent chat with four chat tabs, each with its 4-letter code, a Codex debugger job and a Claude explorer job running, and a message box with a permission selector" caption="The chat sits in the middle column, with tabs for each chat, job cards under the message and the permission selector below the message box." width="1500" height="940" />
 
 ## Replies, jobs and permissions
 
@@ -40,7 +40,7 @@ An empty chat lists specialists (Analyst, Coder, Manuscript writer) with example
 
 Each chat is a tab above the conversation and runs its own session, so one can plan while another fixes a bug. `⇧⌘N` (or the `+` in the tab bar) opens a new chat; the `+` in the chat header creates a new agent, for this project or for all of them; `⇧⌘]` / `⇧⌘[` switch. Each tab shows its state: a spinner while the agent works, amber when it is waiting for you, green when a reply is ready that you haven't seen, red after an error. A badge counts the specialists that chat has running. The line under the tabs sums it up (for example *3 chats · 1 working · 1 needs you · 2 subagents · 1 Codex job*). Click *needs you* or *reply ready* to jump to that chat. Project cards and the rail icon show the same states for every project.
 
-<Shot bare src="/screens/detail-chat-tabs.webp" alt="Chat tab bar with four chats and the summary line 4 chats, 1 working, 1 needs you, 1 reply ready, 1 subagent, 1 Codex job" caption="The line under the tabs counts chats, working, needs you, reply ready, subagents and Codex jobs." width="544" height="82" />
+<Shot bare src="/screens/detail-chat-tabs.webp" alt="Chat tab bar with four chats, each showing its 4-letter code, and the summary line 4 chats, 1 working, 1 needs you, 1 reply ready, 1 subagent, 1 Codex job" caption="The line under the tabs counts chats, working, needs you, reply ready, subagents and Codex jobs." width="544" height="82" />
 
 Every chat has a 4-letter code, shown in its tab between the status dot and the name (on inactive tabs it is hidden when more than five tabs are open) and in the tab tooltip. The code uses consonants only, so it never spells a word, and it is unique within the project and saved with the chat. Chats saved before codes existed get one when loaded; Forum seats have none. Right-click a tab and choose *Copy code XXXX* to copy it.
 
@@ -53,6 +53,10 @@ Right-click a chat tab and choose *Overview* to see the conversation as a time t
 ### Two chats editing the same file
 
 Every live chat records the files it edits in `.codeome/touched/` (git-ignored); the record is deleted when the chat closes. If a Claude chat is about to edit a file that another live chat edited in the last 30 minutes, it asks you to approve the edit and names the other chat, with its code and note. It asks once per file. The chat then shows a yellow notice (`Also edited by CODE chat-title (engine): path`, followed by the other chat's note when it has one), the other chat's tab gets a badge with a tooltip, and the line under the tabs adds *N collisions*, all for 30 minutes.
+
+<Shot bare src="/screens/detail-chat-collision.webp" alt="Two chat tabs with 4-letter codes, one with a collision badge, and the summary line under the tabs ending in 2 collisions" caption="The other chat's tab carries a badge, and the line under the tabs counts the collisions." />
+
+<Shot bare src="/screens/detail-chat-notice.webp" alt="Yellow notice: Also edited by BCDF Update parser (Claude): renderer/js/chat.js, note: Parser edits need review." caption="The notice names the other chat by code and title, the file and, when it left one, its note." />
 
 Codex chats get no approval prompt: their edits are recorded, they are warned through the prompt, and they can run `codeome-agent touched` themselves.
 

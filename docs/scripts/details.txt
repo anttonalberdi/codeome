@@ -11,3 +11,5 @@ detail-files-sections|files|SHOT_STORAGE=@STORAGE@|.pane-stack
 detail-forum-seats|forum||.forum-seats
 detail-account-card|settings-accounts||.acct-card
 detail-vpn-prompt|vpn||.modal
+detail-chat-collision|chat-collision|SHOT_CLIP_ALL=1|.chat-tabbar, .chat-sum
+detail-chat-notice|chat-collision||.chat-notice
