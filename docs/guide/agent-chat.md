@@ -52,7 +52,7 @@ Right-click a chat tab and choose *Overview* to see the conversation as a time t
 
 ### Two chats editing the same file
 
-Every live chat records the files it edits in `.codeome/touched/` (git-ignored); the record is deleted when the chat closes. If a Claude chat is about to edit a file that another live chat edited in the last 30 minutes, it asks you to approve the edit and names the other chat, with its code and note. It asks once per file. The chat then shows a yellow notice (*Also edited by <code> <chat> (<engine>): <path>*, followed by the other chat's note when it has one), the other chat's tab gets a badge with a tooltip, and the line under the tabs adds *N collisions*, all for 30 minutes.
+Every live chat records the files it edits in `.codeome/touched/` (git-ignored); the record is deleted when the chat closes. If a Claude chat is about to edit a file that another live chat edited in the last 30 minutes, it asks you to approve the edit and names the other chat, with its code and note. It asks once per file. The chat then shows a yellow notice (`Also edited by CODE chat-title (engine): path`, followed by the other chat's note when it has one), the other chat's tab gets a badge with a tooltip, and the line under the tabs adds *N collisions*, all for 30 minutes.
 
 Codex chats get no approval prompt: their edits are recorded, they are warned through the prompt, and they can run `codeome-agent touched` themselves.
 
