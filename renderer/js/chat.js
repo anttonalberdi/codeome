@@ -626,7 +626,7 @@
         chat.unread = !seen(chat);
         paintState(); App.emit('sessions'); save(chat);
         attention(chat, failed ? 'The agent stopped with an error.' : 'The agent finished.');
-        if (!failed) { suggestReplies(chat); suggestTitle(chat); }
+        if (!failed) suggestTitle(chat);
         break;
       }
     }

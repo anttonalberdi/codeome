@@ -2,6 +2,12 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## 1.4.4
+
+### Fixed
+- **Phone page stuck on "Connecting"**: a syntax error in the phone page's script (an unescaped apostrophe, added in 1.4.2) stopped it from running at all, so pairing never started and the badge never changed. Pairing and the live connection work again. A test now checks that every phone script compiles.
+- **Chat tab titles**: an error (`suggestReplies is not defined`) after each finished turn stopped Codeome from suggesting a short tab name. It is fixed.
+
 ## 1.4.3
 
 ### Added
