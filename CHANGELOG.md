@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.4.3
 
 ### Added
 - **Warning when two chats edit the same file**: each live chat now records the files it edits (Claude's Write, Edit, MultiEdit and NotebookEdit, and Codex file changes) in `.codeome/touched/` (git-ignored). When a chat touches a file another live chat edited in the last 30 minutes, Claude asks you to approve the edit and names the other chat, once per file; Codex chats are only warned through their prompt. The chat shows a yellow notice (*Also edited by <chat> (<engine>): <path>*), the tab gets a badge and tooltip, and the line under the tabs adds *N collisions*, all for 30 minutes. Set `CODEOME_COLLISIONS` to `off`, `warn`, `ask` (default) or `deny` to change how the hook reacts. Edits made through Bash (`sed`, formatters, `git checkout`) are not seen, and it is a warning, not a lock. The prompt needs the project's kit updated to 0.9.2.
