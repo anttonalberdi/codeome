@@ -1035,6 +1035,9 @@ button.cs:hover { text-decoration-color: currentColor; }
 .new-project-type span { font-size: 12px; }
 .new-project-type small { color: var(--muted); font-size: 11px; }
 #new-project-form { display: flex; flex-direction: column; gap: 10px; }
+#new-project-instructions-form { display: flex; flex-direction: column; gap: 10px; }
+.new-project-instructions-footer { flex-direction: column; align-items: flex-end; }
+.new-project-instructions-actions { display: flex; gap: 8px; }
 .agent-scope-results { display: flex; flex-direction: column; gap: 4px; }
 .agent-scope-result { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
 

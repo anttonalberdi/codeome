@@ -39,6 +39,20 @@
     }
   });
 
+  P.instructionAnswersFromForm = (formValues = {}) => {
+    const clean = (key) => typeof formValues[key] === 'string' ? formValues[key].trim() : '';
+    const checked = (key) => formValues[key] === true || formValues[key] === 'true';
+    const autonomy = clean('autonomy');
+    return {
+      purpose: clean('purpose'), tools: clean('tools'), test: clean('test'),
+      build: clean('build'), run: clean('run'), rawDataPath: clean('rawDataPath'),
+      protectRawData: checked('protectRawData'), noCommitData: checked('noCommitData'),
+      hpc: checked('hpc'), autonomy: ['ask', 'small', 'plan'].includes(autonomy) ? autonomy : '',
+      noAutoCommit: checked('noAutoCommit'), noCoAuthor: checked('noCoAuthor'),
+      neverDo: clean('neverDo')
+    };
+  };
+
   P.newProject = () => new Promise((resolve) => {
     const ov = document.getElementById('overlay');
     const root = App.cfg.projectsDir || '~/Codeome';
@@ -46,8 +60,9 @@
     let values = P.newProjectDefaults(App.cfg);
     let authorInput = null, emailInput = null, authorTouched = false, emailTouched = false, checkDetails = null;
     let busy = false, done = false, createError = '', nameServerError = '';
+    let createdDir = null, instructionsLoading = false, instructionValues = {};
 
-    const close = (dir = null) => {
+    const close = (dir = createdDir) => {
       if (done) return;
       done = true;
       ov.hidden = true; ov.replaceChildren(); ov.onclick = null;
@@ -104,7 +119,13 @@
         try {
           const result = await codeome.project.create(P.newProjectPayload(type, values));
           if (done) return;
-          if (result?.dir) { App.toast(result.warning || `Created ${values.name}.`); close(result.dir); return; }
+          if (result?.dir) {
+            createdDir = result.dir;
+            App.toast(result.warning || `Created ${values.name}.`);
+            busy = false; step = 3; instructionsLoading = true; render();
+            void loadInstructionDefaults();
+            return;
+          }
           createError = result?.error || 'Could not create the project.';
         } catch (cause) { createError = cause.message || String(cause); }
         busy = false; status.textContent = '';
@@ -125,6 +146,78 @@
         h('button.btn', { type: 'button', onclick: () => { if (!busy) close(); } }, 'Cancel'), create), focus: nameInput };
     };
 
+    const instructions = () => {
+      const textField = (key, label, hint = '', rows = 0) => {
+        const input = rows ? h('textarea', { rows }, instructionValues[key] || '')
+          : h('input', { type: 'text', value: instructionValues[key] || '' });
+        input.oninput = () => { instructionValues[key] = input.value; };
+        return { input, element: field(label, input, hint ? h('div.hint', hint) : null) };
+      };
+      const checkbox = (key, label) => {
+        const input = h('input', { type: 'checkbox', checked: instructionValues[key] === true });
+        input.onchange = () => { instructionValues[key] = input.checked; };
+        return h('label.check', input, label);
+      };
+      const purpose = textField('purpose', 'What is this project for?', 'A sentence or two is enough.', 2);
+      const tools = textField('tools', 'Main languages and tools');
+      const test = textField('test', 'Test command');
+      const build = textField('build', 'Build command');
+      const run = textField('run', 'Run command');
+      const rawDataPath = textField('rawDataPath', 'Raw data folder', 'For example, data/raw.');
+      const neverDo = textField('neverDo', 'Anything agents must never do', 'Add any project-specific limits.', 2);
+      const autonomy = h('select', [
+        h('option', { value: '', selected: !['ask', 'small', 'plan'].includes(instructionValues.autonomy) }, 'Choose an approach'),
+        h('option', { value: 'ask', selected: instructionValues.autonomy === 'ask' }, 'Ask before changing anything'),
+        h('option', { value: 'small', selected: instructionValues.autonomy === 'small' }, 'Make small changes freely, ask for big ones'),
+        h('option', { value: 'plan', selected: instructionValues.autonomy === 'plan' }, 'Plan first for anything touching several files')
+      ]);
+      autonomy.onchange = () => { instructionValues.autonomy = autonomy.value; };
+      const skip = h('button.btn', { type: 'button', onclick: () => { if (!busy) close(); } }, 'Skip');
+      const create = h('button.btn.primary', { type: 'submit', form: 'new-project-instructions-form' }, 'Create AGENTS.md');
+      const status = h('div.hint', { role: 'status' });
+      const error = h('div.agent-field-error', { role: 'alert' });
+      const form = h('form#new-project-instructions-form', { onsubmit: async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        busy = true; skip.disabled = true; create.disabled = true;
+        status.textContent = 'Creating AGENTS.md…'; error.textContent = '';
+        try {
+          const result = await codeome.instructions.create(createdDir, P.instructionAnswersFromForm(instructionValues), values.name);
+          if (done) return;
+          if (!result?.error && result?.agentsPath) {
+            App.toast(result.kept ? 'AGENTS.md already exists, so it was left unchanged.' : 'AGENTS.md created.'); close(); return;
+          }
+          error.textContent = result?.error || 'Could not create AGENTS.md.';
+        } catch (cause) { if (!done) error.textContent = cause.message || String(cause); }
+        busy = false; skip.disabled = false; create.disabled = false; status.textContent = '';
+      } },
+        purpose.element, tools.element,
+        h('fieldset', h('legend', 'Commands'), test.element, build.element, run.element),
+        h('fieldset', h('legend', 'Data'), rawDataPath.element,
+          checkbox('protectRawData', 'Agents must never modify raw data'),
+          checkbox('noCommitData', 'Agents must never commit data files')),
+        checkbox('hpc', 'This project runs on the HPC'),
+        field('How should agents work?', autonomy),
+        checkbox('noAutoCommit', 'Never commit unless I ask'),
+        checkbox('noCoAuthor', 'No Co-Authored-By trailer in commits'),
+        neverDo.element, status, error);
+      return { body: form, footer: h('footer.new-project-instructions-footer',
+        h('div.new-project-instructions-actions', skip, create),
+        h('div.hint', 'You can edit AGENTS.md any time in Settings → Agents.')), focus: purpose.input };
+    };
+
+    // Used when the defaults cannot be fetched: keep the safeguards ticked.
+    const SAFE_ANSWERS = () => ({ protectRawData: true, noCommitData: true, noAutoCommit: true, noCoAuthor: true, autonomy: 'plan' });
+    const loadInstructionDefaults = async () => {
+      try {
+        const result = await codeome.instructions.defaults(type, values.description);
+        if (done) return;
+        instructionValues = result && typeof result === 'object' && !result.error ? result : SAFE_ANSWERS();
+      } catch { instructionValues = SAFE_ANSWERS(); }
+      if (done) return;
+      instructionsLoading = false; render();
+    };
+
     const render = () => {
       if (done) return;
       let content;
@@ -135,10 +228,15 @@
         const cards = templates.types.map((item) => h('button.new-project-type', { type: 'button', onclick: () => { type = item.id; step = 2; render(); } },
           h('strong', item.label), h('span', item.description), h('small', item.standard)));
         content = { body: h('div.new-project-types', cards), footer: h('footer', h('button.btn', { onclick: () => close() }, 'Cancel')) };
-      } else content = details();
+      } else if (step === 2) content = details();
+      else if (instructionsLoading) content = { body: h('div.hint', { role: 'status' }, 'Loading suggested instructions…'),
+        footer: h('footer', h('button.btn', { type: 'button', onclick: () => close() }, 'Skip')) };
+      else content = instructions();
       const modal = h('div.modal.new-project-modal', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Create a new project' },
-        h('header', h('h2', step === 1 ? 'Create a new project' : `Create ${templates.types.find((item) => item.id === type)?.label || 'project'}`),
-          h('p', step === 1 ? 'Choose a starting template.' : 'Add the details for your new project.')),
+        h('header', h('h2', step === 1 ? 'Create a new project' : step === 3 ? 'Instructions for your agents'
+          : `Create ${templates.types.find((item) => item.id === type)?.label || 'project'}`),
+          h('p', step === 1 ? 'Choose a starting template.' : step === 3 ? 'Add optional guidance for agents working in this project.'
+            : 'Add the details for your new project.')),
         h('div.body', content.body), content.footer);
       ov.replaceChildren(modal); ov.hidden = false;
       ov.onclick = (event) => { if (event.target === ov && !busy) close(); };

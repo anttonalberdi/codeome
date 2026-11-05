@@ -11,6 +11,7 @@ const sftp = require('./sftp');
 const slurm = require('./slurm');
 const zenodo = require('./zenodo');
 const kit = require('./kit');
+const instructions = require('./instructions');
 const inkscape = require('./inkscape');
 const jobs = require('./jobs');
 const { parseWorktrees } = require('./worktrees');
@@ -1212,6 +1213,28 @@ function mirrorGeneralQuietly() {
   try { kit.mirrorGeneral({ home: usage.home(), accountDirs: claudeAccountDirs() }); } catch (e) { console.error('general agent mirror', e); }
 }
 ipcMain.handle('skills:list', (_e, project) => { try { return { skills: kit.skillList(project, claudeDir()) }; } catch (e) { return { error: e.message }; } });
+ipcMain.handle('instructions:status', (_e, project) => { try { return instructions.status(project); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('instructions:ensure', (_e, project) => { try { return instructions.ensure(project); } catch (e) { return { error: e.message }; } });
+ipcMain.handle('instructions:defaults', (_e, args) => {
+  try {
+    const { type, description } = args || {};
+    return instructions.answerDefaults(type, description);
+  } catch (e) { return { error: e.message }; }
+});
+ipcMain.handle('instructions:create', (_e, args) => {
+  try {
+    const { project, answers, name } = args || {};
+    if (typeof project !== 'string' || !path.isAbsolute(project)) return { error: 'Project must be an absolute path.' };
+    const projectInfo = fs.statSync(project, { throwIfNoEntry: false });
+    if (!projectInfo || !projectInfo.isDirectory()) return { error: 'Project must be an existing directory.' };
+    if (!answers || typeof answers !== 'object' || Array.isArray(answers) ||
+        (Object.getPrototypeOf(answers) !== Object.prototype && Object.getPrototypeOf(answers) !== null)) {
+      return { error: 'Answers must be a plain object.' };
+    }
+    if (name !== undefined && typeof name !== 'string') return { error: 'Name must be a string.' };
+    return instructions.createFromAnswers(project, answers, name);
+  } catch (e) { return { error: e.message }; }
+});
 ipcMain.handle('agents:list', (_e, project) => { try { return { agents: kit.agents(project, claudeDir()) }; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('agents:create', (_e, args) => {
   try {

@@ -103,6 +103,11 @@ contextBridge.exposeInMainWorld('codeome', {
   rpkg: { list: invoke('rpkg:list') },
   kit: { status: invoke('kit:status'), install: (project, groups) => ipcRenderer.invoke('kit:install', { project, groups }) },
   skills: { list: invoke('skills:list') },
+  instructions: {
+    status: invoke('instructions:status'), ensure: invoke('instructions:ensure'),
+    defaults: (type, description) => ipcRenderer.invoke('instructions:defaults', { type, description }),
+    create: (project, answers, name) => ipcRenderer.invoke('instructions:create', { project, answers, name })
+  },
   global: { list: invoke('global:list'), setAgent: (project, name, patch) => ipcRenderer.invoke('global:setAgent', { project, name, patch }) },
   general: { agents: invoke('general:agents'), sync: invoke('general:sync') },
   agents: {

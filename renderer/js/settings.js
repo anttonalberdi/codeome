@@ -586,8 +586,8 @@
     const host = agentsHost;
     if (!project || App.isIdeas(project)) { host.replaceChildren(scopeHead('This project', 'No project is open.'), card('Team', h('div.sp-empty', 'Open a project to see its agents and skills.'))); return; }
     host.replaceChildren(scopeHead(`This project · ${App.basename(project)}`, 'Kept in its .claude/ folder, and shared with collaborators when committed.'), card('Team', h('div.sp-empty', 'Loading agents…')));
-    let res, kit, models, sk;
-    try { [res, kit, models, sk] = await Promise.all([codeome.agents.list(project), codeome.kit.status(project), codeome.agents.models(), codeome.skills.list(project)]); }
+    let res, kit, models, sk, ins;
+    try { [res, kit, models, sk, ins] = await Promise.all([codeome.agents.list(project), codeome.kit.status(project), codeome.agents.models(), codeome.skills.list(project), codeome.instructions.status(project)]); }
     catch (e) { if (project === App.project && host === agentsHost) host.replaceChildren(scopeHead(`This project · ${App.basename(project)}`, ''), card('Team', h('div.sp-empty', e.message || String(e)))); return; }
     if (project !== App.project || host !== agentsHost) return;
     codexCatalog = models.codex || { models: [] };
@@ -614,7 +614,7 @@
         list.map((a) => agentRow(project, a))));
       body.push(h('div.sp-foot.hint', 'The AI is the default the chat routes each role to (routing.md); it can still override per task. Claude models and effort go in the agent file; Codex ones in .codeome/agents.json. Edits to the files are kept on kit updates.'));
     }
-    host.replaceChildren(scopeHead(`This project · ${name}`, 'Kept in its .claude/ folder, and shared with collaborators when committed.'), h('div.sp-card', head, ...body),
+    host.replaceChildren(scopeHead(`This project · ${name}`, 'Kept in its .claude/ folder, and shared with collaborators when committed.'), instructionsCard(project, ins), h('div.sp-card', head, ...body),
       skillsCard(`Skills in ${name}`, sk, () => newSkill(App.join(project, '.claude')),
         'Commands are typed in the chat; playbooks are read when a task needs them. Kit skills follow the role groups chosen above. Edits to the files are kept on kit updates.'));
   }
@@ -733,6 +733,20 @@
   function openFile(p) { S.close(); App.views.editor.openFile(p); }
 
   // The shared modal closes on submit, so agent dialogs use its markup while keeping IPC errors visible.
+  // AGENTS.md is the project's main instructions for every agent; CLAUDE.md just imports it for Claude Code.
+  function instructionsCard(project, ins) {
+    const ready = ins && !ins.error && ins.hasAgents && ins.hasClaude && ins.claudeImports;
+    const open = async () => {
+      const r = ready ? ins : await codeome.instructions.ensure(project);
+      if (r.error) { App.toast(r.error); return; }
+      openFile(r.agentsPath);
+    };
+    return card('Project instructions', h('div.sp-foot.hint', ins && ins.error ? ins.error : ins && ins.hasAgents
+      ? 'AGENTS.md is read by every agent in this project, Claude and Codex alike.' + (ready ? '' : ' CLAUDE.md will be set to import it so Claude reads it too.')
+      : 'No AGENTS.md yet. Create one to tell every agent how this project works: conventions, commands, things to avoid.'),
+      h('div.row', h('button.btn.small' + (ins && ins.hasAgents ? '' : '.primary'), { onclick: open }, ins && ins.hasAgents ? 'Edit AGENTS.md' : 'Create AGENTS.md')));
+  }
+
   function agentDialog(title, body, ok, submit) {
     const overlay = document.getElementById('overlay');
     const previous = document.activeElement;
