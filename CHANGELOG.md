@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.5.0
 
 ### Added
 - **GitHub issue inbox**: Codeome can poll a project's GitHub issues and show them in a new *Issues* section of the Git view, with filters, a count on the project card and the statuses new, seen, in progress, snoozed, done and dismissed. Turn it on in Settings → Git & GitHub and per project (both off by default); only issues opened after you enable it are captured, and pull requests and bot issues are skipped. Each new issue gets one automatic assessment by an agent (no action, reply, quick fix or needs a plan, with a size, summary, and a proposed plan or draft reply), labelled as an unverified suggestion, with a per-check cap, a daily limit and an *Assess* button for the rest. *Start work* opens a chat that runs `/orchestrate` and stops at the plan approval gate; *Post reply* posts an editable draft publicly only after you confirm; Dismiss, Snooze and Done tidy the list. New issues raise an OS notification and an ntfy push that give only the count and the folder name, and the phone page lists them read-only. Issue text is treated as untrusted: the assessing agent has no tools, and the issue and its suggestion reach the chat as quoted data. Polling needs a token with Issues read access, and replies need write access. Settings also has an author filter (everyone or collaborators only), a label filter and the triage model. See [Git & GitHub](/guide/git-github#issue-inbox).
