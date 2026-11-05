@@ -1227,9 +1227,15 @@
       return { el: h('div.sec-suggest-wrap', input, box), input, close };
     }
     const groupChoices = () => groups().map((name) => ({ label: name, value: name }));
+    // A group typed in another case reuses the spelling an existing group already has, so "alpha" joins "Alpha".
+    const canonGroup = (value, skip) => {
+      const group = value.trim().slice(0, 60), key = group.toLocaleLowerCase();
+      const same = key && list().find((x) => x !== skip && x.group && x.group.toLocaleLowerCase() === key);
+      return same ? same.group : group;
+    };
     const saveGroup = (s, value) => {
-      const group = value.trim().slice(0, 60);
       const target = live(s);
+      const group = canonGroup(value, target);
       if ((target.group || '') === group) return;
       if (group) target.group = group; else delete target.group;
       commit(); redraw();
@@ -1242,7 +1248,7 @@
           h('input.sec-note', { type: 'text', value: s.note || '', placeholder: 'Add a note: what it is for, when it expires', 'aria-label': `Note for ${s.name}`,
             onchange: (e) => { live(s).note = e.target.value.trim().slice(0, 200); commit(); } }),
           suggestField({ type: 'text', class: 'sec-group-input', value: s.group || '', placeholder: 'Group', autocomplete: 'off', 'aria-label': `Group for ${s.name}`,
-            onchange: (e) => { e.target.value = e.target.value.trim().slice(0, 60); saveGroup(s, e.target.value); } },
+            onchange: (e) => { e.target.value = canonGroup(e.target.value, live(s)); saveGroup(s, e.target.value); } },
           groupChoices, (group, input) => { input.value = group; saveGroup(s, group); }, null, true).el)),
       h('div.sec-use',
         check('Terminals', () => live(s).terminals, (v) => { live(s).terminals = v; }),
@@ -1298,7 +1304,7 @@
       if (!entry.value) return kind === 'file' ? file.focus() : value.focus();
       const res = await codeome.secrets.set(n, entry.value, kind, entry.ext);
       if (res.error) return App.err(res.error);
-      const group = addGroup.input.value.trim().slice(0, 60);
+      const group = canonGroup(addGroup.input.value);
       list().push({ name: n, note: '', terminals: false, agents: false, kind, ...(group ? { group } : {}), ...(entry.ext ? { ext: entry.ext } : {}) });
       await App.saveConfig(); flash('Secret saved'); redraw();
     } }, 'Save');

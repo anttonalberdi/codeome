@@ -17,7 +17,7 @@ All three switches are off for a new secret. The button beside them, *All projec
 
 ## Groups and search
 
-Give a secret an optional *Group*, such as `GitHub` or `Cluster`, to keep a long list tidy. Type it in the *Group* box on the secret's row (existing groups are suggested as you type) or in the add form. A group is free text, one level, up to 60 characters. Clear the box to remove it.
+Give a secret an optional *Group*, such as `GitHub` or `Cluster`, to keep a long list tidy. Type it in the *Group* box on the secret's row (existing groups are suggested as you type) or in the add form. A group is free text, one level, up to 60 characters. Case is ignored: typing `build` joins an existing `Build`. Clear the box to remove it.
 
 Once any secret has a group, the list shows a collapsible header for each group with its name and count, sorted alphabetically, and secrets without a group under *Ungrouped* at the end. Without groups the list looks as before. Collapsed groups are not remembered after you close Settings.
 

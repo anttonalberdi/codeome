@@ -392,6 +392,38 @@ test('Editing row groups persists trimmed and capped values, and removing a grou
   assert.deepEqual(groupHeads(view.root), []);
 });
 
+test('A group typed in another case reuses the existing spelling, on rows and in the add form', async () => {
+  const view = load({ secrets: [secret('ALPHA_TOKEN', 'Build'), secret('BETA_TOKEN')] });
+  await view.App.views.settings.open('secrets');
+  let group = control(view.root, 'Group for BETA_TOKEN');
+  group.value = ' bUILD ';
+  group.attrs.onchange({ target: group });
+  await view.flushTimers();
+  await new Promise(setImmediate);
+  assert.equal(view.saved().secrets[1].group, 'Build');
+  assert.equal(group.value, 'Build');
+  assert.deepEqual(groupHeads(view.root).map((node) => node.children[0].textContent), ['Build']);
+
+  control(view.root, 'Name').value = 'NEW_TOKEN';
+  control(view.root, 'Value').value = 'abc123';
+  control(view.root, 'Group for new secret').value = 'BUILD';
+  await button(view.root, 'Save').attrs.onclick();
+  await new Promise(setImmediate);
+  assert.equal(view.saved().secrets[2].group, 'Build');
+  assert.deepEqual(groupHeads(view.root).map((node) => node.children[0].textContent), ['Build']);
+});
+
+test('A secret can change the case of a group only it uses', async () => {
+  const view = load({ secrets: [secret('ALPHA_TOKEN', 'build')] });
+  await view.App.views.settings.open('secrets');
+  const group = control(view.root, 'Group for ALPHA_TOKEN');
+  group.value = 'Build';
+  group.attrs.onchange({ target: group });
+  await view.flushTimers();
+  await new Promise(setImmediate);
+  assert.equal(view.saved().secrets[0].group, 'Build');
+});
+
 test('The add form saves a trimmed, capped group on a new secret', async () => {
   const view = load({ secrets: [] });
   await view.App.views.settings.open('secrets');
