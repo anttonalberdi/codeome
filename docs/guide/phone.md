@@ -68,6 +68,10 @@ The *Reply ready* and *Stopped with an error* markers clear on the phone when yo
 
 The Codeome window on the Mac reports its tabs to the Mac's server, so the phone shows the same tabs. With the window closed, the phone falls back to the chats with a live session and the saved chats. It then has no *reply ready* markers, and chats without a live session appear only under *Earlier chats*.
 
+## Issues
+
+Home shows new and in-progress GitHub issues for enabled open projects that have at least one visible issue, with a small action label. The count on each project card is for new issues only. This list is read-only: open Codeome on the Mac to act. Issue titles are visible to paired phones; ntfy push notifications never include them.
+
 ## What the phone may approve
 
 Each decision card on the phone shows the tool and its full input. For questions the agent asks, the phone offers the options and an "Other answer" field and a *Submit answers* button. For tool requests, *Allow once* and *Deny*. Deny always works.
