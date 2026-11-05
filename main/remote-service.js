@@ -195,6 +195,9 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
     if (action === 'test') return notifier.test();
     return { error: 'Invalid ntfy action.' };
   }
+  function notifyIssues(project, count) {
+    if (listening && config().ntfy?.enabled) notifier?.notifyIssues({ project, count });
+  }
   async function pair() {
     if (!listening) return { error: 'not-listening' };
     if (binding.mode === 'serve') {
@@ -304,7 +307,7 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
     if (!checked.known || checked.serve.state === 'active') return { error: 'failed', message: 'Tailscale did not confirm that sharing stopped.' };
     return { ok: true, stopped: true, serve: checked.serve };
   }); }
-  Object.assign(service, { sync, stop, status, pair, revoke, revokeAll, rename, tailscale, serveSetup, serveStop, ntfy });
+  Object.assign(service, { sync, stop, status, pair, revoke, revokeAll, rename, tailscale, serveSetup, serveStop, ntfy, notifyIssues });
   return service;
 }
 

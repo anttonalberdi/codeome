@@ -86,6 +86,8 @@ const DEFAULTS = {
   // contextWarnAt: a chat suggests starting a new one once its context window is this full (%).
   chat: { model: 'sonnet', modelPicked: false, effort: '', codexModel: '', codexEffort: '', mode: '', engine: '', quick: ['Commit, push and deploy'], contextWarnAt: 70, suggest: true, tabNames: true, keepAwake: true },
   forum: { defaultBudget: 0, summaryTokens: 6000, recentMessages: 8, checkModel: 'haiku', codexCheckModel: '', checkEffort: 'low', checkTimeoutMs: 30000 },
+  issues: { enabled: false, pollMinutes: 10, model: 'sonnet', notify: true, triageCap: 3, authors: 'everyone', label: '' },
+  projectIssues: {},      // project path → { enabled, enabledAt }; first enable time is an ISO string or null
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
   projectColors: {},      // project → hue (0–359) of its card and title-bar tag; picked when first opened
@@ -133,6 +135,37 @@ function forumSettings(value) {
   return forum;
 }
 
+function issueSettings(value) {
+  const issues = value && typeof value === 'object' && !Array.isArray(value) ? deepMerge(DEFAULTS.issues, value) : { ...DEFAULTS.issues };
+  for (const [key, lo, hi] of [['pollMinutes', 2, 1440], ['triageCap', 0, 20]]) {
+    const n = issues[key];
+    issues[key] = Number.isInteger(n) ? Math.max(lo, Math.min(hi, n)) : DEFAULTS.issues[key];
+  }
+  for (const key of ['enabled', 'notify'])
+    if (typeof issues[key] !== 'boolean') issues[key] = DEFAULTS.issues[key];
+  if (!['everyone', 'collaborators'].includes(issues.authors)) issues.authors = DEFAULTS.issues.authors;
+  for (const key of ['model', 'label'])
+    if (typeof issues[key] !== 'string' || issues[key].length > 100) issues[key] = DEFAULTS.issues[key];
+  return issues;
+}
+
+function validIssueTime(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return false;
+  const date = new Date(Date.UTC(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10))));
+  return Number.isFinite(Date.parse(value)) && date.toISOString().slice(0, 10) === value.slice(0, 10);
+}
+
+function projectIssuesSettings(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out = {};
+  for (const [project, entry] of Object.entries(value)) {
+    if (!project.startsWith('/') || !entry || typeof entry !== 'object' || Array.isArray(entry) ||
+        typeof entry.enabled !== 'boolean' || (entry.enabledAt !== null && !validIssueTime(entry.enabledAt))) continue;
+    out[project] = { enabled: entry.enabled, enabledAt: entry.enabledAt };
+  }
+  return out;
+}
+
 function projectHpcSettings(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const out = {};
@@ -167,6 +200,8 @@ function load() {
     if (saved.chat && saved.chat.model === '' && !saved.chat.modelPicked) delete saved.chat.model;
     const cfg = deepMerge(DEFAULTS, saved);
     cfg.forum = forumSettings(cfg.forum);
+    cfg.issues = issueSettings(saved.issues);
+    cfg.projectIssues = projectIssuesSettings(cfg.projectIssues);
     cfg.projectHpc = projectHpcSettings(cfg.projectHpc);
     cfg.secrets = secretSettings(cfg.secrets);
     return cfg;

@@ -12,6 +12,7 @@
   const P = { list: [], state: {} }; // state[dir] = { remoteDir, jobs }
   App.views.projects = P;
   let el, dragging = null, draggingGroup = null, pending = 0;
+  let issueCounts = {};
 
   P.init = () => {
     el = document.getElementById('projects');
@@ -41,6 +42,8 @@
     App.listen('sessions', schedule);
     App.listen('chat-state', schedule);
     setInterval(pollJobs, 5000);
+    if (codeome.issues?.onChanged) codeome.issues.onChanged(({ counts }) => { if (counts && typeof counts === 'object') { issueCounts = counts; render(); } });
+    if (codeome.issues?.counts) codeome.issues.counts().then((result) => { if (!result.error && result.data) { issueCounts = result.data; render(); } });
     render();
   };
 
@@ -433,10 +436,11 @@
       if (cs.waiting) return 'm-wait';
       if (cs.working || state(dir).jobs) return 'm-jobs';
       if (cs.unread) return 'm-done';
+      if (issueCounts[dir] > 0) return 'm-issue';
       return App.views.editor.tabs.some((t) => t.project === dir && t.dirty) ? 'm-dirty' : null;
     };
     const marks = dirs.map(of);
-    return ['m-wait', 'm-jobs', 'm-done', 'm-dirty'].find((m) => marks.includes(m)) || null;
+    return ['m-wait', 'm-jobs', 'm-done', 'm-issue', 'm-dirty'].find((m) => marks.includes(m)) || null;
   }
 
   function groupMenu(g) {
@@ -696,6 +700,7 @@
     const jobs = state(dir).jobs || 0;
     const sessions = App.views.terminals.list.filter((t) => t.project === dir && t.alive).length;
     const cs = App.views.chat.stats(dir);
+    const issues = ideas ? 0 : issueCounts[dir] || 0;
     const working = cs.working > 0;
     const unsaved = App.views.editor.tabs.filter((t) => t.project === dir && t.dirty).length;
     const links = linksOf(dir), linkText = links.length ? `connected to ${links.map(App.basename).join(', ')}` : '';
@@ -705,10 +710,11 @@
       working ? h('span.ps-jobs', h('i'), workingText) : null,
       jobs ? h('span.ps-jobs', working ? null : h('i'), `${jobs} job${jobs > 1 ? 's' : ''}`) : null,
       cs.unread ? h('span.ps-done', `✓ ${cs.unread > 1 ? cs.unread + ' tasks' : 'task'} finished`) : null,
+      issues ? h('span.ps-issue', `${issues} new issue${issues > 1 ? 's' : ''}`) : null,
       sessions ? h('span', `${sessions} session${sessions > 1 ? 's' : ''}`) : null,
       unsaved ? h('span.ps-dirty', `${unsaved} unsaved`) : null
     ].filter(Boolean);
-    const label = [name, cs.waiting ? `${cs.waiting} chat${cs.waiting > 1 ? 's' : ''} waiting for you` : '', working ? workingText : '', jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', cs.unread ? `${cs.unread} unseen agent repl${cs.unread > 1 ? 'ies' : 'y'}` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : '', linkText].filter(Boolean).join(', ');
+    const label = [name, cs.waiting ? `${cs.waiting} chat${cs.waiting > 1 ? 's' : ''} waiting for you` : '', working ? workingText : '', jobs ? `${jobs} agent job${jobs > 1 ? 's' : ''} running` : '', cs.unread ? `${cs.unread} unseen agent repl${cs.unread > 1 ? 'ies' : 'y'}` : '', issues ? `${issues} unseen GitHub issue${issues > 1 ? 's' : ''}` : '', sessions ? `${sessions} live session${sessions > 1 ? 's' : ''}` : '', unsaved ? `${unsaved} unsaved file${unsaved > 1 ? 's' : ''}` : '', linkText].filter(Boolean).join(', ');
     const c = h('div.proj.ptint' + (active ? '.active' : ''), {
       role: 'tab', 'aria-selected': String(active), 'aria-label': label, tabindex: active ? '0' : '-1', draggable: String(!ideas),
       title: ideas ? 'Chat and forum with no project' : App.tildify(dir), style: '--ph: ' + colorOf(dir),
@@ -743,7 +749,7 @@
         saveOrder();
       }
     },
-    h('span.pmono', ideas ? '💡' : initials(name), cs.waiting ? h('i.m-wait') : jobs || working ? h('i.m-jobs') : cs.unread ? h('i.m-done') : (unsaved ? h('i.m-dirty') : null)),
+    h('span.pmono', ideas ? '💡' : initials(name), cs.waiting ? h('i.m-wait') : jobs || working ? h('i.m-jobs') : cs.unread ? h('i.m-done') : issues ? h('i.m-issue') : (unsaved ? h('i.m-dirty') : null)),
     h('span.pinfo',
       h('span.prow', h('span.pname', name),
         links.length ? h('span.plink', { title: 'Connected to ' + links.map(App.basename).join(', '), onclick: (e) => { e.stopPropagation(); pickLinks(dir, c); }, html: LINK_ICON + links.length }) : null),

@@ -1,11 +1,15 @@
 // Codeome — main process.
-const { app, powerSaveBlocker, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard, ClipboardItem, crashReporter } = require('electron');
+const { app, powerSaveBlocker, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard, ClipboardItem, crashReporter, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const config = require('./config');
 const github = require('./github');
+const { pollProject } = require('./githubissues');
+const { createIssueStore } = require('./issuestore');
+const { createIssuesPoller } = require('./issuespoller');
+const { issueNotificationText } = require('./remote-ntfy');
 const ssh = require('./ssh');
 const sftp = require('./sftp');
 const slurm = require('./slurm');
@@ -80,6 +84,8 @@ const ptys = new Map();
 const chats = new Map(); // chat id → chat.Session
 const transfers = new Map();
 let cfg = null;
+let issueStore = null;
+let issuePoller = null;
 let secretFileStore = null;
 const placedSecrets = new Set();
 let heartbeatTimer = null;
@@ -152,6 +158,7 @@ function createWindow() {
     const details = event.details || event;
     if (details.level === 'error' || level === 3) logRendererLine(String(details.message || message).slice(0, 2000), 'renderer console');
   });
+  win.on('focus', () => { if (issuePoller) issuePoller.refresh(); });
   win.on('closed', () => { gdoc.closeAll(win); clearRemoteTabs(); win = null; });
 }
 
@@ -397,7 +404,8 @@ ipcMain.handle('config:set', (_e, c) => {
   const syncShape = (list) => JSON.stringify(list, (key, value) => key === 'group' ? undefined : value);
   const secretsChanged = syncShape(c.secrets) !== syncShape(cfg.secrets);
   const oldSecrets = cfg.secrets || [];
-  cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts, remoteDevices: cfg.remoteDevices });
+  cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts,
+    projectIssues: cfg.projectIssues, remoteDevices: cfg.remoteDevices });
   if (typeof remote !== 'undefined' && remote?.events) {
     pruneRemoteTabs();
     remote.events.emit('config-changed');
@@ -1078,6 +1086,67 @@ ipcMain.handle('zenodo:upload', wrap(({ id, file }) => zenodo.upload(...zArgs(),
 ipcMain.handle('zenodo:publish', wrap((id) => zenodo.publish(...zArgs(), id)));
 ipcMain.handle('zenodo:newVersion', wrap((id) => zenodo.newVersion(...zArgs(), id)));
 
+// ---------- GitHub issue inbox ----------
+function issueRoot(project) {
+  if (typeof project !== 'string' || ['__proto__', 'constructor', 'hasOwnProperty'].includes(project) ||
+      !github.inProject(project, openRoots()) ||
+      !openRoots().some((root) => path.resolve(root) === path.resolve(project))) throw new Error('Choose an open project.');
+  return path.resolve(project);
+}
+function issueCounts() {
+  return Object.fromEntries([...new Set(openRoots().map((root) => path.resolve(root)))].map((project) => [project, issueStore.unseenCount(project)]));
+}
+function issueChanged(project) { send('issues:changed', { project, counts: issueCounts() }); }
+function notifyNewIssues(project, { added } = {}) {
+  if (!cfg.issues?.notify || !added?.length) return;
+  remoteService.notifyIssues(project, added.length);
+  if (!win || win.isDestroyed() || win.isFocused() || !Notification.isSupported()) return;
+  try {
+    const notification = new Notification({ title: 'Codeome', body: issueNotificationText(project, added.length) });
+    notification.on('click', () => {
+      if (!win || win.isDestroyed()) return;
+      win.show();
+      win.focus();
+      send('issues:open', { project });
+    });
+    notification.show();
+  } catch { /* OS notifications are optional. */ }
+}
+ipcMain.handle('issues:list', wrap(({ project }) => {
+  project = issueRoot(project);
+  return { items: issueStore.list(project), settings: { global: cfg.issues,
+    project: cfg.projectIssues[project] || { enabled: false, enabledAt: null } }, lastError: issuePoller.lastError(project) };
+}));
+ipcMain.handle('issues:refresh', wrap(async ({ project }) => issuePoller.refresh(issueRoot(project), { force: true })));
+ipcMain.handle('issues:setStatus', wrap(({ project, number, status, until }) => {
+  project = issueRoot(project);
+  if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Issue number must be a positive integer.');
+  const item = issueStore.setStatus(project, number, status, { until });
+  issueChanged(project);
+  return item;
+}));
+ipcMain.handle('issues:markSeen', wrap(({ project, numbers }) => {
+  project = issueRoot(project);
+  if (!Array.isArray(numbers) || !numbers.every((number) => Number.isSafeInteger(number) && number > 0))
+    throw new Error('Issue numbers must be positive integers.');
+  issueStore.markSeen(project, numbers);
+  issueChanged(project);
+  return true;
+}));
+ipcMain.handle('issues:enable', wrap(({ project, enabled }) => {
+  project = issueRoot(project);
+  if (typeof enabled !== 'boolean') throw new Error('Issue setting must be enabled or disabled.');
+  if (enabled && !issueStore.pollState(project).enabledAt) issueStore.enable(project);
+  if (!enabled) issueStore.disable(project);
+  cfg.projectIssues[project] = { enabled, enabledAt: enabled ? issueStore.pollState(project).enabledAt : null };
+  cfg = config.save(cfg);
+  issuePoller.reset(project);
+  if (enabled) issuePoller.refresh(project, { force: true });
+  issueChanged(project);
+  return cfg.projectIssues[project];
+}));
+ipcMain.handle('issues:counts', wrap(() => issueCounts()));
+
 // ---------- GitHub accounts ----------
 function accountStore() { return { accounts: cfg.gitAccounts, bindings: cfg.projectAccounts }; }
 function saveAccounts(store) {
@@ -1675,6 +1744,12 @@ app.whenReady().then(() => {
   const prev = crashlog.previousRun(logDir);
   crashlog.init({ dir: logDir, version: app.getVersion() });
   cfg = config.load();
+  issueStore = createIssueStore({ file: path.join(app.getPath('userData'), 'issues.json') });
+  issuePoller = createIssuesPoller({ store: issueStore, getConfig: () => cfg,
+    projects: () => [...new Set(openRoots().map((root) => path.resolve(root)))].filter((root) => cfg.projectIssues[root]?.enabled),
+    poll: (root, state, settings) => pollProject({ store: accountStore(), root, getSecret: config.getSecret,
+      fetch, now: Date.now, run, state, settings }),
+    onChange: (project, changes) => { issueChanged(project); notifyNewIssues(project, changes); } });
   remoteService.sync();
   applyProxy();
   app.setName('Codeome');
@@ -1712,10 +1787,12 @@ app.whenReady().then(() => {
   }, 30000);
   heartbeatTimer.unref();
   startUsage();
+  issuePoller.start();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('before-quit', () => {
   quitting = true;
+  if (typeof issuePoller !== 'undefined' && issuePoller) issuePoller.stop();
   remoteService.stop();
   awake.dispose();
   try { forumHost.disposeAll(); clearCopied(); stopLogins(); if (tunnel) tunnel.stop(); }

@@ -81,6 +81,14 @@ contextBridge.exposeInMainWorld('codeome', {
     run: (root, args) => ipcRenderer.invoke('git:run', { root, args }),
     gh: (root, args) => ipcRenderer.invoke('gh:run', { root, args })
   },
+  issues: {
+    list: (project) => ipcRenderer.invoke('issues:list', { project }),
+    refresh: (project) => ipcRenderer.invoke('issues:refresh', { project }),
+    setStatus: (project, number, status, until) => ipcRenderer.invoke('issues:setStatus', { project, number, status, until }),
+    markSeen: (project, numbers) => ipcRenderer.invoke('issues:markSeen', { project, numbers }),
+    enable: (project, enabled) => ipcRenderer.invoke('issues:enable', { project, enabled }),
+    counts: invoke('issues:counts'), onChanged: on('issues:changed'), onOpen: on('issues:open')
+  },
   gitAccounts: {
     list: invoke('gitacct:list'), add: (provider, host, token) => ipcRenderer.invoke('gitacct:add', { provider, host, token }),
     validate: (id) => ipcRenderer.invoke('gitacct:validate', { id }),

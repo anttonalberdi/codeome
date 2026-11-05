@@ -36,6 +36,10 @@ function projectName(value) {
   return [...folder.replace(/[\x00-\x1f\x7f-\x9f]/g, '')].slice(0, 60).join('') || 'Project';
 }
 
+function issueNotificationText(project, count) {
+  return `${count} new GitHub issue${count === 1 ? '' : 's'} in ${projectName(project)}`;
+}
+
 function createNotifier({ fetch: request = globalThis.fetch, getSecret, setSecret, now = Date.now,
   getConfig, isPhoneActive = () => false, getProject = () => '', getUrl = () => null,
   logger = console, setTimer = setTimeout, clearTimer = clearTimeout }) {
@@ -43,6 +47,8 @@ function createNotifier({ fetch: request = globalThis.fetch, getSecret, setSecre
   let timer = null;
   const waiting = new Map();
   const lastByChat = new Map();
+  const issuesWaiting = new Map();
+  const issueTimers = new Map();
 
   function settings() { return getConfig()?.remote || {}; }
   function getTopic() {
@@ -105,6 +111,22 @@ function createNotifier({ fetch: request = globalThis.fetch, getSecret, setSecre
       if (!timer) timer = setTimer(flush, COLLAPSE_MS);
     } catch { logFailure('unknown'); }
   }
+  function notifyIssues({ project, count } = {}) {
+    try {
+      if (typeof project !== 'string' || !project || !Number.isSafeInteger(count) || count <= 0 ||
+          !settings().ntfy?.enabled || settings().notifyOnlyWhenAway && isPhoneActive()) return;
+      issuesWaiting.set(project, (issuesWaiting.get(project) || 0) + count);
+      if (!issueTimers.has(project)) issueTimers.set(project, setTimer(() => {
+        issueTimers.delete(project);
+        const total = issuesWaiting.get(project);
+        issuesWaiting.delete(project);
+        try {
+          if (total && settings().ntfy?.enabled &&
+              !(settings().notifyOnlyWhenAway && isPhoneActive())) void publish(issueNotificationText(project, total));
+        } catch { logFailure('unknown'); }
+      }, COLLAPSE_MS));
+    } catch { logFailure('unknown'); }
+  }
   function start(source) {
     if (registry === source) return;
     stop();
@@ -119,9 +141,12 @@ function createNotifier({ fetch: request = globalThis.fetch, getSecret, setSecre
     timer = null;
     waiting.clear();
     lastByChat.clear();
+    for (const id of issueTimers.values()) clearTimer(id);
+    issueTimers.clear();
+    issuesWaiting.clear();
   }
   function test() { return publish('Codeome test notification'); }
-  return { start, stop, getTopic, regenerateTopic, subscribeInfo, test };
+  return { start, stop, getTopic, regenerateTopic, subscribeInfo, test, notifyIssues };
 }
 
-module.exports = { createNotifier };
+module.exports = { createNotifier, issueNotificationText };

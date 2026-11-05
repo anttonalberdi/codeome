@@ -4,6 +4,7 @@
   const P = {};
   App.views.projectSettings = P;
   let root, defaults = null, codexModels = [], loadError = '', catalogError = '', saveError = '', busy = false;
+  let issueBusy = false, issueError = '';
   const CHAT_ROWS = [
     ['model', 'Claude model'], ['effort', 'Claude effort'], ['codexModel', 'Codex model'],
     ['codexEffort', 'Codex effort'], ['mode', 'Default permission mode'], ['engine', 'Default engine']
@@ -14,7 +15,7 @@
   P.init = () => {
     root = document.querySelector('.view[data-view="projectSettings"]');
     App.listen('view', (view) => { if (view === 'projectSettings') P.refresh(); });
-    App.listen('project', () => { if (App.currentView === 'projectSettings') P.refresh(); });
+    App.listen('project', () => { issueError = ''; if (App.currentView === 'projectSettings') P.refresh(); });
     App.listen('config', () => { if (App.currentView === 'projectSettings' && !busy) P.refresh(); });
     loadDefaults();
   };
@@ -162,6 +163,26 @@
         error));
   }
 
+  function issueSettings(path) {
+    const enabled = !!App.cfg.projectIssues?.[path]?.enabled;
+    const toggle = h('input', { type: 'checkbox', checked: enabled, disabled: issueBusy, 'aria-label': 'Enable issue inbox for this project',
+      onchange: async (event) => {
+        issueBusy = true; issueError = ''; P.refresh();
+        try {
+          const result = await codeome.issues.enable(path, event.target.checked);
+          if (result.error) throw new Error(result.error);
+          App.cfg.projectIssues = { ...(App.cfg.projectIssues || {}), [path]: result.data };
+          App.emit('config', App.cfg);
+        } catch (error) { issueError = error.message || String(error); }
+        issueBusy = false; P.refresh();
+      } });
+    return h('section.ps-card', h('h3.ps-card-title', 'GitHub issue inbox'),
+      h('div.ps-list', h('div.ps-row', h('label.check', toggle, 'Enable issue inbox for this project'),
+        h('p.ps-help', 'Only issues opened after enabling are captured. Bind an account with issues read access to this project.'),
+        !App.cfg.issues?.enabled ? h('p.ps-help', 'Turn on the issue inbox in Git & GitHub settings to start polling.') : null,
+        issueError ? h('p.ps-field-error', { role: 'alert' }, issueError) : null)));
+  }
+
   P.refresh = () => {
     if (!root) return;
     const path = App.project;
@@ -171,12 +192,12 @@
       return;
     }
     if (loadError) {
-      root.replaceChildren(heading, h('div.empty', { role: 'alert' }, 'Could not load agent rules: ' + loadError, h('br'),
+      root.replaceChildren(heading, ...(App.isIdeas(path) ? [] : [issueSettings(path)]), h('div.empty', { role: 'alert' }, 'Could not load agent rules: ' + loadError, h('br'),
         h('button.btn.small', { type: 'button', onclick: loadDefaults }, 'Retry')));
       return;
     }
     if (!defaults) {
-      root.replaceChildren(heading, h('div.empty', { role: 'status' }, 'Loading agent rules…'));
+      root.replaceChildren(heading, ...(App.isIdeas(path) ? [] : [issueSettings(path)]), h('div.empty', { role: 'status' }, 'Loading agent rules…'));
       return;
     }
     const options = App.agentDefaultOptions(codexModels);
@@ -193,6 +214,7 @@
           h('button.btn.small', { type: 'button', onclick: loadDefaults }, 'Retry')) : null,
         h('div.ps-list', CHAT_ROWS.map(([key, label]) => chatRow(key, label, options[key], path)),
           chatRow('tabNames', 'Suggest tab names', TAB_NAME_OPTIONS, path))),
+      App.isIdeas(path) ? null : issueSettings(path),
       App.isIdeas(path) ? null : hpcFolders(path),
       h('section.ps-card', h('h3.ps-card-title', 'Connected projects'),
         App.isIdeas(path) ? h('div.lp-note', 'Ideas cannot be connected to projects.') : App.views.projects.linkPicker(path)),

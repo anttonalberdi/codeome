@@ -5,23 +5,34 @@
   const G = { st: null };
   App.views.git = G;
   let root, msg;
-  let refreshSeq = 0;
+  let refreshSeq = 0, issuesSeq = 0;
+  let issuesData = null, issuesError = '', issuesLoading = false, issuesFilter = 'open';
   // Account and GitHub share the lower half; changes get more room than history.
   const SECTIONS = [{ id: 'changes', title: 'Changes', weight: 1.3 }, { id: 'history', title: 'History', weight: 0.7 },
-    { id: 'account', title: 'Account', weight: 1 }, { id: 'github', title: 'GitHub', weight: 1 }];
+    { id: 'account', title: 'Account', weight: 1 }, { id: 'github', title: 'GitHub', weight: 1 },
+    { id: 'issues', title: 'Issues', weight: 1.2, onExpand: () => { renderIssues(); markVisibleIssues(); } }];
   const body = (id) => SECTIONS.find((s) => s.id === id).body;
 
   G.init = () => {
     root = document.querySelector('.view[data-view="git"]');
     root.classList.add('files-view');
     for (const s of SECTIONS) { s.dot = h('span.pane-count'); s.body = h('div.pane-scroll'); }
+    body('issues').addEventListener('scroll', markVisibleIssues);
     G.stack = App.stack({ key: 'gitPanes', sections: SECTIONS });
     // Kept across refreshes, so a half-written message survives them.
     msg = h('textarea', { rows: 3, placeholder: 'Describe the change', 'aria-label': 'Commit message' });
     msg.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) commit(); });
-    App.listen('project', () => { msg.value = ''; G.refresh(); });
+    App.listen('project', () => { msg.value = ''; issuesData = null; issuesError = ''; issuesLoading = false; ++issuesSeq; G.refresh(); });
     App.listen('saved', (t) => { if (!t.remote && App.currentView === 'git') G.refresh(); });
     App.listen('view', (v) => { if (v === 'git') G.refresh(); });
+    codeome.issues.onChanged(({ project }) => { if (project === App.project) loadIssues(project); });
+    if (codeome.issues.onOpen) codeome.issues.onOpen(async ({ project }) => {
+      if (typeof project !== 'string' || !App.views.projects.list.includes(project)) return;
+      if (App.project !== project) await App.views.projects.switchTo(project);
+      App.setView('git');
+      G.stack.expand('issues');
+      markVisibleIssues();
+    });
     // Rail marker: uncommitted changes, kept current while the view is closed (agents edit files too).
     App.listen('project', () => G.checkDirty());
     App.listen('saved', (t) => { if (!t.remote) G.checkDirty(); });
@@ -67,6 +78,7 @@
     G.identity = identity.data || { name: '', email: '', effectiveName: '', effectiveEmail: '' };
     paintRail(st.repo ? st.files.length : 0);
     render();
+    loadIssues(project);
   };
 
   function head() { return h('div.side-head', h('h2', 'Git & GitHub'), App.iconBtn('refresh', 'Refresh', () => G.refresh())); }
@@ -161,8 +173,120 @@
         h('button.btn.small', { onclick: createPR, disabled: branch === 'main' || branch === 'master' }, 'Pull request…'),
         h('button.btn.small', { onclick: createRelease }, 'Release…')),
       h('div.hint', 'If the repository is linked in Zenodo’s GitHub settings, each release gets a DOI automatically.')));
+    renderIssues();
     root.append(G.stack.el);
     for (const s of SECTIONS) s.body.scrollTop = s.top;
+  }
+
+  function shownIssues() {
+    const items = issuesData?.items || [];
+    if (issuesFilter === 'new') return items.filter((item) => item.status === 'new');
+    if (issuesFilter === 'snoozed') return items.filter((item) => item.status === 'snoozed');
+    if (issuesFilter === 'closed') return items.filter((item) => ['done', 'dismissed'].includes(item.status));
+    return items.filter((item) => ['new', 'seen', 'in-progress'].includes(item.status));
+  }
+
+  async function loadIssues(project, keepError = false) {
+    if (!project || project !== App.project || App.isIdeas(project)) return;
+    const seq = ++issuesSeq;
+    issuesLoading = true; if (!keepError) issuesError = '';
+    renderIssues();
+    try {
+      const result = await codeome.issues.list(project);
+      if (seq !== issuesSeq || project !== App.project) return;
+      if (result.error) throw new Error(result.error);
+      issuesData = result.data;
+    } catch (error) {
+      if (seq !== issuesSeq || project !== App.project) return;
+      issuesError = error.message || String(error);
+    }
+    issuesLoading = false;
+    renderIssues();
+    markVisibleIssues();
+  }
+
+  async function issueAction(item, status, until) {
+    const project = App.project;
+    try {
+      const result = await codeome.issues.setStatus(project, item.number, status, until);
+      if (project !== App.project) return;
+      if (result.error) throw new Error(result.error);
+      loadIssues(project);
+    } catch (error) { if (project === App.project) { issuesError = error.message || String(error); renderIssues(); } }
+  }
+
+  function markVisibleIssues() {
+    if (App.currentView !== 'git' || App.views.settings?.isOpen || !root.getClientRects().length ||
+        !G.stack?.isOpen('issues') || issuesLoading || !issuesData) return;
+    const pane = body('issues'), viewport = pane.getBoundingClientRect();
+    const numbers = [...pane.querySelectorAll('.issue-card')].filter((card) => {
+      const bounds = card.getBoundingClientRect();
+      return bounds.top < viewport.bottom && bounds.bottom > viewport.top;
+    }).map((card) => Number(card.dataset.number)).filter((number) =>
+      issuesData.items.some((item) => item.number === number && item.status === 'new'));
+    if (!numbers.length) return;
+    // Mark once before the change event triggers a fresh list.
+    for (const item of issuesData.items) if (numbers.includes(item.number)) item.status = 'seen';
+    const project = App.project;
+    codeome.issues.markSeen(project, numbers).then((result) => {
+      if (project === App.project && result.error) { issuesError = result.error; renderIssues(); }
+    }).catch((error) => { if (project === App.project) { issuesError = error.message || String(error); renderIssues(); } });
+  }
+
+  function renderIssues() {
+    const sec = body('issues');
+    if (!sec || !G.st?.repo) return;
+    sec.replaceChildren();
+    const items = issuesData?.items || [];
+    const openCount = items.filter((item) => ['new', 'seen', 'in-progress'].includes(item.status)).length;
+    SECTIONS[4].dot.textContent = openCount ? String(openCount) : '';
+    const refresh = h('button.btn.small', { type: 'button', disabled: issuesLoading, onclick: async () => {
+      const project = App.project;
+      issuesError = '';
+      try {
+        const result = await codeome.issues.refresh(project);
+        if (project !== App.project) return;
+        if (result.error) issuesError = result.error;
+      } catch (error) { if (project === App.project) issuesError = error.message || String(error); }
+      loadIssues(project, !!issuesError);
+    } }, 'Refresh');
+    sec.append(h('div.pad.issue-pane-head', h('span', `${openCount} open issue${openCount === 1 ? '' : 's'}`), refresh));
+    const enabled = !!issuesData?.settings?.project?.enabled;
+    const toggle = h('input', { type: 'checkbox', checked: enabled, 'aria-label': 'Enable issue inbox for this project',
+      onchange: async (event) => {
+        const project = App.project;
+        event.target.disabled = true;
+        try {
+          const result = await codeome.issues.enable(project, event.target.checked);
+          if (project !== App.project) return;
+          if (result.error) throw new Error(result.error);
+          App.cfg.projectIssues = { ...(App.cfg.projectIssues || {}), [project]: result.data };
+          App.emit('config', App.cfg);
+          loadIssues(project);
+        } catch (error) {
+          if (project === App.project) { issuesError = error.message || String(error); renderIssues(); }
+        }
+      } });
+    sec.append(h('div.pad.issue-enable', h('label.check', toggle, 'Enable issue inbox for this project'),
+      h('p.hint', 'Only issues opened after enabling are captured. Bind an account with issues read access to this project.'),
+      !App.cfg.issues?.enabled ? h('p.hint', 'Turn on the issue inbox in Git & GitHub settings to start polling.') : null));
+    const lastError = issuesData?.lastError?.message;
+    if (lastError || issuesError) sec.append(h('div.issue-error', { role: 'alert' }, issuesError || lastError));
+    if (issuesLoading && !issuesData) { sec.append(h('div.empty', { role: 'status' }, 'Loading issues…')); return; }
+    if (issuesError && !issuesData) { sec.append(h('div.empty', 'Could not load issues.', h('br'), h('button.btn.small', { onclick: () => loadIssues(App.project) }, 'Retry'))); return; }
+    const filters = [['new', 'New'], ['open', 'Open'], ['snoozed', 'Snoozed'], ['closed', 'Done + Dismissed']];
+    sec.append(h('div.issue-filters', { role: 'group', 'aria-label': 'Issue filter' }, filters.map(([id, label]) => h('button.issue-filter' + (issuesFilter === id ? '.active' : ''),
+      { type: 'button', 'aria-pressed': String(issuesFilter === id), onclick: () => { issuesFilter = id; renderIssues(); markVisibleIssues(); } }, label))));
+    const visible = shownIssues();
+    if (!visible.length) { sec.append(h('div.empty', enabled ? 'No issues in this filter.' : 'Enable the issue inbox to collect new issues.')); return; }
+    const host = G.st.account?.host || G.accounts.find((account) => account.id === G.st.accountId)?.host;
+    sec.append(h('div.issue-list', visible.map((item) => IssueCards.render(item, {
+      host, onOpen: (url) => codeome.shell.open(url), onStatus: issueAction,
+      onSnooze: (issue, button) => App.menuAt(button, [
+        { label: '1 day', run: () => issueAction(issue, 'snoozed', Date.now() + 86400000) },
+        { label: '3 days', run: () => issueAction(issue, 'snoozed', Date.now() + 3 * 86400000) },
+        { label: '1 week', run: () => issueAction(issue, 'snoozed', Date.now() + 7 * 86400000) }
+      ]) }))));
   }
 
   async function commit() {

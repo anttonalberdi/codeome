@@ -1060,7 +1060,7 @@
   }
 
   async function gitSection() {
-    const intro = 'GitHub accounts for your projects. A token is validated with GitHub, encrypted with the macOS Keychain and never shown again. Bind an account to a project in the Git view. Use a classic token with repo (and workflow to push workflow files), or a fine-grained token with Contents and Pull requests access.';
+    const intro = 'GitHub accounts for your projects. A token is validated with GitHub, encrypted with the macOS Keychain and never shown again. Bind an account to a project in the Git view. Use a classic token with repo (and workflow to push workflow files), or a fine-grained token with Contents and Pull requests access. The issue inbox also needs Issues read access.';
     const r = await codeome.gitAccounts.list();
     const rows = r.error ? [] : r.data.accounts.map(gitAccountRow);
     const provider = select([{ value: 'github', label: 'GitHub' }], 'github', () => {}, 'Provider');
@@ -1089,6 +1089,36 @@
           await redrawGitSection(); flash('Account imported');
           if (result.data.warnings?.includes('workflow')) App.toast('Pushing workflow files needs the workflow scope.');
         } }, 'Import from gh'), h('span.hint', 'Use the token from the gh CLI sign-in on this Mac.'))));
+    const issue = () => App.cfg.issues || {};
+    const pollError = h('span.ps-field-error', { role: 'alert' });
+    const poll = h('input', { type: 'number', min: '2', max: '1440', step: '1', value: String(issue().pollMinutes ?? 10), 'aria-label': 'Issue poll interval in minutes',
+      oninput: (event) => {
+        const n = Number(event.target.value);
+        const valid = event.target.value !== '' && Number.isInteger(n) && n >= 2 && n <= 1440;
+        pollError.textContent = valid ? '' : 'Enter a whole number from 2 to 1,440.';
+        event.target.setAttribute('aria-invalid', String(!valid));
+      },
+      onchange: (event) => {
+        const n = Number(event.target.value);
+        if (event.target.value === '' || !Number.isInteger(n) || n < 2 || n > 1440) return;
+        App.cfg.issues = { ...issue(), pollMinutes: n }; commit();
+      } });
+    const labelError = h('span.ps-field-error', { role: 'alert' });
+    const label = h('input', { type: 'text', value: issue().label || '', maxlength: '100', 'aria-label': 'Issue label filter', placeholder: 'Any label',
+      oninput: (event) => { labelError.textContent = event.target.value.length > 100 ? 'Use at most 100 characters.' : ''; },
+      onchange: (event) => {
+        if (event.target.value.length > 100) { labelError.textContent = 'Use at most 100 characters.'; return; }
+        App.cfg.issues = { ...issue(), label: event.target.value.trim() }; commit();
+      } });
+    el.append(card('Issue inbox',
+      row('Enable', check('Poll GitHub issues', () => issue().enabled, (value) => { App.cfg.issues = { ...issue(), enabled: value }; }),
+        'Projects also need their own issue inbox switch turned on.'),
+      row('Check every', h('div.forum-setting-number', poll, pollError), 'Minutes, from 2 to 1,440.'),
+      row('Notifications', check('Notify for new issues', () => issue().notify, (value) => { App.cfg.issues = { ...issue(), notify: value }; })),
+      row('Authors', select([{ value: 'everyone', label: 'Everyone' }, { value: 'collaborators', label: 'Collaborators only' }],
+        issue().authors || 'everyone', (value) => { App.cfg.issues = { ...issue(), authors: value }; commit(); }, 'Issue authors')),
+      row('Label filter', h('div.forum-setting-number', label, labelError), 'Optional. Only issues with this label are captured.'),
+      h('div.sp-foot.hint', 'Issue triage settings arrive later.')));
     el.gitRows = rows;
     return el;
   }

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { createNotifier } = require('../main/remote-ntfy');
+const { createNotifier, issueNotificationText } = require('../main/remote-ntfy');
 
 function fixture() {
   let time = 0;
@@ -116,6 +116,71 @@ test('away-only skips connected active phones at enqueue and send time', () => {
   assert.equal(f.calls.length, 0);
   f.setActive(false);
   f.add('chat-a');
+  f.advance(5000);
+  assert.equal(f.calls.length, 1);
+  f.notifier.stop();
+});
+
+test('issue notification text uses only the sanitized folder name and correct plural', () => {
+  assert.equal(issueNotificationText('/work/Project\n\tName', 1), '1 new GitHub issue in ProjectName');
+  assert.equal(issueNotificationText('/work/Project\n\tName', 3), '3 new GitHub issues in ProjectName');
+});
+
+test('new issue calls collapse per project with summed counts', () => {
+  const f = fixture();
+  f.notifier.notifyIssues({ project: '/work/First', count: 1 });
+  f.advance(1000);
+  f.notifier.notifyIssues({ project: '/work/First', count: 2 });
+  f.notifier.notifyIssues({ project: '/work/Second', count: 1 });
+  f.advance(3999);
+  assert.equal(f.calls.length, 0);
+  f.advance(1);
+  assert.deepEqual(f.calls.map((call) => call.options.body), ['3 new GitHub issues in First']);
+  f.advance(1000);
+  assert.deepEqual(f.calls.map((call) => call.options.body),
+    ['3 new GitHub issues in First', '1 new GitHub issue in Second']);
+  f.notifier.stop();
+});
+
+test('issue push contains no issue details in body, headers, or URL', () => {
+  const f = fixture();
+  f.notifier.notifyIssues({ project: '/work/Project', count: 1, title: 'PRIVATE_TITLE',
+    body: 'PRIVATE_BODY', author: 'PRIVATE_AUTHOR', number: 'PRIVATE_NUMBER',
+    repo: 'PRIVATE_REPO', account: 'PRIVATE_ACCOUNT' });
+  f.advance(5000);
+  assert.equal(f.calls.length, 1);
+  const { url, options } = f.calls[0];
+  assert.equal(options.body, '1 new GitHub issue in Project');
+  assert.equal(options.headers.Title, 'Codeome');
+  const request = JSON.stringify({ url, options: { ...options, signal: undefined } });
+  for (const field of ['PRIVATE_TITLE', 'PRIVATE_BODY', 'PRIVATE_AUTHOR', 'PRIVATE_NUMBER',
+    'PRIVATE_REPO', 'PRIVATE_ACCOUNT']) assert.equal(request.includes(field), false, field);
+  f.notifier.stop();
+});
+
+test('issue pushes respect disabled and away-only settings at enqueue and send time', () => {
+  const f = fixture();
+  f.config.remote.ntfy.enabled = false;
+  f.notifier.notifyIssues({ project: '/work/First', count: 1 });
+  f.advance(5000);
+  assert.equal(f.calls.length, 0);
+  f.config.remote.ntfy.enabled = true;
+  f.config.remote.notifyOnlyWhenAway = true;
+  f.setActive(true);
+  f.notifier.notifyIssues({ project: '/work/First', count: 1 });
+  f.advance(5000);
+  assert.equal(f.calls.length, 0);
+  f.setActive(false);
+  f.notifier.notifyIssues({ project: '/work/First', count: 1 });
+  f.setActive(true);
+  f.advance(5000);
+  assert.equal(f.calls.length, 0);
+  f.setActive(false);
+  f.notifier.notifyIssues({ project: '/work/First', count: 1 });
+  f.advance(5000);
+  assert.equal(f.calls.length, 1);
+  f.notifier.notifyIssues({ project: '/work/First', count: 1 });
+  f.config.remote.ntfy.enabled = false;
   f.advance(5000);
   assert.equal(f.calls.length, 1);
   f.notifier.stop();
