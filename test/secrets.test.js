@@ -38,6 +38,15 @@ test('other kinds of process get none', () => {
   assert.deepStrictEqual(secrets.envFor(undefined, 'agents', get), {});
 });
 
+test('group metadata does not change terminal or agent environments', () => {
+  const list = [{ name: 'SHARED', terminals: true, agents: true }];
+  const grouped = list.map((entry) => ({ ...entry, group: 'Research' }));
+  const get = () => 'abc123';
+  for (const scope of ['terminals', 'agents']) {
+    assert.deepStrictEqual(secrets.envFor(grouped, scope, get), secrets.envFor(list, scope, get));
+  }
+});
+
 test('a secret limited to projects is set only in those', () => {
   const get = () => 'v';
   const list = [{ name: 'EVERYWHERE', agents: true }, { name: 'ONE', agents: true, projects: ['/p/a'] }, { name: 'NONE', agents: true, projects: [] }];

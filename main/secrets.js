@@ -1,7 +1,8 @@
 // Your own secrets (Settings → Secrets): access tokens and the like, each named as the
 // environment variable it becomes. Plain Node, no Electron: the values live in the
 // Keychain-encrypted store (config.js) under key(name), and the settings keep only
-// { name, note, terminals, agents, hpc, projects, kind, ext } for each.
+// { name, note, group?, terminals, agents, hpc, projects, kind, ext } for each.
+//   group     — optional non-secret metadata for display only
 //   terminals — set in terminals, tasks and consoles started on this Mac
 //   agents    — set in the agent chat and in agent sessions on this Mac
 //   projects  — the project folders whose processes get it; left out, every project does

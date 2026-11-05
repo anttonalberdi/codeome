@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Added
+- **Secret groups and search**: in Settings → Secrets, give a secret an optional group (one level, up to 60 characters) and the list gets collapsible group headers, with ungrouped secrets last. A new *Search secrets…* box finds secrets by name or group, jumps to the one you pick and narrows the list. Groups only organise the list: they do not change where a secret is set, and are not sent to agents or synced to the HPC.
+
 ## 1.4.4
 
 ### Fixed

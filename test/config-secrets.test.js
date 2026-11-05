@@ -53,20 +53,21 @@ test('secret kind and extension are sanitised on save and load', () => {
   finally { Module._load = originalLoad; }
 
   const entries = [
-    { name: 'LEGACY', terminals: true },
-    { name: 'FILE', kind: 'file', ext: '.p8', filename: '../original.p8' },
-    { name: 'BAD_KIND', kind: 'other', ext: '.p8' },
-    { name: 'BAD_EXT', kind: 'file', ext: '../key' },
+    { name: 'LEGACY', terminals: true, group: '  Shared  ' },
+    { name: 'FILE', kind: 'file', ext: '.p8', filename: '../original.p8', group: 'x'.repeat(61) },
+    { name: 'BAD_KIND', kind: 'other', ext: '.p8', group: '   ' },
+    { name: 'BAD_EXT', kind: 'file', ext: '../key', group: 7 },
     { name: 'LONG_EXT', kind: 'file', ext: '.' + 'x'.repeat(17) }
   ];
   const saved = config.save({ ...config.DEFAULTS, secrets: entries });
   assert.deepStrictEqual(saved.secrets, [
-    { name: 'LEGACY', terminals: true, kind: 'text' },
-    { name: 'FILE', kind: 'file', ext: '.p8' },
+    { name: 'LEGACY', terminals: true, group: 'Shared', kind: 'text' },
+    { name: 'FILE', group: 'x'.repeat(60), kind: 'file', ext: '.p8' },
     { name: 'BAD_KIND', kind: 'text' },
     { name: 'BAD_EXT', kind: 'file' },
     { name: 'LONG_EXT', kind: 'file' }
   ]);
+  assert.deepStrictEqual(JSON.parse(data).secrets, saved.secrets);
   data = JSON.stringify({ secrets: entries });
   assert.deepStrictEqual(config.load().secrets, saved.secrets);
 });

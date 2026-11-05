@@ -42,6 +42,11 @@ test('filters by project, hpc scope, name and NUL', () => {
   assert.ok(!S.build(list, '/p/one', get).text.includes('\0'));
 });
 
+test('group metadata does not change HPC build output', () => {
+  const grouped = list.map((entry) => ({ ...entry, group: 'Research' }));
+  assert.deepStrictEqual(S.build(grouped, '/p/one', get), S.build(list, '/p/one', get));
+});
+
 test('sync sends values only on stdin, atomically', async () => {
   const calls = [];
   const exec = async (host, cmd, o) => { calls.push({ host, cmd, o }); return { code: 0, stdout: '', stderr: '' }; };

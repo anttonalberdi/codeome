@@ -15,6 +15,16 @@ All three switches are off for a new secret. The button beside them, *All projec
 
 <Shot bare src="/screens/detail-secrets.webp" alt="Four secret rows: GITHUB_TOKEN on for terminals and agents in all projects, HF_TOKEN on for terminals only for the codeome project, ZENODO_COPY copy only and LOST with no value" caption="GITHUB_TOKEN is set for terminals and agents in all projects, HF_TOKEN only in terminals of codeome, and LOST has no value." width="898" height="247" />
 
+## Groups and search
+
+Give a secret an optional *Group*, such as `GitHub` or `Cluster`, to keep a long list tidy. Type it in the *Group* box on the secret's row (existing groups are suggested as you type) or in the add form. A group is free text, one level, up to 60 characters. Clear the box to remove it.
+
+Once any secret has a group, the list shows a collapsible header for each group with its name and count, sorted alphabetically, and secrets without a group under *Ungrouped* at the end. Without groups the list looks as before. Collapsed groups are not remembered after you close Settings.
+
+A group only organises the list. It does not change where a secret is set, is not sent to agents and is not synced to the HPC, so changing a group does not trigger an HPC sync.
+
+The *Search secrets…* box above the list matches names and groups, not notes. As you type, a dropdown shows up to 8 matches, each with its group. Use Up and Down to move, Enter or a click to pick, and Escape to close it (a second Escape clears the box). Picking one expands its group, scrolls to it and highlights it briefly. While the box has text, the list shows only the matches, or *No matching secrets.*; the × button clears it.
+
 ## File secrets
 
 Some credentials are a file, not a string: an Apple `.p8` signing key, for example, is a multi-line text file that a tool expects to read from a path. Add it as a file secret. Values that are short strings, such as the Key ID and Team ID that go with that key, stay in ordinary secrets.

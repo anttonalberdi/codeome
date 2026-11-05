@@ -29,7 +29,7 @@ Open **Settings** (`⌘,`). It is a full page with a section list on the left. C
 
 <Shot src="/screens/settings.webp" alt="Settings Git and GitHub page with no accounts yet and an Add account form with a host, a token field, Save and Import from gh" caption="The Git & GitHub page starts empty: choose the host, paste a token and Save, or Import from gh." width="1500" height="940" />
 7. **Zenodo / PyPI tokens** if you publish from here (see [Publishing](/guide/publishing)).
-8. **Secrets** — your own tokens and keys, if you want them at hand or set in terminals and agent sessions (see [Secrets](/guide/secrets)).
+8. **Secrets** — your own tokens and keys, if you want them at hand or set in terminals and agent sessions; group them and find them with the search box (see [Secrets](/guide/secrets)).
 
 ## Where the usage numbers come from
 

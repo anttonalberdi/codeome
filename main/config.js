@@ -43,8 +43,8 @@ const DEFAULTS = {
   // Claude Code sessions started by Codeome: leave Claude's co-author trailer and "Generated with
   // Claude Code" line out of commits and pull requests (passed with --settings; your files are untouched).
   claude: { noCoAuthor: true },
-  // Your own secrets, by name: { name, note, terminals, agents, hpc, projects, kind, ext? }. The values are in the
-  // Keychain-encrypted store; see secrets.js for where each is set as an environment variable.
+  // Your own secrets, by name: { name, note, group?, terminals, agents, hpc, projects, kind, ext? }. The values are in the
+  // Keychain-encrypted store; group is display-only metadata. See secrets.js for where each is set as an environment variable.
   secrets: [],
   editor: { fontSize: 13, theme: 'auto' },
   slurm: { refreshSeconds: 20, historyDays: 3 },
@@ -150,6 +150,10 @@ function secretSettings(value) {
     const entry = {};
     for (const field of ['name', 'note', 'terminals', 'agents', 'hpc', 'projects'])
       if (Object.prototype.hasOwnProperty.call(s, field)) entry[field] = s[field];
+    if (typeof s.group === 'string') {
+      const group = s.group.trim().slice(0, 60);
+      if (group) entry.group = group;
+    }
     entry.kind = kindOf(s);
     if (entry.kind === 'file' && s.ext && !extError(s.ext)) entry.ext = s.ext;
     return entry;

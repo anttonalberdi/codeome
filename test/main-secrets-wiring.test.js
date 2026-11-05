@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const secrets = require('../main/secrets');
+const chat = require('../main/chat');
 
 const source = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
 
@@ -120,6 +121,24 @@ test('config changes remove a placed file only when no local scope remains or ac
   assert.deepEqual(removed, ['KEY', 'KEY']);
 });
 
+test('changing only a secret group does not sync HPC secrets', () => {
+  const handlers = {};
+  let syncs = 0;
+  const old = { name: 'SHARED', hpc: true, group: 'Old' };
+  const context = { cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
+    secrets, placedSecrets: new Set(), secretFileStore: { remove() {} },
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, usage: { ENV_VAR: {} },
+    awake: { sync() {} }, config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
+    syncAllSecretsQuietly: () => { syncs++; }, mirrorGeneralQuietly: () => {}, remoteService: { sync() {} }
+  };
+  vm.runInNewContext(section("ipcMain.handle('config:set'", "ipcMain.handle('secret:set'"), context);
+  const save = (change) => handlers['config:set'](null, { ...context.cfg, secrets: [{ ...context.cfg.secrets[0], ...change }] });
+  save({ group: 'New' });
+  assert.equal(syncs, 0);
+  save({ hpc: false });
+  assert.equal(syncs, 1);
+});
+
 test('config cleanup clears placed state when file removal fails', () => {
   const handlers = {}, placedSecrets = new Set(['KEY']);
   const old = { name: 'KEY', kind: 'file', terminals: true, agents: false };
@@ -155,4 +174,20 @@ test('agent secret metadata exposes file kind and quit hooks clean up files', ()
   hooks['will-quit']();
   assert.equal(cleaned.length, 2);
   assert.match(source, /app\.whenReady\(\)\.then\(\(\) => \{\s*secretFileStore = createStore\(app\.getPath\('userData'\)\);\s*try \{ secretFileStore\.sweepStale\(\); \} catch \{\}/);
+});
+
+test('agent prompt mapping omits secret group metadata', () => {
+  const infoFor = (entry) => vm.runInNewContext('(() => {\n' + section('  const secretsInfo = (() => {', '\n  let s;') + '\nreturn secretsInfo; })()', {
+    cfg: { secrets: [entry] }, project: '/project', secrets,
+    userSecretEnv: () => ({ SHARED: 'abc123' }),
+    secretsSync: { plan: () => ({ names: ['SHARED'], path: '~/.codeome/secrets/project.env' }) },
+    config: { getSecret: () => 'abc123' }
+  });
+  const base = infoFor({ name: 'SHARED', kind: 'text' });
+  const grouped = infoFor({ name: 'SHARED', kind: 'text', group: 'Research' });
+  assert.deepEqual(JSON.parse(JSON.stringify(grouped)), JSON.parse(JSON.stringify(base)));
+  for (const engine of ['claude', 'codex']) {
+    assert.equal(chat.secretsPrompt(grouped, engine), chat.secretsPrompt(base, engine));
+    assert.ok(!chat.secretsPrompt(grouped, engine).includes('Research'));
+  }
 });

@@ -1134,9 +1134,27 @@ button.cs:hover { text-decoration-color: currentColor; }
 input.mono { font-family: var(--mono); font-size: 12px; }
 .sec-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 16px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
 .sec-row:first-of-type { border-top: 0; }
+.sec-row.sec-highlight { animation: sec-highlight 1.5s ease-out; }
+@keyframes sec-highlight { from { background: var(--accent-soft); } to { background: transparent; } }
 .sec-name { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.sec-meta { display: grid; gap: 4px; min-width: 0; }
+.sec-meta .sec-suggest-wrap { width: 150px; }
 input.sec-note { width: 100%; border-color: transparent; background: transparent; box-shadow: none; padding: 1px 0; font-size: 11.5px; color: var(--muted); }
 input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); background: var(--bg); padding: 1px 5px; color: var(--text); }
+.sec-group-input { width: 100%; min-width: 0; font-size: 11.5px; }
+.sec-group-head { display: flex; width: 100%; gap: 8px; align-items: center; padding: 6px 14px; border: 0; border-top: 1px solid var(--line); background: var(--surface-2); color: var(--text); text-align: left; font-weight: 600; cursor: pointer; }
+.sec-group-head::before { content: '▾'; color: var(--muted); }
+.sec-group-head[aria-expanded=false]::before { content: '▸'; }
+.sec-group-count { color: var(--muted); font-size: 11px; font-weight: 400; }
+.sec-search { display: flex; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.sp-card:has(.sec-search) { overflow: visible; }
+.sec-search .sec-suggest-wrap { flex: 1; }
+.sec-search input { width: 100%; font-size: 12px; padding: 3px 6px; }
+.sec-suggest-wrap { position: relative; min-width: 0; }
+.sec-suggest { position: absolute; z-index: 60; top: calc(100% + 3px); left: 0; width: 100%; max-height: 240px; overflow: auto; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 12px 34px rgba(0,0,0,.22); }
+.sec-suggest-option { display: flex; justify-content: space-between; gap: 12px; padding: 6px 9px; cursor: pointer; }
+.sec-suggest-option:hover, .sec-suggest-option.active { background: var(--sel); }
+.sec-suggest-detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sec-use, .sec-acts { display: flex; gap: 12px; align-items: center; }
 .sec-acts { gap: 6px; }
 .sec-scope { min-width: 96px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

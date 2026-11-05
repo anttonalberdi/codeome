@@ -393,7 +393,8 @@ ipcMain.handle('app:version', () => require('../package.json').version);
 ipcMain.handle('config:set', (_e, c) => {
   for (const e of Object.keys(usage.ENV_VAR)) for (const a of (c.accounts && c.accounts[e] ? c.accounts[e].list : [])) a.dir = a.dir == null ? usage.folderFor(e, a.name) : usage.normDir(e, a.dir); // a new account gets its folder here
   const accountsChanged = JSON.stringify(c.accounts) !== JSON.stringify(cfg.accounts);
-  const secretsChanged = JSON.stringify(c.secrets) !== JSON.stringify(cfg.secrets);
+  const syncShape = (list) => JSON.stringify(list, (key, value) => key === 'group' ? undefined : value);
+  const secretsChanged = syncShape(c.secrets) !== syncShape(cfg.secrets);
   const oldSecrets = cfg.secrets || [];
   cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts, remoteDevices: cfg.remoteDevices });
   if (typeof remote !== 'undefined' && remote?.events) {

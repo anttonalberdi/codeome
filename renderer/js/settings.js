@@ -1178,12 +1178,72 @@
 
     // Saving swaps App.cfg for the copy the main process returns, so a row's handlers look their secret up again by name.
     const live = (s) => list().find((x) => x.name === s.name) || s;
-    const rows = list().map((s, i) => h('div.sec-row', { role: 'listitem' },
+    const secrets = list();
+    let suggestId = 0, highlightTimer;
+    const compareGroups = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }) || a.localeCompare(b);
+    const groups = () => [...new Set(list().map((s) => s.group).filter(Boolean))].sort(compareGroups);
+    // The same listbox handles search results and group-name suggestions.
+    function suggestField(attrs, source, pick, changed, showAll = false) {
+      const id = `sec-suggest-${suggestId++}`;
+      let matches = [], active = -1, open = false, selected = false;
+      const input = h('input', { ...attrs, role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': id, 'aria-activedescendant': '',
+        oninput: () => { changed?.(input.value); update(); },
+        onfocus: () => update(),
+        onblur: () => close(),
+        onkeydown: (e) => {
+          if (e.key === 'Escape') {
+            if (open) { close(); e.preventDefault?.(); }
+            else if (!showAll && input.value) { input.value = ''; changed?.(''); e.preventDefault?.(); }
+          } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            if (!open) update();
+            if (matches.length) {
+              active = e.key === 'ArrowDown' ? (active + 1) % matches.length : active < 0 ? matches.length - 1 : (active + matches.length - 1) % matches.length;
+              paint();
+            }
+            e.preventDefault?.();
+          } else if (e.key === 'Enter' && open && matches.length) {
+            if (showAll && active < 0) close();
+            else { choose(active < 0 ? 0 : active); e.preventDefault?.(); }
+          }
+        } });
+      const box = h('div.sec-suggest', { id, role: 'listbox', hidden: true });
+      const aria = (key, value) => { if (input.setAttribute) input.setAttribute(key, value); else if (input.attrs) input.attrs[key] = value; };
+      function close() { open = false; active = -1; box.hidden = true; aria('aria-expanded', 'false'); aria('aria-activedescendant', ''); }
+      function choose(i) { if (selected || !matches[i]) return; const item = matches[i]; selected = true; close(); pick(item.value, input); }
+      function paint() {
+        aria('aria-activedescendant', active < 0 ? '' : `${id}-${active}`);
+        box.replaceChildren(...matches.map((item, i) => h('div.sec-suggest-option' + (i === active ? '.active' : ''), {
+          id: `${id}-${i}`, role: 'option', 'aria-selected': String(i === active),
+          onmousedown: (e) => { e.preventDefault?.(); choose(i); }, onclick: () => choose(i)
+        }, h('span', item.label), item.detail ? h('span.sec-suggest-detail', item.detail) : null)));
+      }
+      function update() {
+        const q = input.value.trim().toLocaleLowerCase();
+        matches = (!q && !showAll ? [] : source().filter((item) =>
+          item.label.toLocaleLowerCase().includes(q) || (item.match ?? item.detail)?.toLocaleLowerCase().includes(q))).slice(0, 8);
+        active = -1; selected = false; open = matches.length > 0; box.hidden = !open;
+        aria('aria-expanded', String(open)); paint();
+      }
+      return { el: h('div.sec-suggest-wrap', input, box), input, close };
+    }
+    const groupChoices = () => groups().map((name) => ({ label: name, value: name }));
+    const saveGroup = (s, value) => {
+      const group = value.trim().slice(0, 60);
+      const target = live(s);
+      if ((target.group || '') === group) return;
+      if (group) target.group = group; else delete target.group;
+      commit(); redraw();
+    };
+    const rows = secrets.map((s, i) => h('div.sec-row', { id: `sec-row-${i}`, role: 'listitem' },
       h('div.ag-name',
         h('div.row', h('b.sec-name', s.name), s.kind === 'file' ? h('span.pill', 'file') : null,
           has[i] ? null : h('span.pill.warn', { title: 'Its value is missing from the Keychain. Use Replace… to enter it again.' }, 'no value')),
-        h('input.sec-note', { type: 'text', value: s.note || '', placeholder: 'Add a note: what it is for, when it expires', 'aria-label': `Note for ${s.name}`,
-          onchange: (e) => { live(s).note = e.target.value.trim().slice(0, 200); commit(); } })),
+        h('div.sec-meta',
+          h('input.sec-note', { type: 'text', value: s.note || '', placeholder: 'Add a note: what it is for, when it expires', 'aria-label': `Note for ${s.name}`,
+            onchange: (e) => { live(s).note = e.target.value.trim().slice(0, 200); commit(); } }),
+          suggestField({ type: 'text', class: 'sec-group-input', value: s.group || '', placeholder: 'Group', autocomplete: 'off', 'aria-label': `Group for ${s.name}`,
+            onchange: (e) => { e.target.value = e.target.value.trim().slice(0, 60); saveGroup(s, e.target.value); } },
+          groupChoices, (group, input) => { input.value = group; saveGroup(s, group); }, null, true).el)),
       h('div.sec-use',
         check('Terminals', () => live(s).terminals, (v) => { live(s).terminals = v; }),
         check('Agents', () => live(s).agents, (v) => { live(s).agents = v; }),
@@ -1220,6 +1280,8 @@
         } }))));
 
     const name = h('input.mono', { type: 'text', placeholder: 'GITHUB_TOKEN', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Name' });
+    const addGroup = suggestField({ type: 'text', class: 'sec-group-input', placeholder: 'Group (optional)', autocomplete: 'off', 'aria-label': 'Group for new secret' },
+      groupChoices, (group, input) => { input.value = group; }, null, true);
     const value = h('input', { type: 'password', placeholder: 'Paste token', autocomplete: 'off', 'aria-label': 'Value' });
     const file = secretFileEntry();
     const fileBox = h('div', { hidden: true }, file.el);
@@ -1236,7 +1298,8 @@
       if (!entry.value) return kind === 'file' ? file.focus() : value.focus();
       const res = await codeome.secrets.set(n, entry.value, kind, entry.ext);
       if (res.error) return App.err(res.error);
-      list().push({ name: n, note: '', terminals: false, agents: false, kind, ...(entry.ext ? { ext: entry.ext } : {}) });
+      const group = addGroup.input.value.trim().slice(0, 60);
+      list().push({ name: n, note: '', terminals: false, agents: false, kind, ...(group ? { group } : {}), ...(entry.ext ? { ext: entry.ext } : {}) });
       await App.saveConfig(); flash('Secret saved'); redraw();
     } }, 'Save');
     name.onkeydown = (e) => { if (e.key === 'Enter') (type.value === 'file' ? file.focus : () => value.focus())(); };
@@ -1267,10 +1330,65 @@
       } finally { sync.disabled = false; }
     } }, 'Sync to HPC');
 
+    const rowList = h('div.sec-list');
+    function renderRows() {
+      const query = secretQuery.trim().toLocaleLowerCase();
+      const visible = secrets.map((_s, i) => i).filter((i) => !query ||
+        secrets[i].name.toLocaleLowerCase().includes(query) || (secrets[i].group || '').toLocaleLowerCase().includes(query));
+      if (!visible.length) { rowList.replaceChildren(h('div.sp-empty', query ? 'No matching secrets.' : 'None yet. Add one below.')); return; }
+      if (!secrets.some((s) => s.group)) {
+        rowList.replaceChildren(h('div', { role: 'list', 'aria-label': 'Saved secrets' }, visible.map((i) => rows[i])));
+        return;
+      }
+      visible.sort((a, b) => {
+        const x = secrets[a].group || '', y = secrets[b].group || '';
+        return x === y ? a - b : !x ? 1 : !y ? -1 : compareGroups(x, y);
+      });
+      const buckets = new Map();
+      for (const i of visible) {
+        const group = secrets[i].group || '';
+        if (!buckets.has(group)) buckets.set(group, []);
+        buckets.get(group).push(rows[i]);
+      }
+      rowList.replaceChildren(...[...buckets].map(([group, items], i) => {
+        const expanded = query ? !secretSearchCollapsed.has(group) : !secretCollapsed.has(group);
+        const body = h('div.sec-group-rows', { id: `sec-group-${i}`, role: 'list', 'aria-label': group || 'Ungrouped', hidden: !expanded }, items);
+        const head = h('button.sec-group-head', { type: 'button', 'aria-expanded': String(expanded), 'aria-controls': `sec-group-${i}`,
+          onclick: () => {
+            const set = query ? secretSearchCollapsed : secretCollapsed;
+            if (set.has(group)) set.delete(group); else set.add(group);
+            renderRows();
+          }
+        }, h('span', group || 'Ungrouped'), h('span.sec-group-count', String(items.length)));
+        return h('div.sec-group', { role: 'group', 'aria-label': group || 'Ungrouped' }, head, body);
+      }));
+    }
+    const search = suggestField({ type: 'text', value: secretQuery, placeholder: 'Search secrets…', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Search secrets' },
+      () => secrets.map((s, i) => ({ label: s.name, detail: s.group || 'Ungrouped', match: s.group || '', value: i })),
+      (i, input) => {
+        secretCollapsed.delete(secrets[i].group || '');
+        secretSearchCollapsed.clear();
+        input.value = ''; secretQuery = ''; clearSearch.hidden = true; renderRows();
+        const row = rows[i];
+        row.scrollIntoView?.({ block: 'nearest' });
+        row.classList.remove('sec-highlight');
+        if ('offsetWidth' in row) void row.offsetWidth;
+        row.classList.add('sec-highlight');
+        if (typeof clearTimeout === 'function') clearTimeout(highlightTimer);
+        if (typeof setTimeout === 'function') highlightTimer = setTimeout(() => row.classList.remove('sec-highlight'), 1500);
+      }, (value) => {
+        if (value !== secretQuery) secretSearchCollapsed.clear();
+        secretQuery = value; clearSearch.hidden = !value; renderRows();
+      });
+    const clearSearch = h('button.icon-btn.small', { type: 'button', title: 'Clear search', 'aria-label': 'Clear search', html: App.icons.close,
+      onclick: () => { search.input.value = ''; secretQuery = ''; secretSearchCollapsed.clear(); clearSearch.hidden = true; search.close(); renderRows(); search.input.focus(); } });
+    clearSearch.hidden = !secretQuery;
+    renderRows();
+
     return section('secrets', 'Secrets', 'Access tokens, API keys and passwords of your own, encrypted with the macOS Keychain. Content is never shown again. Text secrets can be copied; file secrets become private file paths in the environment.',
       card('Saved secrets',
-        rows.length ? h('div', { role: 'list', 'aria-label': 'Saved secrets' }, rows) : h('div.sp-empty', 'None yet. Add one below.'),
-        h('div.sec-add', h('div.sec-add-identity', name, type), h('div.sec-add-value', value, fileBox), add),
+        h('div.sec-search', search.el, clearSearch), rowList,
+        h('div.sec-add', h('div.sec-add-identity', name, type, addGroup.el), h('div.sec-add-value', value, fileBox), add),
         h('div.sp-foot.row.wrap', sync, hpcStatus),
         h('div.sp-foot.hint', 'The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. HPC: syncs selected secrets to a private file in the HPC home, where they are stored in plaintext (mode 0600). All three are off for a new secret. The project button limits where each enabled scope applies. Copy puts a text value on the clipboard for 30 seconds.')));
   }
