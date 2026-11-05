@@ -10,3 +10,6 @@ dist/
 
 # Codeome agent jobs
 .codeome/context/
+
+# Codeome agent jobs
+.codeome/touched/

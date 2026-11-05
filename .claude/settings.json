@@ -9,6 +9,24 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent\" hook"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent\" hook"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent\" hook"
+          }
+        ]
       }
     ],
     "SubagentStart": [

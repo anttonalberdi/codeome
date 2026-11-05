@@ -20,6 +20,7 @@ Request: $ARGUMENTS
      <brief>
      BRIEF
      ```
+     Never detach it by hand (`nohup`, trailing `&`, redirect to a log): that run gets no card in the chat, and a hook refuses it.
 4. When it returns, say in one line what came of it. Run the acceptance check yourself before reporting success, and show the user the Status line and the key findings.
    For long parseable background runs, start `.codeome/bin/codeome-agent watch --log <log> --pid <pid> --parser <parser> --total <count> --label "<what>" --task <unique-key>` in the background with the command so its progress appears in chat; do not poll the log.
    For HPC work, use `hpc-operator`; it can start `watch --parser slurm` for submitted jobs or `watch --parser snakemake --remote-log` for workflow logs.

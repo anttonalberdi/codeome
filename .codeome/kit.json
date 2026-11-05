@@ -1,18 +1,18 @@
 {
-  "version": "0.9.0",
+  "version": "0.9.3",
   "groups": [
     "core",
     "research",
     "web",
     "release"
   ],
-  "installedAt": "2026-10-30T03:06:47.599Z",
+  "installedAt": "2026-11-04T13:34:55.992Z",
   "files": {
     ".claude/skills/cross-review/SKILL.md": "fbab9d238b6354be35a6205eb650e6fe84d7a6a40233963c0fc9ccc346ad742b",
-    ".claude/skills/delegate/SKILL.md": "6ccfe35205f4530616fbcd3d0c970f60b4d2390c3863edf4703884824285e9d8",
+    ".claude/skills/delegate/SKILL.md": "34df91181f11c72ee5fc8cf1f3811c826262f031ed90d7fccf804534cf6f183d",
     ".claude/skills/figures/SKILL.md": "2bc2c8dd94ff844bd2445c707d0f0007053e6a01a7dc3c33312758d0ffd54723",
     ".claude/skills/figures/compose.py": "20b8dbbe8c231bd5b7d44ec587fae7591e85b854de9d0460ca1c641ec18b61cf",
-    ".claude/skills/orchestrate/SKILL.md": "927fbaefab542bf0aa425bb6252eb3c1ba231edb8e97c0477cba1d4de098025f",
+    ".claude/skills/orchestrate/SKILL.md": "45edd2501e2c01ec5824b5cc4411ff23ce676837929bbbd8591c127cb5034234",
     ".claude/skills/release/SKILL.md": "5dec72fd19bee8c4a67b671fd0c685a9ee417ed95b60fde5f85707aa9e431731",
     ".claude/skills/release/bioconda.md": "174e13b1816ea90bb5831074b0416379f54fd9100bcc1ea0fafa5455ff13262f",
     ".claude/skills/release/bioconductor.md": "4fe40ca2ac26b00f5e2df873c01af3a26cb9cb542acad84737b61631ca548842",
