@@ -22,14 +22,15 @@ async function fixture(t, options = {}) {
   const limiter = options.limiter || createLimiter();
   const sessions = new Map();
   const remote = createRemote({ send() {}, loadChat: () => null, exitGraceMs: options.exitGraceMs, now: options.now });
-  const config = { remote: { mode: 'serve', hosts: ['phone.example.test'], requireDesktopFor: RULES }, openProjects: options.projects || [process.cwd()] };
+  const config = { remote: { mode: 'serve', hosts: ['phone.example.test'], requireDesktopFor: RULES }, openProjects: options.projects || [process.cwd()],
+    issues: { enabled: false }, projectIssues: {} };
   const saved = options.saved || [];
   let listCalls = 0;
   const server = createServer({ auth, limiter, remote, sessions,
     loadChat: (_project, id) => saved.find((chat) => chat.id === id) || null,
     listChats: (project) => { listCalls++; return saved.filter((chat) => !options.savedByProject || path.resolve(chat.project) === project)
       .map((chat) => ({ id: chat.id, title: chat.title, updatedAt: chat.updatedAt, engine: chat.engine || 'claude', role: chat.role || '' })); },
-    getConfig: () => config, staticDir: path.join(__dirname, '..', 'renderer', 'mobile'), heartbeatMs: options.heartbeatMs,
+    getConfig: () => config, getIssues: options.getIssues, staticDir: path.join(__dirname, '..', 'renderer', 'mobile'), heartbeatMs: options.heartbeatMs,
     now: options.now, setTimer: options.setTimer, clearTimer: options.clearTimer });
   if (!options.noListen) try { await server.listen(0, '127.0.0.1'); }
   catch (error) {
@@ -237,6 +238,67 @@ test('tab changes publish the same project shape over SSE', async (t) => {
   const event = stream.text.match(/event: tabs\ndata: ([^\n]+)/);
   const project = JSON.parse(event[1]);
   assert.deepEqual(project, (await f.call('GET', '/api/state')).body.projects.find((p) => p.path === process.cwd()));
+});
+
+test('phone state limits issue summaries to enabled open projects and safe fields', async (t) => {
+  const project = process.cwd(), disabled = '/projects/disabled-issues', closed = '/projects/closed-issues';
+  const hostile = '<script>alert(1)</script>\u0000\u001b\u202e' + 'x'.repeat(150);
+  const issue = (number, status = 'new') => ({ number, title: number === 12 ? hostile : `Issue ${number}`,
+    status, body: 'private body', author: 'private author', url: 'https://example.test/private',
+    repo: 'private repo', triage: { action: 'fix', proposedPlan: 'private plan', draftReply: 'private draft' } });
+  const f = await fixture(t, { noListen: true, projects: [project, disabled], getIssues: (root) =>
+    root === project ? [issue(12), issue(99, 'in-progress'), ...Array.from({ length: 11 }, (_, i) => issue(11 - i)), issue(98, 'seen')] :
+      root === disabled ? [issue(21)] : root === closed ? [issue(22)] : [] });
+  f.config.issues.enabled = true;
+  f.config.projectIssues[project] = { enabled: true };
+  f.config.projectIssues[disabled] = { enabled: false };
+  f.config.projectIssues[closed] = { enabled: true };
+  const issues = f.server.issueState();
+  assert.equal(issues.length, 1);
+  assert.deepEqual(Object.keys(issues[0]).sort(), ['count', 'items', 'project']);
+  assert.equal(issues[0].project, project);
+  assert.equal(issues[0].count, 12);
+  assert.equal(issues[0].items.length, 10);
+  assert.deepEqual(Object.keys(issues[0].items[0]).sort(), ['action', 'number', 'status', 'title']);
+  assert.deepEqual({ number: issues[0].items[0].number, action: issues[0].items[0].action,
+    status: issues[0].items[0].status }, { number: 12, action: 'fix', status: 'new' });
+  assert.deepEqual({ number: issues[0].items[1].number, status: issues[0].items[1].status },
+    { number: 99, status: 'in-progress' });
+  assert.equal(issues[0].items[0].title, '<script>alert(1)</script>' + 'x'.repeat(95));
+  assert.equal(Array.from(issues[0].items[0].title).length, 120);
+  assert.doesNotMatch(JSON.stringify(issues), /private body|private author|private plan|private draft|private repo|example\.test/);
+  f.config.issues.enabled = false;
+  assert.deepEqual(f.server.issueState(), []);
+});
+
+test('phone API state includes issue summaries', async (t) => {
+  const project = process.cwd();
+  const f = await fixture(t, { getIssues: () => [{ number: 7, title: 'A new issue', status: 'new' }] });
+  if (!f) return;
+  f.config.issues.enabled = true;
+  f.config.projectIssues[project] = { enabled: true };
+  assert.deepEqual((await f.call('GET', '/api/state')).body.issues,
+    [{ project, count: 1, items: [{ number: 7, title: 'A new issue', action: null, status: 'new' }] }]);
+});
+
+test('issue changes refresh the phone without exposing issue data in SSE', async (t) => {
+  const f = await fixture(t);
+  if (!f) return;
+  const stream = await openEvents(f.port, f.token);
+  t.after(() => stream.req.destroy());
+  f.server.issuesChanged();
+  await waitFor(stream, /event: issues-changed\ndata: \{\}/);
+});
+
+test('phone API has no issue action routes', async (t) => {
+  const f = await fixture(t);
+  if (!f) return;
+  for (const route of ['/api/issues', '/api/issues/1', '/api/issues/1/assess',
+    '/api/issues/1/startWork', '/api/issues/1/comment', '/api/issues/1/setStatus',
+    '/api/issues/1/markSeen', '/api/issues/1/enable']) {
+    assert.equal((await f.call('GET', route)).status, 404, route);
+    assert.equal((await f.call('POST', route, { number: 1, action: 'fix' })).status, 404, route);
+  }
 });
 
 test('pending state and added SSE use main project and saved title', async (t) => {

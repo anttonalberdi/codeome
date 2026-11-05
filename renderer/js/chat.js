@@ -193,7 +193,8 @@
     if (!t) return;
     let c = t.tabs.find((x) => x.id === id);
     if (!c) {
-      c = C.byId[id] || await codeome.chat.load(project, id).then((s) => (s && s.items ? live(s) : null));
+      c = (Object.hasOwn(C.byId, id) ? C.byId[id] : null) ||
+        await codeome.chat.load(project, id).then((s) => (s && s.items ? live(s) : null));
       if (!c) return App.err('That conversation could not be loaded.');
       t.tabs.push(c);
     }

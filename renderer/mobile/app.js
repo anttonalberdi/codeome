@@ -2,7 +2,7 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   const state = { token: null, projects: [], expandedEarlier: new Set(), seen: Object.create(null), loaded: false,
-    pending: [], chatId: null, projectKey: null, items: [], hasMore: false,
+    pending: [], issues: [], chatId: null, projectKey: null, items: [], hasMore: false,
     loadingOlder: false, firstIndex: null, stream: null, lastEventId: '', imageUrls: new Map(),
     imageObserver: null, reconnect: 1000, refreshing: false, refreshAgain: false };
   const inFlight = new Set();
@@ -122,10 +122,12 @@
   }
   function renderProjects() {
     const labels = names();
+    const issueCounts = new Map(state.issues.map((entry) => [entry.project, entry.count]));
     replaceMarkup($('project-list'), state.projects.length ? state.projects.map((project) =>
-      Render.renderProjectCard(Render.phoneProject(project, state.seen), labels.get(project.key))).join('') :
+      Render.renderProjectCard({ ...Render.phoneProject(project, state.seen), issueCount: issueCounts.get(project.path) }, labels.get(project.key))).join('') :
       '<p class="empty">No projects yet.</p>');
   }
+  function renderIssues() { Render.renderIssues($('issue-list'), state.issues, state.projects); }
   function renderProject(project) {
     const labels = names();
     const name = labels.get(project.key) || project.name;
@@ -182,7 +184,8 @@
       const pending = Array.isArray(data.pending) ? data.pending : [];
       for (const key of completed) if (!pending.some((entry) => cardKey(entry) === key)) completed.delete(key);
       state.pending = pending.filter((entry) => !completed.has(cardKey(entry)));
-      renderPending(); renderProjects(); applyRoute();
+      state.issues = Array.isArray(data.issues) ? data.issues : [];
+      renderPending(); renderIssues(); renderProjects(); applyRoute();
     } catch (error) { if (state.token) notice(errorText(error)); }
     finally {
       state.refreshing = false;
@@ -282,7 +285,7 @@
     state.chatId = null; clearImages();
     state.projectKey = null;
     $('chat').hidden = true; $('project').hidden = true; $('inbox').hidden = false; $('back').hidden = true;
-    $('heading').textContent = 'Codeome'; notice(''); renderPending(); renderProjects();
+    $('heading').textContent = 'Codeome'; notice(''); renderPending(); renderIssues(); renderProjects();
   }
   function showProject(project) {
     state.chatId = null; state.projectKey = project.key; clearImages();
@@ -432,7 +435,7 @@
       saveOpenChatSeen();
       renderPending(); renderProjects(); applyRoute();
     }
-    if (['added', 'decided', 'cancelled', 'chat-started', 'chat-exit'].includes(type)) {
+    if (['added', 'decided', 'cancelled', 'chat-started', 'chat-exit', 'issues-changed'].includes(type)) {
       refreshState(); if (state.chatId && data.chatId === state.chatId) loadLog();
     }
     if (type === 'message-batch' && state.chatId === data.chatId) loadLog();

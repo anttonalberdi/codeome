@@ -6,7 +6,8 @@ const os = require('os');
 const crypto = require('crypto');
 const config = require('./config');
 const github = require('./github');
-const { pollProject } = require('./githubissues');
+const { pollProject, commentOnIssue } = require('./githubissues');
+const { buildStartWorkPrompt } = require('./issueprompt');
 const { createIssueStore } = require('./issuestore');
 const { createIssuesPoller } = require('./issuespoller');
 const { triageIssue } = require('./issuetriage');
@@ -90,6 +91,7 @@ let issueStore = null;
 let issuePoller = null;
 let triagingIssue = null;
 let triagingDone = Promise.resolve();
+const lastIssueComments = new Map();
 let secretFileStore = null;
 const placedSecrets = new Set();
 let heartbeatTimer = null;
@@ -129,6 +131,8 @@ function send(channel, payload) { if (win && !win.isDestroyed()) win.webContents
 const remote = createRemote({ send, loadChat: chat.loadChat });
 const remoteService = createService({ createServer, createAuth, createLimiter, remote, sessions: chats,
   loadChat: chat.loadChat, listChats: chat.listChats, getConfig: () => cfg,
+  getIssueProjects: () => openRoots(),
+  getIssues: (project) => issueStore?.list(project) || [],
   getSecret: config.getSecret, setSecret: config.setSecret,
   getDevices: () => cfg.remoteDevices, saveDevices: (devices) => { cfg = config.save({ ...cfg, remoteDevices: devices }); },
   staticDir: path.join(__dirname, '..', 'renderer', 'mobile'), execFile, send });
@@ -1100,7 +1104,7 @@ function issueRoot(project) {
 function issueCounts() {
   return Object.fromEntries([...new Set(openRoots().map((root) => path.resolve(root)))].map((project) => [project, issueStore.unseenCount(project)]));
 }
-function issueChanged(project) { send('issues:changed', { project, counts: issueCounts() }); }
+function issueChanged(project) { send('issues:changed', { project, counts: issueCounts() }); remoteService.issuesChanged(); }
 async function assessIssue(project, number, { automatic = false } = {}) {
   if (triagingIssue) throw new Error('An issue is already being assessed.');
   const issue = issueStore.list(project).find((item) => item.number === number);
@@ -1172,12 +1176,48 @@ ipcMain.handle('issues:assess', wrap(({ project, number }) => {
   if (!cfg.issues.enabled || !cfg.projectIssues[project]?.enabled) throw new Error('Issue inbox is disabled for this project.');
   return assessIssue(project, number);
 }));
-ipcMain.handle('issues:setStatus', wrap(({ project, number, status, until }) => {
+ipcMain.handle('issues:startWork', wrap(({ project, number, force }) => {
   project = issueRoot(project);
   if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Issue number must be a positive integer.');
-  const item = issueStore.setStatus(project, number, status, { until });
+  const item = issueStore.list(project).find((entry) => entry.number === number);
+  if (!item) throw new Error('Issue not found.');
+  if (item.triage && issueStore.needsTriage(project, number)) throw new Error('Issue assessment is stale. Re-Assess before starting work.');
+  if (item.triage && !['fix', 'plan'].includes(item.triage.action)) throw new Error('This issue assessment does not call for starting work.');
+  if (!item.triage && force !== true) throw new Error('Assess this issue first, or explicitly start without assessment.');
+  return { prompt: buildStartWorkPrompt({ item, project, nonce: crypto.randomBytes(16).toString('hex') }),
+    title: `Issue #${number}: ${String(item.title || '').replace(/[\x00-\x1f\x7f-\x9f\u200e\u200f\u2028-\u202e\u2066-\u2069]/g, '').slice(0, 60)}` };
+}));
+ipcMain.handle('issues:setStatus', wrap(({ project, number, status, until, chat }) => {
+  project = issueRoot(project);
+  if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Issue number must be a positive integer.');
+  if (chat !== undefined && (status !== 'in-progress' || typeof chat !== 'string' ||
+      !/^[\w-]{1,64}$/.test(chat))) throw new Error('Invalid issue chat ID.');
+  const item = issueStore.setStatus(project, number, status, { until, chat });
   issueChanged(project);
   return item;
+}));
+ipcMain.handle('issues:comment', wrap(async ({ project, number, body }) => {
+  project = issueRoot(project);
+  if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Issue number must be a positive integer.');
+  if (typeof body !== 'string' || !body.trim() || body.length > 65000)
+    throw new Error('Comment body must contain 1 to 65000 characters and not be blank.');
+  if (!issueStore.list(project).some((item) => item.number === number)) throw new Error('Issue not found.');
+  const key = project + ':' + number;
+  const now = Date.now();
+  for (const [commentKey, time] of lastIssueComments) {
+    if (now - time >= 10000) lastIssueComments.delete(commentKey);
+  }
+  if (now - (lastIssueComments.get(key) || 0) < 10000) throw new Error('Wait 10 seconds before commenting on this issue again.');
+  lastIssueComments.set(key, now);
+  const result = await commentOnIssue({ store: accountStore(), root: project, getSecret: config.getSecret,
+    fetch, run, number, body });
+  if (!result) throw new Error('Could not find a GitHub account and remote for this project.');
+  if (result.error) throw new Error(result.error.message);
+  try {
+    issueStore.setStatus(project, number, 'done');
+    issueChanged(project);
+  } catch {} // The comment is already posted; keep its URL as the result.
+  return { url: result.url };
 }));
 ipcMain.handle('issues:markSeen', wrap(({ project, numbers }) => {
   project = issueRoot(project);

@@ -96,7 +96,7 @@ function validImageId(value) {
   return ID.test(value) || /^([A-Za-z0-9._-]{1,128}):image:\d+$/.test(value);
 }
 
-function createServer({ auth, limiter, remote, sessions, loadChat, listChats, getConfig, staticDir, getTailnetDnsName = () => null, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, heartbeatMs = 20000 }) {
+function createServer({ auth, limiter, remote, sessions, loadChat, listChats, getConfig, getIssueProjects = () => getConfig()?.openProjects || [], getIssues = () => [], staticDir, getTailnetDnsName = () => null, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, heartbeatMs = 20000 }) {
   const emitter = new EventEmitter();
   const streams = new Set();
   const ring = [];
@@ -162,7 +162,7 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
     on(remote.events, 'chat-exit', (chatId) => { chatsCache = null; publish('chat-exit', { chatId }); queueTabs(projectOf(chatId)); });
     on(remote.events, 'chat-detached', (chatId, project) => { chatsCache = null; queueTabs(project || projectOf(chatId)); });
     on(remote.events, 'chat-saved', (project) => { chatsCache = null; queueTabs(project); });
-    on(remote.events, 'config-changed', () => { chatsCache = null; queueAllTabs(); });
+    on(remote.events, 'config-changed', () => { chatsCache = null; queueAllTabs(); publish('issues-changed', {}); });
     on(remote.events, 'message', (chatId) => {
       queueTabs(projectOf(chatId));
       if (batchTimers.has(chatId)) return;
@@ -339,6 +339,20 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
     const models = [...paths].map((project) => projectModel(project, chats, owners)).filter(Boolean);
     return models.sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name) || a.path.localeCompare(b.path)).slice(0, 30);
   }
+  function issueModels() {
+    const config = getConfig();
+    if (!config?.issues?.enabled) return [];
+    const projects = [...new Set(getIssueProjects().map(normalized).filter(Boolean))];
+    return projects.filter((project) => config.projectIssues?.[project]?.enabled).map((project) => {
+      const issues = getIssues(project) || [];
+      const visible = issues.filter((item) => item.status === 'new' || item.status === 'in-progress');
+      return { project, count: visible.filter((item) => item.status === 'new').length,
+        items: visible.slice(0, 10).map((item) => ({ number: item.number,
+          title: Array.from(String(item.title || '').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '')).slice(0, 120).join(''),
+          action: ['none', 'reply', 'fix', 'plan'].includes(item.triage?.action) ? item.triage.action : null,
+          status: item.status })) };
+    }).filter((entry) => entry.items.length);
+  }
   function projectModel(project, chats, owners) {
     const saved = chats.filter((chat) => chat.project === project).map((chat) => chat.running ?
       { ...chat, pending: remote.registry.list(chat.id).length,
@@ -512,7 +526,7 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
     const device = verified.device;
     if (req.method === 'GET' && rawPath === '/api/events') { events(req, res, device, token); return; }
     if (req.method === 'GET' && rawPath === '/api/state') {
-      json(res, 200, { projects: clean(projectModels()), pending: remote.registry.list().map(pendingItem), now: now() }); return;
+      json(res, 200, { projects: clean(projectModels()), pending: remote.registry.list().map(pendingItem), issues: issueModels(), now: now() }); return;
     }
     if (req.method === 'GET' && rawPath === '/api/devices') { json(res, 200, [{ id: device.id, label: device.label }]); return; }
     const revoke = /^\/api\/devices\/([^/]+)\/revoke$/.exec(rawPath);
@@ -615,6 +629,8 @@ function createServer({ auth, limiter, remote, sessions, loadChat, listChats, ge
   emitter.revokeDevice = (id) => { for (const stream of [...streams]) if (stream.device.id === id) endStream(stream); };
   emitter.risk = risk;
   emitter.projectState = projectModels;
+  emitter.issueState = issueModels;
+  emitter.issuesChanged = () => publish('issues-changed', {});
   emitter.listen = (port, host) => {
     const selectedMode = getConfig()?.remote?.mode || 'serve';
     if (!((selectedMode === 'serve' && host === '127.0.0.1') ||

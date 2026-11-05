@@ -66,7 +66,7 @@ function serveFailure(cause) {
 }
 
 function createService({ createServer, createAuth, createLimiter, remote, sessions, loadChat, listChats,
-  getConfig, saveDevices, getDevices, getSecret, setSecret, staticDir,
+  getConfig, getIssueProjects, getIssues, saveDevices, getDevices, getSecret, setSecret, staticDir,
   networkInterfaces = os.networkInterfaces, fileExists = fs.existsSync, execFile, send, fetch, logger, retryMs = 30000 }) {
   const service = new EventEmitter();
   const auth = createAuth({ store: { get: getDevices, set: saveDevices } });
@@ -169,7 +169,7 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
     const next = { mode, host, port, hosts };
     let candidate;
     try {
-      candidate = createServer({ auth, limiter, remote, sessions, loadChat, listChats, getConfig, staticDir, send,
+      candidate = createServer({ auth, limiter, remote, sessions, loadChat, listChats, getConfig, getIssueProjects, getIssues, staticDir, send,
         getTailnetDnsName: () => tailState.dnsName });
       candidate.on('device-connected', emitStatus);
       candidate.on('device-disconnected', emitStatus);
@@ -198,6 +198,7 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
   function notifyIssues(project, count) {
     if (listening && config().ntfy?.enabled) notifier?.notifyIssues({ project, count });
   }
+  function issuesChanged() { server?.issuesChanged(); }
   async function pair() {
     if (!listening) return { error: 'not-listening' };
     if (binding.mode === 'serve') {
@@ -307,7 +308,7 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
     if (!checked.known || checked.serve.state === 'active') return { error: 'failed', message: 'Tailscale did not confirm that sharing stopped.' };
     return { ok: true, stopped: true, serve: checked.serve };
   }); }
-  Object.assign(service, { sync, stop, status, pair, revoke, revokeAll, rename, tailscale, serveSetup, serveStop, ntfy, notifyIssues });
+  Object.assign(service, { sync, stop, status, pair, revoke, revokeAll, rename, tailscale, serveSetup, serveStop, ntfy, notifyIssues, issuesChanged });
   return service;
 }
 

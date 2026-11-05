@@ -77,3 +77,19 @@ test('blank chats refresh defaults on activation and reuse, while explicit and s
   assert.equal(blank.engine, 'codex');
   assert.equal(blank.mode, 'default');
 });
+
+test('opening inherited-property IDs loads a real chat instead of using Object properties', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../renderer/js/chat.js'), 'utf8');
+  const loaded = [], errors = [];
+  const App = { h() {}, project, views: {}, cfg: { chat: {}, projectChat: {} },
+    chatCode: ChatCode, emit() {}, err: (message) => errors.push(message) };
+  const codeome = { chat: { onEvent() {}, onExit() {}, load: async (_project, id) => { loaded.push(id); return null; } } };
+  vm.runInNewContext(source, { App, codeome, localStorage: { getItem: () => null },
+    crypto: { randomUUID: () => 'blank-chat' }, setTimeout: () => 0, clearTimeout() {} });
+  const C = App.views.chat;
+  await C.newChat();
+  for (const id of ['__proto__', 'constructor']) await C.open(id);
+  assert.deepEqual(loaded, ['__proto__', 'constructor']);
+  assert.deepEqual(errors, ['That conversation could not be loaded.', 'That conversation could not be loaded.']);
+  assert.equal(C.byProject[project].tabs.length, 1);
+});

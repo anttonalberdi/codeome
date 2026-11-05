@@ -15,6 +15,8 @@ const IssueCards = (() => {
     } catch { return null; }
   }
 
+  const issueChatOptions = (prompt) => ({ send: prompt, mode: 'default' });
+
   function age(value, now = Date.now()) {
     const elapsed = now - Date.parse(value);
     if (!Number.isFinite(elapsed) || elapsed < 0) return '';
@@ -37,6 +39,15 @@ const IssueCards = (() => {
 
   const actionLabels = { none: 'No action needed', reply: 'Reply', fix: 'Quick fix', plan: 'Needs a plan' };
   const sizes = new Set(['trivial', 'small', 'standard', 'large']);
+
+  function workKind(item) {
+    if (item.status === 'in-progress') return 'in-progress';
+    if (['done', 'dismissed'].includes(item.status)) return 'closed';
+    if (item.triaging) return 'triaging';
+    if (item.triageStale) return 'stale';
+    if (!item.triage) return 'untriaged';
+    return Object.hasOwn(actionLabels, item.triage.action) ? item.triage.action : 'unknown';
+  }
 
   function renderTriage(item, { onAssess, assessing, assessError }) {
     const section = node('div', 'issue-triage');
@@ -63,8 +74,8 @@ const IssueCards = (() => {
         section.append(expanded);
       }
     } else {
-      if (item.triageStale) section.append(node('span', 'issue-triage-stale', 'Suggestion out of date'));
-      const assess = button('Assess', () => onAssess(item));
+      if (item.triageStale) section.append(node('span', 'issue-triage-stale', 'Issue changed since assessment'));
+      const assess = button(item.triageStale ? 'Re-assess' : 'Assess', () => onAssess(item));
       assess.className = 'btn small issue-assess';
       section.append(assess);
     }
@@ -76,7 +87,71 @@ const IssueCards = (() => {
     return section;
   }
 
-  function render(item, { host, onOpen, onStatus, onSnooze, onAssess, assessing, assessError }) {
+  function renderWork(item, opts) {
+    const section = node('div', 'issue-work-actions');
+    section.setAttribute('aria-live', 'polite');
+    const kind = opts.assessing ? 'triaging' : workKind(item);
+    if (kind === 'in-progress') {
+      section.append(node('span', 'issue-in-progress', 'In progress'));
+      if (item.chat && opts.onOpenChat) {
+        const open = button('Open chat', () => opts.onOpenChat(item));
+        open.className = 'btn small ghost issue-open-chat';
+        section.append(open);
+      }
+    } else if (kind === 'fix' || kind === 'plan' || kind === 'untriaged') {
+      const start = button(kind === 'untriaged' ? 'Start work anyway' : 'Start work', () => opts.onStartWork(item, kind === 'untriaged'));
+      start.className = kind === 'untriaged' ? 'btn small issue-start' : 'btn small primary issue-start';
+      start.title = 'Opens an agent chat that plans this issue and waits for your approval';
+      start.disabled = !!opts.starting;
+      section.append(start);
+    } else if (kind === 'reply' && !opts.posted) {
+      const label = node('label', 'issue-reply-label', `Reply to issue #${item.number}`);
+      const draft = node('textarea', 'issue-reply-draft');
+      draft.rows = 5;
+      draft.value = opts.draft === undefined ? String(item.triage.draftReply || '') : opts.draft;
+      draft.disabled = !!opts.posting;
+      draft.addEventListener('input', () => { opts.onDraft(item, draft.value); });
+      label.append(draft);
+      const fieldError = node('span', 'issue-reply-error');
+      fieldError.setAttribute('role', 'alert');
+      const post = button('Post reply', () => {
+        const body = draft.value;
+        const error = !body.trim() ? 'Write a reply before posting.' : body.length > 65000 ? 'Reply must be at most 65,000 characters.' : '';
+        fieldError.textContent = error;
+        if (!error) opts.onPostReply(item, body);
+      });
+      post.className = 'btn small primary issue-post';
+      post.disabled = !!opts.posting;
+      const discard = button('Discard draft', () => {
+        draft.value = String(item.triage.draftReply || '');
+        fieldError.textContent = '';
+        opts.onDiscardDraft(item);
+      });
+      discard.disabled = !!opts.posting;
+      const buttons = node('div', 'issue-reply-buttons');
+      buttons.append(post, discard);
+      section.append(label, fieldError, buttons);
+    }
+    if (opts.posted) {
+      section.append(node('span', 'issue-posted', 'Posted'));
+      const url = safeUrl(opts.posted, opts.host);
+      if (url) {
+        const link = node('a', 'issue-posted-link', 'View comment');
+        link.href = url;
+        link.addEventListener('click', (event) => { event.preventDefault(); opts.onOpen(url); });
+        section.append(link);
+      }
+    }
+    if (opts.workError) {
+      const error = node('span', 'issue-work-error', opts.workError);
+      error.setAttribute('role', 'alert');
+      section.append(error);
+    }
+    return section;
+  }
+
+  function render(item, opts) {
+    const { host, onOpen, onStatus, onSnooze, onAssess, assessing, assessError } = opts;
     const card = node('article', 'issue-card');
     card.dataset.number = String(item.number);
     const heading = node('div', 'issue-heading');
@@ -97,8 +172,7 @@ const IssueCards = (() => {
       card.append(labels);
     }
 
-    // Start-work controls (3.2) use the following reserved container.
-    card.append(renderTriage(item, { onAssess, assessing, assessError }), node('div', 'issue-work-actions'));
+    card.append(renderTriage(item, { onAssess, assessing, assessError }), renderWork(item, opts));
     const actions = node('div', 'issue-actions');
     const url = safeUrl(item.url, host);
     if (url) {
@@ -108,14 +182,15 @@ const IssueCards = (() => {
       actions.append(link);
     }
     if (!['dismissed', 'done'].includes(item.status)) {
+      const done = button(workKind(item) === 'none' ? 'Mark done' : 'Done', () => onStatus(item, 'done'));
+      if (workKind(item) === 'none') done.className = 'btn small primary issue-mark-done';
       actions.append(button('Dismiss', () => onStatus(item, 'dismissed')),
-        button('Snooze', (event) => onSnooze(item, event.currentTarget)),
-        button('Done', () => onStatus(item, 'done')));
+        button('Snooze', (event) => onSnooze(item, event.currentTarget)), done);
     }
     card.append(actions);
     return card;
   }
 
-  return { render, safeUrl };
+  return { render, safeUrl, workKind, issueChatOptions };
 })();
 if (typeof module !== 'undefined') module.exports = IssueCards;

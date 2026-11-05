@@ -85,7 +85,9 @@ contextBridge.exposeInMainWorld('codeome', {
     list: (project) => ipcRenderer.invoke('issues:list', { project }),
     refresh: (project) => ipcRenderer.invoke('issues:refresh', { project }),
     assess: (project, number) => ipcRenderer.invoke('issues:assess', { project, number }),
-    setStatus: (project, number, status, until) => ipcRenderer.invoke('issues:setStatus', { project, number, status, until }),
+    startWork: (project, number, force) => ipcRenderer.invoke('issues:startWork', { project, number, force }),
+    setStatus: (project, number, status, until, chat) => ipcRenderer.invoke('issues:setStatus', { project, number, status, until, chat }),
+    comment: (project, number, body) => ipcRenderer.invoke('issues:comment', { project, number, body }),
     markSeen: (project, numbers) => ipcRenderer.invoke('issues:markSeen', { project, numbers }),
     enable: (project, enabled) => ipcRenderer.invoke('issues:enable', { project, enabled }),
     counts: invoke('issues:counts'), onChanged: on('issues:changed'), onOpen: on('issues:open')

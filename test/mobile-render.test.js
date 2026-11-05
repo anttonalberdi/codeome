@@ -70,6 +70,31 @@ test('project cards escape text and only show nonzero count chips', () => {
     assert.ok(html.includes(label), label);
   const empty = Render.renderProjectCard({ ...project, counts: { waiting: 0, working: 0, ready: 0, error: 0, jobs: 0 } }, attack);
   assert.doesNotMatch(empty, /marker-chip|marker-chips/);
+  assert.match(Render.renderProjectCard({ ...project, issueCount: 2 }, attack), /2 issues/);
+});
+
+test('issue cards use textContent for hostile titles and offer no actions', () => {
+  const elements = [];
+  const doc = { createElement(tagName) {
+    const element = { tagName, children: [], textContent: '',
+      append(...children) { this.children.push(...children); },
+      replaceChildren(...children) { this.children = children; } };
+    elements.push(element);
+    return element;
+  } };
+  const target = { ownerDocument: doc, replaceChildren(...children) { this.children = children; } };
+  Render.renderIssues(target, [{ project: '/work/project', count: 4, items: [
+    { number: 4, title: attack, action: 'reply', status: 'new' },
+    { number: 3, title: 'Fix it', action: 'fix', status: 'new' },
+    { number: 2, title: 'Plan it', action: 'plan', status: 'new' },
+    { number: 1, title: 'Triage later', action: null, status: 'in-progress' }
+  ] }], [{ path: '/work/project', name: 'project' }]);
+  assert.equal(target.children.length, 1);
+  assert.equal(elements.find((element) => element.className === 'issue-title').textContent, `#4 ${attack}`);
+  assert.deepEqual(elements.filter((element) => element.className === 'issue-action').map((element) => element.textContent),
+    ['Reply', 'Quick fix', 'Needs a plan', 'No action']);
+  assert.equal(elements.find((element) => element.className === 'issue-hint').textContent, 'Open Codeome on the Mac to act');
+  assert.equal(elements.some((element) => element.tagName === 'button' || element.tagName === 'script' || element.tagName === 'img'), false);
 });
 
 test('tab rows escape every field and render all seven desktop states', () => {

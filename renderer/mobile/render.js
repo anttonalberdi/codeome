@@ -136,9 +136,38 @@
   function renderProjectCard(project, name, now = Date.now()) {
     const counts = project.counts || {};
     const chips = [['waiting', 'waiting'], ['working', 'working'], ['ready', 'ready'], ['error', 'error'], ['jobs', 'specialists']]
-      .map(([key, label]) => count(counts[key]) ? `<span class="marker-chip ${key}">${key === 'jobs' ? '' : `<span class="state-dot ${key}" aria-hidden="true"></span>`}${count(counts[key])} ${label}</span>` : '').join('');
+      .map(([key, label]) => count(counts[key]) ? `<span class="marker-chip ${key}">${key === 'jobs' ? '' : `<span class="state-dot ${key}" aria-hidden="true"></span>`}${count(counts[key])} ${label}</span>` : '').join('') +
+      (count(project.issueCount) ? `<span class="marker-chip issues">${count(project.issueCount)} issue${count(project.issueCount) === 1 ? '' : 's'}</span>` : '');
     const recent = relativeTime(project.updatedAt, now);
     return `<button type="button" class="project-card card" data-project="${display(project.key)}"><span class="project-title">${display(name || project.name)}</span><span class="project-path">${display(project.path)}</span>${recent ? `<span class="meta">Last activity ${recent}</span>` : ''}${chips ? `<span class="marker-chips">${chips}</span>` : ''}</button>`;
+  }
+  function renderIssues(target, issues, projects) {
+    const doc = target.ownerDocument;
+    const labels = projectLabels(projects);
+    const names = new Map((projects || []).map((project) => [project.path, labels.get(project.key)]));
+    const cards = (issues || []).filter((entry) => count(entry.count)).map((entry) => {
+      const card = doc.createElement('article'); card.className = 'issue-card card';
+      const heading = doc.createElement('h3'); heading.textContent = names.get(entry.project) || projectParts(entry.project).at(-1) || 'Project';
+      const countLabel = doc.createElement('span'); countLabel.className = 'marker-chip issues';
+      countLabel.textContent = `${count(entry.count)} new`;
+      heading.append(countLabel); card.append(heading);
+      for (const item of entry.items || []) {
+        const row = doc.createElement('div'); row.className = 'issue-row';
+        const title = doc.createElement('span'); title.className = 'issue-title';
+        title.textContent = `#${item.number} ${item.title}`;
+        const chip = doc.createElement('span'); chip.className = 'issue-action';
+        chip.textContent = item.action === 'reply' ? 'Reply' : item.action === 'fix' ? 'Quick fix' :
+          item.action === 'plan' ? 'Needs a plan' : 'No action';
+        row.append(title, chip); card.append(row);
+      }
+      const hint = doc.createElement('p'); hint.className = 'issue-hint';
+      hint.textContent = 'Open Codeome on the Mac to act'; card.append(hint);
+      return card;
+    });
+    if (!cards.length) {
+      const empty = doc.createElement('p'); empty.className = 'empty'; empty.textContent = 'No new issues.';
+      target.replaceChildren(empty);
+    } else target.replaceChildren(...cards);
   }
   function renderTabRow(tab, now = Date.now()) {
     const state = Object.hasOwn(stateLabels, tab.state) ? tab.state : 'off';
@@ -219,7 +248,7 @@
   }
   const api = { esc, display, inputText, visibleText, validId, projectLabels, displayedState, phoneProject,
     parseRoute, chatOf, resolveRoute, applyTabsEvent, openChatSeenAt, relativeTime, renderProjectCard,
-    renderTabRow, renderEarlierRow, renderItem, renderPending, describeDecision, stateOf };
+    renderTabRow, renderEarlierRow, renderItem, renderPending, renderIssues, describeDecision, stateOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Render = api;
 })(typeof window !== 'undefined' ? window : globalThis);

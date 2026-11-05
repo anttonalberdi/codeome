@@ -3,11 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto');
+const { buildStartWorkPrompt } = require('../main/issueprompt');
 
 test('issue IPC handlers and preload bridge expose the inbox channels', () => {
   const main = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
   const preload = fs.readFileSync(path.join(__dirname, '../main/preload.js'), 'utf8');
-  for (const channel of ['issues:list', 'issues:refresh', 'issues:assess', 'issues:setStatus', 'issues:markSeen',
+  for (const channel of ['issues:list', 'issues:refresh', 'issues:assess', 'issues:startWork', 'issues:setStatus',
+    'issues:comment', 'issues:markSeen',
     'issues:enable', 'issues:counts']) {
     assert.ok(main.includes(`ipcMain.handle('${channel}', wrap(`), channel + ' must use wrap');
     assert.ok(preload.includes(`'${channel}'`), channel + ' must be in the bridge');
@@ -15,10 +18,137 @@ test('issue IPC handlers and preload bridge expose the inbox channels', () => {
   assert.match(main, /send\('issues:changed', \{ project, counts:/);
   assert.match(preload, /onChanged: on\('issues:changed'\)/);
   assert.match(preload, /assess: \(project, number\) => ipcRenderer\.invoke\('issues:assess', \{ project, number \}\)/);
+  assert.match(preload, /startWork: \(project, number, force\) => ipcRenderer\.invoke\('issues:startWork', \{ project, number, force \}\)/);
+  assert.match(preload, /comment: \(project, number, body\) => ipcRenderer\.invoke\('issues:comment', \{ project, number, body \}\)/);
   assert.match(main, /triaging: triagingIssue\?\.project === project && triagingIssue\.number === item\.number/);
   assert.match(main, /win\.on\('focus',/);
   assert.match(main, /issuePoller\.start\(\)/);
   assert.match(main, /issuePoller\.stop\(\)/);
+});
+
+function workAndCommentWiring() {
+  const main = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
+  const source = 'const lastIssueComments = new Map();\n' +
+    main.slice(main.indexOf("ipcMain.handle('issues:startWork'"), main.indexOf("ipcMain.handle('issues:markSeen'"));
+  const handlers = new Map(), changes = [], statuses = [], comments = [];
+  const items = [{ number: 4, title: 'Fix\n\u202esearch', body: 'Issue body', author: 'outsider', labels: [],
+    triage: { action: 'fix', size: 'small', summary: 'Fix it', proposedPlan: 'Edit search' } }];
+  let stale = false, failStatus = false, failChanged = false, now = 100000;
+  let reply = { url: 'https://github.com/o/r/issues/4#issuecomment-1' };
+  const wrap = (fn) => async (_event, payload) => {
+    try { return { data: await fn(payload) }; } catch (error) { return { error: error.message }; }
+  };
+  const lastIssueComments = vm.runInNewContext(source + '\nlastIssueComments', {
+    ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) }, wrap,
+    issueRoot: (project) => { if (project !== '/repo') throw new Error('Choose an open project.'); return project; },
+    issueStore: {
+      list: () => items,
+      needsTriage: () => stale,
+      setStatus: (project, number, status, extra) => {
+        if (failStatus) throw new Error('Status write failed.');
+        statuses.push({ project, number, status, extra }); return { status, ...extra };
+      }
+    },
+    buildStartWorkPrompt, crypto, Number, Date: { now: () => now },
+    issueChanged: (project) => { if (failChanged) throw new Error('Change notification failed.'); changes.push(project); },
+    commentOnIssue: async (args) => { comments.push(args); return reply; },
+    accountStore: () => ({ accounts: [] }), config: { getSecret: () => null }, fetch: () => {}, run: () => {}
+  });
+  const call = (channel, payload) => handlers.get('issues:' + channel)(null, payload);
+  return { call, items, comments, statuses, changes, lastIssueComments, setStale: (value) => { stale = value; },
+    setFailStatus: (value) => { failStatus = value; }, setFailChanged: (value) => { failChanged = value; },
+    advance: (ms) => { now += ms; }, setReply: (value) => { reply = value; } };
+}
+
+test('startWork validates input, assessment state, and creates a fresh gated prompt without changing status', async () => {
+  const f = workAndCommentWiring();
+  assert.match((await f.call('startWork', { project: '/other', number: 4 })).error, /open project/);
+  for (const number of [0, -1, 1.5, '4', Number.MAX_SAFE_INTEGER + 1])
+    assert.match((await f.call('startWork', { project: '/repo', number })).error, /positive integer/);
+  assert.match((await f.call('startWork', { project: '/repo', number: 9 })).error, /not found/);
+  f.setStale(true);
+  assert.match((await f.call('startWork', { project: '/repo', number: 4 })).error, /Re-Assess/);
+  f.setStale(false);
+  for (const action of ['none', 'reply', 'unexpected']) {
+    f.items[0].triage.action = action;
+    assert.match((await f.call('startWork', { project: '/repo', number: 4 })).error, /does not call for starting work/);
+  }
+  delete f.items[0].triage;
+  assert.match((await f.call('startWork', { project: '/repo', number: 4 })).error, /Assess this issue/);
+  assert.match((await f.call('startWork', { project: '/repo', number: 4, force: 'true' })).error, /Assess this issue/);
+  const first = (await f.call('startWork', { project: '/repo', number: 4, force: true })).data;
+  const second = (await f.call('startWork', { project: '/repo', number: 4, force: true })).data;
+  assert.equal(first.title, 'Issue #4: Fixsearch');
+  assert.notEqual(first.prompt, second.prompt);
+  assert.match(first.prompt, /stop at Gate 1/);
+  assert.equal(f.statuses.length, 0);
+});
+
+test('setStatus validates chat IDs and passes an in-progress chat to the store', async () => {
+  const f = workAndCommentWiring();
+  for (const chat of ['', 'x'.repeat(65), 'a/b', 4])
+    assert.match((await f.call('setStatus', { project: '/repo', number: 4, status: 'in-progress', chat })).error, /chat ID/);
+  assert.match((await f.call('setStatus', { project: '/repo', number: 4, status: 'done', chat: 'chat-1' })).error, /chat ID/);
+  assert.equal(f.statuses.length, 0);
+  await f.call('setStatus', { project: '/repo', number: 4, status: 'in-progress', chat: 'chat_1-2' });
+  assert.equal(f.statuses[0].extra.chat, 'chat_1-2');
+  assert.deepEqual(f.changes, ['/repo']);
+});
+
+test('comment validates, rate limits, posts through the bound account, and marks done only on success', async () => {
+  const f = workAndCommentWiring();
+  assert.match((await f.call('comment', { project: '/other', number: 4, body: 'hi' })).error, /open project/);
+  for (const number of [0, '4', 4.5])
+    assert.match((await f.call('comment', { project: '/repo', number, body: 'hi' })).error, /positive integer/);
+  for (const body of ['', ' \n ', 'x'.repeat(65001), null])
+    assert.match((await f.call('comment', { project: '/repo', number: 4, body })).error, /Comment body/);
+  assert.match((await f.call('comment', { project: '/repo', number: 9, body: 'hi' })).error, /not found/);
+  assert.equal(f.comments.length, 0);
+  const body = 'User-edited reply';
+  const posted = await f.call('comment', { project: '/repo', number: 4, body });
+  assert.equal(posted.data.url, 'https://github.com/o/r/issues/4#issuecomment-1');
+  assert.equal(f.comments[0].root, '/repo');
+  assert.equal(f.comments[0].number, 4);
+  assert.equal(f.comments[0].body, body);
+  assert.deepEqual(f.statuses.map((entry) => entry.status), ['done']);
+  assert.deepEqual(f.changes, ['/repo']);
+  assert.match((await f.call('comment', { project: '/repo', number: 4, body })).error, /Wait 10 seconds/);
+  assert.equal(f.comments.length, 1);
+  f.advance(10000);
+  f.setReply({ error: { message: 'GitHub token lacks issue write access.' } });
+  assert.match((await f.call('comment', { project: '/repo', number: 4, body })).error, /issue write access/);
+  assert.equal(f.statuses.length, 1);
+  f.advance(10000);
+  f.setReply(null);
+  assert.match((await f.call('comment', { project: '/repo', number: 4, body })).error, /GitHub account and remote/);
+  assert.equal(f.statuses.length, 1);
+});
+
+test('a posted comment returns its URL even if local status or notification fails', async () => {
+  const f = workAndCommentWiring();
+  f.setFailStatus(true);
+  const first = await f.call('comment', { project: '/repo', number: 4, body: 'First' });
+  assert.equal(first.data.url, 'https://github.com/o/r/issues/4#issuecomment-1');
+  assert.equal(first.error, undefined);
+  f.advance(10000);
+  f.setFailStatus(false);
+  f.setFailChanged(true);
+  const second = await f.call('comment', { project: '/repo', number: 4, body: 'Second' });
+  assert.equal(second.data.url, first.data.url);
+  assert.equal(second.error, undefined);
+  assert.equal(f.comments.length, 2);
+});
+
+test('comment rate limit discards expired entries when adding a new one', async () => {
+  const f = workAndCommentWiring();
+  await f.call('comment', { project: '/repo', number: 4, body: 'First' });
+  assert.equal(f.lastIssueComments.size, 1);
+  f.advance(10000);
+  f.items.push({ number: 5 });
+  await f.call('comment', { project: '/repo', number: 5, body: 'Second' });
+  assert.equal(f.lastIssueComments.size, 1);
+  assert.equal(f.lastIssueComments.has('/repo:4'), false);
+  assert.equal(f.lastIssueComments.has('/repo:5'), true);
 });
 
 function triageWiring() {
@@ -151,7 +281,7 @@ test('assessment result is discarded after title, labels, or body changes', asyn
 
 test('assess IPC validates the project and a positive safe issue number', async () => {
   const main = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
-  const source = main.slice(main.indexOf("ipcMain.handle('issues:assess'"), main.indexOf("ipcMain.handle('issues:setStatus'"));
+  const source = main.slice(main.indexOf("ipcMain.handle('issues:assess'"), main.indexOf("ipcMain.handle('issues:startWork'"));
   let handler, called = 0;
   vm.runInNewContext(source, {
     ipcMain: { handle: (_channel, fn) => { handler = fn; } }, wrap: (fn) => fn,
@@ -176,7 +306,7 @@ test('manual assessment refuses unchanged triage', async () => {
 
 test('assess IPC refuses globally or locally disabled projects', () => {
   const main = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
-  const source = main.slice(main.indexOf("ipcMain.handle('issues:assess'"), main.indexOf("ipcMain.handle('issues:setStatus'"));
+  const source = main.slice(main.indexOf("ipcMain.handle('issues:assess'"), main.indexOf("ipcMain.handle('issues:startWork'"));
   let handler;
   const cfg = { issues: { enabled: false }, projectIssues: { '/repo': { enabled: true } } };
   vm.runInNewContext(source, { ipcMain: { handle: (_channel, fn) => { handler = fn; } }, wrap: (fn) => fn,

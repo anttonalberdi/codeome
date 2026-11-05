@@ -392,6 +392,17 @@ label.check { display: flex; gap: 6px; align-items: center; font-size: 12px; cur
 .issue-triage-text { margin: 6px 0 0; padding: 7px 8px; border-radius: 5px; background: var(--surface-2); color: var(--text); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .issue-triage-stale + .issue-assess { margin-left: 5px; }
 .issue-assess-error { display: block; margin-top: 5px; color: var(--fail); overflow-wrap: anywhere; }
+.issue-work-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; }
+.issue-work-actions:empty { display: none; }
+.issue-reply-label { display: block; width: 100%; font-weight: 600; }
+.issue-reply-draft { display: block; margin-top: 5px; font-weight: 400; white-space: pre-wrap; }
+.issue-reply-buttons { display: flex; gap: 5px; }
+.issue-reply-error:empty { display: none; }
+.issue-reply-error, .issue-work-error { width: 100%; color: var(--fail); overflow-wrap: anywhere; }
+.issue-in-progress, .issue-posted { border: 1px solid var(--accent); border-radius: 10px; padding: 1px 6px; color: var(--accent); font-size: 10px; font-weight: 600; }
+.issue-posted-link { color: var(--accent); }
+.issue-work-actions .btn:focus-visible, .issue-actions .btn:focus-visible, .issue-posted-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.modal header p { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow-y: auto; }
 .issue-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; }
 .issue-actions .btn { padding: 3px 6px; }
 .issue-link { margin-right: auto; font-size: 11px; color: var(--accent); }

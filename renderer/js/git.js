@@ -8,6 +8,8 @@
   let refreshSeq = 0, issuesSeq = 0;
   let issuesData = null, issuesError = '', issuesLoading = false, issuesFilter = 'open';
   const assessingIssues = new Set(), assessErrors = new Map();
+  const startingIssues = new Set(), postingIssues = new Set(), workErrors = new Map();
+  const replyDrafts = new Map(), postedComments = new Map();
   // Account and GitHub share the lower half; changes get more room than history.
   const SECTIONS = [{ id: 'changes', title: 'Changes', weight: 1.3 }, { id: 'history', title: 'History', weight: 0.7 },
     { id: 'account', title: 'Account', weight: 1 }, { id: 'github', title: 'GitHub', weight: 1 },
@@ -23,7 +25,9 @@
     // Kept across refreshes, so a half-written message survives them.
     msg = h('textarea', { rows: 3, placeholder: 'Describe the change', 'aria-label': 'Commit message' });
     msg.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) commit(); });
-    App.listen('project', () => { msg.value = ''; issuesData = null; issuesError = ''; issuesLoading = false; assessingIssues.clear(); assessErrors.clear(); ++issuesSeq; G.refresh(); });
+    App.listen('project', () => { msg.value = ''; issuesData = null; issuesError = ''; issuesLoading = false;
+      assessingIssues.clear(); assessErrors.clear(); startingIssues.clear(); postingIssues.clear();
+      workErrors.clear(); replyDrafts.clear(); postedComments.clear(); ++issuesSeq; G.refresh(); });
     App.listen('saved', (t) => { if (!t.remote && App.currentView === 'git') G.refresh(); });
     App.listen('view', (v) => { if (v === 'git') G.refresh(); });
     codeome.issues.onChanged(({ project }) => { if (project === App.project) loadIssues(project); });
@@ -181,10 +185,10 @@
 
   function shownIssues() {
     const items = issuesData?.items || [];
-    if (issuesFilter === 'new') return items.filter((item) => item.status === 'new');
+    if (issuesFilter === 'new') return items.filter((item) => item.status === 'new' || postedComments.has(item.number));
     if (issuesFilter === 'snoozed') return items.filter((item) => item.status === 'snoozed');
     if (issuesFilter === 'closed') return items.filter((item) => ['done', 'dismissed'].includes(item.status));
-    return items.filter((item) => ['new', 'seen', 'in-progress'].includes(item.status));
+    return items.filter((item) => ['new', 'seen', 'in-progress'].includes(item.status) || postedComments.has(item.number));
   }
 
   async function loadIssues(project, keepError = false) {
@@ -235,6 +239,72 @@
         renderIssues();
       }
     }
+  }
+
+  async function startIssueWork(item, force) {
+    const project = App.project, number = item.number;
+    if (startingIssues.has(number)) return;
+    startingIssues.add(number);
+    workErrors.delete(number);
+    renderIssues();
+    try {
+      if (force && !(await App.confirm(`Start work on issue #${number}?`,
+        "This issue hasn't been assessed. An agent chat will plan the issue and wait for your approval.", 'Start work'))) return;
+      if (project !== App.project) return;
+      const result = await codeome.issues.startWork(project, number, force);
+      if (result.error) throw new Error(result.error);
+      if (typeof result.data?.prompt !== 'string' || !result.data.prompt) throw new Error('Could not prepare the agent chat.');
+      if (project !== App.project) return;
+      // The card belongs to the selected project; newChat uses App.project.
+      App.setView('agents');
+      App.views.agents.show('chat');
+      await App.views.chat.newChat(IssueCards.issueChatOptions(result.data.prompt));
+      const chat = App.views.chat.current();
+      if (!chat || chat.project !== project || !chat.id) throw new Error('Could not open the agent chat.');
+      if (result.data.title) { chat.title = result.data.title; App.views.chat.activate(chat); }
+      const status = await codeome.issues.setStatus(project, number, 'in-progress', null, chat.id);
+      if (status.error) throw new Error(status.error);
+      if (project === App.project) loadIssues(project);
+    } catch (error) {
+      if (project === App.project) {
+        workErrors.set(number, error.message || String(error));
+        renderIssues();
+      }
+    } finally {
+      startingIssues.delete(number);
+      if (project === App.project) renderIssues();
+    }
+  }
+
+  async function postIssueReply(item, body) {
+    const project = App.project, number = item.number;
+    if (postingIssues.has(number)) return;
+    postingIssues.add(number);
+    workErrors.delete(number);
+    renderIssues();
+    try {
+      if (!(await App.confirm(`Post reply on issue #${number}?`,
+        `This comment will be posted publicly from the bound GitHub account.\n\n${body}`, 'Post reply'))) return;
+      if (project !== App.project) return;
+      const result = await codeome.issues.comment(project, number, body);
+      if (result.error) throw new Error(result.error);
+      if (project !== App.project) return;
+      postedComments.set(number, result.data?.url || 'posted');
+      replyDrafts.delete(number);
+      loadIssues(project);
+    } catch (error) {
+      if (project === App.project) workErrors.set(number, error.message || String(error));
+    } finally {
+      postingIssues.delete(number);
+      if (project === App.project) renderIssues();
+    }
+  }
+
+  function openIssueChat(item) {
+    if (!item.chat) return;
+    App.setView('agents');
+    App.views.agents.show('chat');
+    App.views.chat.open(item.chat);
   }
 
   function markVisibleIssues() {
@@ -305,6 +375,12 @@
     sec.append(h('div.issue-list', visible.map((item) => IssueCards.render(item, {
       host, onOpen: (url) => codeome.shell.open(url), onStatus: issueAction,
       onAssess: assessIssue, assessing: assessingIssues.has(item.number), assessError: assessErrors.get(item.number),
+      onStartWork: startIssueWork, starting: startingIssues.has(item.number),
+      onPostReply: postIssueReply, posting: postingIssues.has(item.number),
+      onDraft: (issue, value) => replyDrafts.set(issue.number, value),
+      onDiscardDraft: (issue) => replyDrafts.delete(issue.number), draft: replyDrafts.get(item.number),
+      posted: postedComments.get(item.number), workError: workErrors.get(item.number),
+      onOpenChat: openIssueChat,
       onSnooze: (issue, button) => App.menuAt(button, [
         { label: '1 day', run: () => issueAction(issue, 'snoozed', Date.now() + 86400000) },
         { label: '3 days', run: () => issueAction(issue, 'snoozed', Date.now() + 3 * 86400000) },
