@@ -43,15 +43,27 @@ function abortError() {
   return error;
 }
 
-function oneShot(engine, { prompt, model, effort, bin, dir, cwd, timeoutMs = 60000, env, signal, strictMcp = true } = {}) {
+function minimalEnvironment(env = {}) {
+  const source = augmentedEnv(env);
+  const clean = {};
+  for (const key of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR'])
+    if (typeof source[key] === 'string') clean[key] = source[key];
+  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'])
+    if (typeof env[key] === 'string' && env[key]) clean[key] = env[key];
+  return clean;
+}
+
+function oneShot(engine, { prompt, model, effort, bin, dir, cwd, timeoutMs = 60000, env, signal, strictMcp = true, noTools = false, minimalEnv = false } = {}) {
   if (!ENV_VAR[engine]) return Promise.reject(new Error(`Unknown one-shot engine: ${engine}`));
+  if (noTools && engine !== 'claude') return Promise.reject(new Error('noTools requires the Claude engine.'));
   if (signal && signal.aborted) return Promise.reject(abortError());
-  const childEnv = augmentedEnv(env);
+  const childEnv = minimalEnv ? minimalEnvironment(env) : augmentedEnv(env);
   if (dir) childEnv[ENV_VAR[engine]] = expandHome(dir);
   else delete childEnv[ENV_VAR[engine]];
   const args = engine === 'claude'
     ? ['-p', prompt, '--model', model || 'haiku', '--no-session-persistence', '--permission-mode', 'plan',
-      ...(strictMcp ? ['--strict-mcp-config'] : []), '--setting-sources', '', '--output-format', 'json']
+      ...(strictMcp ? ['--strict-mcp-config'] : []), ...(noTools ? ['--tools', '', '--disable-slash-commands'] : []),
+      '--setting-sources', '', '--output-format', 'json']
     : ['exec', '-s', 'read-only', '--ephemeral', '--skip-git-repo-check', '--json',
       '-c', 'model_reasoning_effort=' + (effort || 'low'), ...(model ? ['-m', model] : []), prompt];
   const workDir = cwd || home();

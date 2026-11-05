@@ -16,8 +16,9 @@ const args = process.argv.slice(2);
 const prompt = args[0] === '-p' ? args[1] : args.at(-1);
 // The handler goes first: the record file is what the tests wait for before they send SIGTERM.
 process.on('SIGTERM', () => { fs.writeFileSync(process.env.FAKE_SIGNAL, 'SIGTERM'); if (prompt !== 'resist' && prompt !== 'pipe-resist') process.exit(0); });
-fs.writeFileSync(process.env.FAKE_RECORD, JSON.stringify({ args, cwd: process.cwd(), pid: process.pid,
-  claude: process.env.CLAUDE_CONFIG_DIR || null, codex: process.env.CODEX_HOME || null }));
+fs.writeFileSync(process.env.FAKE_RECORD || prompt, JSON.stringify({ args, cwd: process.cwd(), pid: process.pid,
+  claude: process.env.CLAUDE_CONFIG_DIR || null, codex: process.env.CODEX_HOME || null,
+  envKeys: Object.keys(process.env).sort() }));
 if (prompt === 'pipe-resist' || prompt === 'pipe-exit') {
   const child = require('child_process').spawn(process.execPath, ['-e', 'process.on("SIGTERM",()=>{}); setInterval(()=>{},1000)'],
     { stdio: ['ignore', 'inherit', 'inherit'] });
@@ -101,6 +102,43 @@ test('Claude can omit strict MCP and unset the inherited config dir', async () =
   assert.equal(call.cwd, fs.realpathSync(tmp));
   assert.deepEqual(call.args, ['-p', 'hello', '--model', 'haiku', '--no-session-persistence', '--permission-mode', 'plan',
     '--setting-sources', '', '--output-format', 'json']);
+});
+
+test('Claude can disable every built-in tool while keeping strict MCP isolation', async () => {
+  const options = opts({ noTools: true });
+  await oneShot('claude', options);
+  const call = recorded(options);
+  assert.deepEqual(call.args, ['-p', 'hello', '--model', 'haiku', '--no-session-persistence',
+    '--permission-mode', 'plan', '--strict-mcp-config', '--tools', '', '--disable-slash-commands',
+    '--setting-sources', '', '--output-format', 'json']);
+});
+
+test('minimal one-shot child receives no inherited secret variables', async () => {
+  const record = path.join(tmp, `minimal-${++next}.json`);
+  const secretKeys = ['GH_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'ENA_TOKEN', 'AIRTABLE_TOKEN',
+    'ZENODO_TOKEN', 'APPLE_TOKEN', 'EHI_CORE_TOKEN', 'ANTHROPIC_API_KEY'];
+  const previous = Object.fromEntries(secretKeys.map((key) => [key, process.env[key]]));
+  for (const key of secretKeys) process.env[key] = 'sentinel';
+  try {
+    await oneShot('claude', { bin: FAKE, prompt: record, cwd: tmp, model: 'sonnet',
+      dir: '~/account-claude', minimalEnv: true, noTools: true,
+      env: { GH_TOKEN: 'extra-secret', ANTHROPIC_AUTH_TOKEN: 'account-token' } });
+    const call = JSON.parse(fs.readFileSync(record, 'utf8'));
+    assert.equal(call.claude, path.join(os.homedir(), 'account-claude'));
+    assert.ok(call.envKeys.includes('ANTHROPIC_AUTH_TOKEN'));
+    for (const key of secretKeys) assert.ok(!call.envKeys.includes(key), key);
+    assert.ok(!call.envKeys.includes('CODEX_HOME'));
+    assert.ok(call.envKeys.includes('PATH'));
+    assert.ok(call.envKeys.includes('HOME'));
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
+test('Codex rejects noTools before spawning', async () => {
+  await assert.rejects(oneShot('codex', opts({ noTools: true })), /noTools requires the Claude engine/);
 });
 
 test('Codex passes the verified arguments and returns its last agent message', async () => {

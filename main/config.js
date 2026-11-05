@@ -86,7 +86,8 @@ const DEFAULTS = {
   // contextWarnAt: a chat suggests starting a new one once its context window is this full (%).
   chat: { model: 'sonnet', modelPicked: false, effort: '', codexModel: '', codexEffort: '', mode: '', engine: '', quick: ['Commit, push and deploy'], contextWarnAt: 70, suggest: true, tabNames: true, keepAwake: true },
   forum: { defaultBudget: 0, summaryTokens: 6000, recentMessages: 8, checkModel: 'haiku', codexCheckModel: '', checkEffort: 'low', checkTimeoutMs: 30000 },
-  issues: { enabled: false, pollMinutes: 10, model: 'sonnet', notify: true, triageCap: 3, authors: 'everyone', label: '' },
+  issues: { enabled: false, pollMinutes: 10, model: 'sonnet', notify: true, triageCap: 3,
+    dailyTriageCap: 30, autoTriageOutsiders: true, authors: 'everyone', label: '' },
   projectIssues: {},      // project path → { enabled, enabledAt }; first enable time is an ISO string or null
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
@@ -137,15 +138,16 @@ function forumSettings(value) {
 
 function issueSettings(value) {
   const issues = value && typeof value === 'object' && !Array.isArray(value) ? deepMerge(DEFAULTS.issues, value) : { ...DEFAULTS.issues };
-  for (const [key, lo, hi] of [['pollMinutes', 2, 1440], ['triageCap', 0, 20]]) {
+  for (const [key, lo, hi] of [['pollMinutes', 2, 1440], ['triageCap', 0, 20], ['dailyTriageCap', 0, 500]]) {
     const n = issues[key];
     issues[key] = Number.isInteger(n) ? Math.max(lo, Math.min(hi, n)) : DEFAULTS.issues[key];
   }
-  for (const key of ['enabled', 'notify'])
+  for (const key of ['enabled', 'notify', 'autoTriageOutsiders'])
     if (typeof issues[key] !== 'boolean') issues[key] = DEFAULTS.issues[key];
   if (!['everyone', 'collaborators'].includes(issues.authors)) issues.authors = DEFAULTS.issues.authors;
   for (const key of ['model', 'label'])
     if (typeof issues[key] !== 'string' || issues[key].length > 100) issues[key] = DEFAULTS.issues[key];
+  if (!/^[A-Za-z0-9][\w.:\/-]*$/.test(issues.model)) issues.model = DEFAULTS.issues.model;
   return issues;
 }
 

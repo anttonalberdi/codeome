@@ -1110,6 +1110,31 @@
         if (event.target.value.length > 100) { labelError.textContent = 'Use at most 100 characters.'; return; }
         App.cfg.issues = { ...issue(), label: event.target.value.trim() }; commit();
       } });
+    const capError = h('span.ps-field-error', { role: 'alert' });
+    const triageCap = h('input', { type: 'number', min: '0', max: '20', step: '1', value: String(issue().triageCap ?? 3), 'aria-label': 'Issue triage cap per check',
+      oninput: (event) => {
+        const n = Number(event.target.value);
+        const valid = event.target.value !== '' && Number.isInteger(n) && n >= 0 && n <= 20;
+        capError.textContent = valid ? '' : 'Enter a whole number from 0 to 20.';
+        event.target.setAttribute('aria-invalid', String(!valid));
+      },
+      onchange: (event) => {
+        const n = Number(event.target.value);
+        if (event.target.value === '' || !Number.isInteger(n) || n < 0 || n > 20) return;
+        App.cfg.issues = { ...issue(), triageCap: n }; commit();
+      } });
+    const modelError = h('span.ps-field-error', { role: 'alert' });
+    const triageModel = h('input', { type: 'text', value: issue().model ?? 'sonnet', maxlength: '100', 'aria-label': 'Issue triage model', spellcheck: 'false', autocomplete: 'off',
+      oninput: (event) => {
+        const valid = event.target.value.trim().length > 0 && event.target.value.length <= 100;
+        modelError.textContent = valid ? '' : 'Enter a model name up to 100 characters.';
+        event.target.setAttribute('aria-invalid', String(!valid));
+      },
+      onchange: (event) => {
+        const value = event.target.value.trim();
+        if (!value || value.length > 100) return;
+        App.cfg.issues = { ...issue(), model: value }; commit();
+      } });
     el.append(card('Issue inbox',
       row('Enable', check('Poll GitHub issues', () => issue().enabled, (value) => { App.cfg.issues = { ...issue(), enabled: value }; }),
         'Projects also need their own issue inbox switch turned on.'),
@@ -1118,7 +1143,9 @@
       row('Authors', select([{ value: 'everyone', label: 'Everyone' }, { value: 'collaborators', label: 'Collaborators only' }],
         issue().authors || 'everyone', (value) => { App.cfg.issues = { ...issue(), authors: value }; commit(); }, 'Issue authors')),
       row('Label filter', h('div.forum-setting-number', label, labelError), 'Optional. Only issues with this label are captured.'),
-      h('div.sp-foot.hint', 'Issue triage settings arrive later.')));
+      row('Triage cap', h('div.forum-setting-number', triageCap, capError), 'Issues assessed per check, from 0 to 20. 0 turns off automatic triage.'),
+      row('Triage model', h('div.forum-setting-number', triageModel, modelError), 'Model or alias used for issue assessment.'),
+      h('div.sp-foot.hint', 'One agent run per new issue, up to the cap per check.')));
     el.gitRows = rows;
     return el;
   }

@@ -35,7 +35,48 @@ const IssueCards = (() => {
     return el;
   }
 
-  function render(item, { host, onOpen, onStatus, onSnooze }) {
+  const actionLabels = { none: 'No action needed', reply: 'Reply', fix: 'Quick fix', plan: 'Needs a plan' };
+  const sizes = new Set(['trivial', 'small', 'standard', 'large']);
+
+  function renderTriage(item, { onAssess, assessing, assessError }) {
+    const section = node('div', 'issue-triage');
+    if (item.triaging || assessing) {
+      const pending = button('Assessing…', () => {});
+      pending.className = 'btn small issue-assess';
+      pending.disabled = true;
+      section.setAttribute('aria-live', 'polite');
+      section.append(pending);
+      return section;
+    }
+    const triage = item.triage && !item.triageStale && Object.hasOwn(actionLabels, item.triage.action) ? item.triage : null;
+    if (triage) {
+      const heading = node('div', 'issue-triage-heading');
+      heading.append(node('span', `issue-triage-chip ${triage.action}`, actionLabels[triage.action]));
+      if (sizes.has(triage.size)) heading.append(node('span', 'issue-triage-size', triage.size));
+      section.append(heading, node('span', 'issue-triage-note', 'AI suggestion — unverified'));
+      if (triage.summary) section.append(node('p', 'issue-triage-summary', triage.summary));
+      const detail = triage.action === 'reply' ? ['Draft reply', triage.draftReply] :
+        ['Proposed plan', triage.proposedPlan];
+      if (detail[1] && ['reply', 'fix', 'plan'].includes(triage.action)) {
+        const expanded = node('details', 'issue-triage-detail');
+        expanded.append(node('summary', '', detail[0]), node('pre', 'issue-triage-text', detail[1]));
+        section.append(expanded);
+      }
+    } else {
+      if (item.triageStale) section.append(node('span', 'issue-triage-stale', 'Suggestion out of date'));
+      const assess = button('Assess', () => onAssess(item));
+      assess.className = 'btn small issue-assess';
+      section.append(assess);
+    }
+    if (assessError) {
+      const error = node('span', 'issue-assess-error', assessError);
+      error.setAttribute('role', 'alert');
+      section.append(error);
+    }
+    return section;
+  }
+
+  function render(item, { host, onOpen, onStatus, onSnooze, onAssess, assessing, assessError }) {
     const card = node('article', 'issue-card');
     card.dataset.number = String(item.number);
     const heading = node('div', 'issue-heading');
@@ -56,8 +97,8 @@ const IssueCards = (() => {
       card.append(labels);
     }
 
-    // Reserved for the triage display (2.3) and start-work controls (3.2).
-    card.append(node('div', 'issue-triage'), node('div', 'issue-work-actions'));
+    // Start-work controls (3.2) use the following reserved container.
+    card.append(renderTriage(item, { onAssess, assessing, assessError }), node('div', 'issue-work-actions'));
     const actions = node('div', 'issue-actions');
     const url = safeUrl(item.url, host);
     if (url) {

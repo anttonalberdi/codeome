@@ -22,26 +22,34 @@ function load(saved) {
 test('issue settings have opt-in defaults', () => {
   const cfg = load({});
   assert.deepEqual(cfg.issues, { enabled: false, pollMinutes: 10, model: 'sonnet', notify: true,
-    triageCap: 3, authors: 'everyone', label: '' });
+    triageCap: 3, dailyTriageCap: 30, autoTriageOutsiders: true, authors: 'everyone', label: '' });
   assert.deepEqual(cfg.projectIssues, {});
 });
 
-test('issue poll interval and triage cap are clamped', () => {
-  const low = load({ issues: { pollMinutes: -1, triageCap: -1 } });
-  assert.deepEqual([low.issues.pollMinutes, low.issues.triageCap], [2, 0]);
-  const high = load({ issues: { pollMinutes: 99999, triageCap: 99999 } });
+test('issue poll interval and triage caps are clamped', () => {
+  const low = load({ issues: { pollMinutes: -1, triageCap: -1, dailyTriageCap: -1 } });
+  assert.deepEqual([low.issues.pollMinutes, low.issues.triageCap, low.issues.dailyTriageCap], [2, 0, 0]);
+  const high = load({ issues: { pollMinutes: 99999, triageCap: 99999, dailyTriageCap: 99999 } });
   assert.equal(high.issues.pollMinutes, 1440);
   assert.equal(high.issues.triageCap, 20);
+  assert.equal(high.issues.dailyTriageCap, 500);
 });
 
 test('invalid issue setting types fall back to defaults', () => {
   const cfg = load({ issues: { enabled: 'true', pollMinutes: '5', model: 7, notify: 1,
-    triageCap: 3.5, authors: 'outsiders', label: 'x'.repeat(101) } });
+    triageCap: 3.5, dailyTriageCap: '10', autoTriageOutsiders: 'false', authors: 'outsiders', label: 'x'.repeat(101) } });
   assert.deepEqual(cfg.issues, config.DEFAULTS.issues);
   assert.deepEqual(load({ issues: null }).issues, config.DEFAULTS.issues);
   assert.deepEqual(load({ issues: ['invalid'] }).issues, config.DEFAULTS.issues);
   assert.deepEqual(load({ issues: { model: 'x'.repeat(101), label: [] } }).issues,
     config.DEFAULTS.issues);
+});
+
+test('issue model rejects option-like and malformed names', () => {
+  for (const model of ['--model', '-sonnet', 'bad name', 'bad\nname', ''])
+    assert.equal(load({ issues: { model } }).issues.model, 'sonnet');
+  assert.equal(load({ issues: { model: 'claude-sonnet-4.5/2026:latest' } }).issues.model,
+    'claude-sonnet-4.5/2026:latest');
 });
 
 test('project issue entries keep only valid settings', () => {

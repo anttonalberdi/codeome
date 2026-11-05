@@ -7,6 +7,7 @@
   let root, msg;
   let refreshSeq = 0, issuesSeq = 0;
   let issuesData = null, issuesError = '', issuesLoading = false, issuesFilter = 'open';
+  const assessingIssues = new Set(), assessErrors = new Map();
   // Account and GitHub share the lower half; changes get more room than history.
   const SECTIONS = [{ id: 'changes', title: 'Changes', weight: 1.3 }, { id: 'history', title: 'History', weight: 0.7 },
     { id: 'account', title: 'Account', weight: 1 }, { id: 'github', title: 'GitHub', weight: 1 },
@@ -22,7 +23,7 @@
     // Kept across refreshes, so a half-written message survives them.
     msg = h('textarea', { rows: 3, placeholder: 'Describe the change', 'aria-label': 'Commit message' });
     msg.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) commit(); });
-    App.listen('project', () => { msg.value = ''; issuesData = null; issuesError = ''; issuesLoading = false; ++issuesSeq; G.refresh(); });
+    App.listen('project', () => { msg.value = ''; issuesData = null; issuesError = ''; issuesLoading = false; assessingIssues.clear(); assessErrors.clear(); ++issuesSeq; G.refresh(); });
     App.listen('saved', (t) => { if (!t.remote && App.currentView === 'git') G.refresh(); });
     App.listen('view', (v) => { if (v === 'git') G.refresh(); });
     codeome.issues.onChanged(({ project }) => { if (project === App.project) loadIssues(project); });
@@ -215,6 +216,27 @@
     } catch (error) { if (project === App.project) { issuesError = error.message || String(error); renderIssues(); } }
   }
 
+  async function assessIssue(item) {
+    const project = App.project, number = item.number;
+    if (assessingIssues.has(number)) return;
+    assessingIssues.add(number);
+    assessErrors.delete(number);
+    renderIssues();
+    try {
+      const result = await codeome.issues.assess(project, number);
+      if (project !== App.project) return;
+      if (result.error || result.data?.error) throw new Error(result.error || result.data.error);
+      await loadIssues(project);
+    } catch (error) {
+      if (project === App.project) assessErrors.set(number, error.message || String(error));
+    } finally {
+      if (project === App.project) {
+        assessingIssues.delete(number);
+        renderIssues();
+      }
+    }
+  }
+
   function markVisibleIssues() {
     if (App.currentView !== 'git' || App.views.settings?.isOpen || !root.getClientRects().length ||
         !G.stack?.isOpen('issues') || issuesLoading || !issuesData) return;
@@ -282,6 +304,7 @@
     const host = G.st.account?.host || G.accounts.find((account) => account.id === G.st.accountId)?.host;
     sec.append(h('div.issue-list', visible.map((item) => IssueCards.render(item, {
       host, onOpen: (url) => codeome.shell.open(url), onStatus: issueAction,
+      onAssess: assessIssue, assessing: assessingIssues.has(item.number), assessError: assessErrors.get(item.number),
       onSnooze: (issue, button) => App.menuAt(button, [
         { label: '1 day', run: () => issueAction(issue, 'snoozed', Date.now() + 86400000) },
         { label: '3 days', run: () => issueAction(issue, 'snoozed', Date.now() + 3 * 86400000) },

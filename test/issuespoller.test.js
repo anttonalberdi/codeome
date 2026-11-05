@@ -134,7 +134,7 @@ test('reports changes only for added or reopened items and triages additions', a
   assert.deepEqual(f.changes.filter(([key]) => key === '/one'), [
     ['/one', { added: [1], reopened: [] }], ['/one', { added: [], reopened: [2] }]
   ]);
-  assert.deepEqual(f.triage, [['/one', [1]]]);
+  assert.deepEqual(f.triage, [['/one', [1]], ['/one', [2]]]);
 });
 
 test('reports each distinct error once and silently skips unbound projects', async () => {

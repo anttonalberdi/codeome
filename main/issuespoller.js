@@ -51,8 +51,8 @@ function createIssuesPoller({ store, poll, getConfig, projects, onChange = () =>
       if (changes.added.length || changes.reopened.length) {
         try { await onChange(project, changes); } catch {}
       }
-      if (changes.added.length) {
-        try { await triageHook(project, changes.added); } catch {}
+      if (changes.added.length || changes.reopened.length) {
+        try { await triageHook(project, [...changes.added, ...changes.reopened]); } catch {}
       }
       return changes;
     } catch {

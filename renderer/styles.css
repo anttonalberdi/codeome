@@ -376,6 +376,22 @@ label.check { display: flex; gap: 6px; align-items: center; font-size: 12px; cur
 .issue-body { margin: 7px 0 0; color: var(--muted); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .issue-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
 .issue-label { border: 1px solid var(--line-strong); border-radius: 10px; padding: 1px 6px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.issue-triage { margin-top: 8px; font-size: 11px; }
+.issue-triage-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.issue-triage-chip { border: 1px solid currentColor; border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: 600; }
+.issue-triage-chip.none { color: var(--muted); background: var(--surface-2); }
+.issue-triage-chip.reply { color: var(--run); background: color-mix(in srgb, var(--run) 9%, var(--surface)); }
+.issue-triage-chip.fix { color: var(--accent); background: var(--accent-soft); }
+.issue-triage-chip.plan { color: var(--pend); background: color-mix(in srgb, var(--pend) 9%, var(--surface)); }
+.issue-triage-size, .issue-triage-note, .issue-triage-stale { color: var(--muted); }
+.issue-triage-note { display: block; margin-top: 4px; font-size: 10px; }
+.issue-triage-summary { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.issue-triage-detail { margin-top: 6px; }
+.issue-triage-detail summary { width: fit-content; color: var(--accent); cursor: pointer; }
+.issue-triage-detail summary:focus-visible, .issue-link:focus-visible, .issue-filter:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.issue-triage-text { margin: 6px 0 0; padding: 7px 8px; border-radius: 5px; background: var(--surface-2); color: var(--text); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.issue-triage-stale + .issue-assess { margin-left: 5px; }
+.issue-assess-error { display: block; margin-top: 5px; color: var(--fail); overflow-wrap: anywhere; }
 .issue-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; }
 .issue-actions .btn { padding: 3px 6px; }
 .issue-link { margin-right: auto; font-size: 11px; color: var(--accent); }

@@ -184,7 +184,34 @@ test('triage validates fields, caps strings and becomes stale when the issue cha
   assert.strictEqual(store.needsTriage(PROJECT, 1), false);
   store.applyPoll(PROJECT, { updated: [issue(1, { body: 'Changed body' })] });
   assert.strictEqual(store.needsTriage(PROJECT, 1), true);
+  store.setTriage(PROJECT, 1, { action: 'none', size: 'small' });
+  store.applyPoll(PROJECT, { updated: [issue(1, { body: 'Changed body', title: 'Changed title' })] });
+  assert.strictEqual(store.needsTriage(PROJECT, 1), true);
+  store.setTriage(PROJECT, 1, { action: 'none', size: 'small' });
+  store.applyPoll(PROJECT, { updated: [issue(1, { body: 'Changed body', title: 'Changed title', labels: ['feature'] })] });
+  assert.strictEqual(store.needsTriage(PROJECT, 1), true);
+  assert.strictEqual(store.setTriage(PROJECT, 1, { action: 'none', size: 'huge' }).size, undefined);
+  assert.strictEqual(store.setTriage(PROJECT, 1, { action: 'none', size: 'small'.repeat(100) }).size, undefined);
   assert.strictEqual(store.setTriage(PROJECT, 1, { action: 'invalid' }).action, 'none');
+});
+
+test('automatic marker and rolling triage budget persist across reloads', () => {
+  const { fs, store, now, advance } = setup();
+  store.enable(PROJECT);
+  store.applyPoll(PROJECT, { new: [issue(1)] });
+  store.markAutoTriaged(PROJECT, 1);
+  store.setStatus(PROJECT, 1, 'done');
+  assert.deepStrictEqual(store.applyPoll(PROJECT, { updated: [issue(1, { body: 'Reopened body' })] }).reopened, [1]);
+  assert.equal(store.list(PROJECT)[0].autoTriaged, true);
+  assert.equal(store.recordTriageRun(2), true);
+  assert.equal(store.recordTriageRun(2), true);
+  assert.equal(store.recordTriageRun(2), false);
+  const loaded = createIssueStore({ file: FILE, fs, now });
+  assert.equal(loaded.list(PROJECT)[0].autoTriaged, true);
+  assert.equal(loaded.triageRunCount(), 2);
+  advance(86400001);
+  assert.equal(loaded.triageRunCount(), 0);
+  assert.equal(loaded.recordTriageRun(2), true);
 });
 
 test('lists newest first; the item cap evicts done and dismissed issues first', () => {

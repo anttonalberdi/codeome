@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld('codeome', {
   issues: {
     list: (project) => ipcRenderer.invoke('issues:list', { project }),
     refresh: (project) => ipcRenderer.invoke('issues:refresh', { project }),
+    assess: (project, number) => ipcRenderer.invoke('issues:assess', { project, number }),
     setStatus: (project, number, status, until) => ipcRenderer.invoke('issues:setStatus', { project, number, status, until }),
     markSeen: (project, numbers) => ipcRenderer.invoke('issues:markSeen', { project, numbers }),
     enable: (project, enabled) => ipcRenderer.invoke('issues:enable', { project, enabled }),

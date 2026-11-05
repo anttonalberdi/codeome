@@ -9,12 +9,14 @@ const MAX_SEEN = 2000;
 const STATUSES = new Set(['new', 'seen', 'dismissed', 'snoozed', 'done', 'in-progress']);
 const EVICTION_ORDER = ['done', 'dismissed', 'seen', 'snoozed'];
 const ACTIONS = new Set(['none', 'reply', 'fix', 'plan']);
+const SIZES = new Set(['trivial', 'small', 'standard', 'large']);
 const ISSUE_FIELDS = ['title', 'body', 'author', 'authorAssociation', 'url', 'createdAt', 'updatedAt', 'state'];
 
 const validNumber = (number) => Number.isSafeInteger(number) && number > 0;
 const emptyProject = () => ({ etag: null, enabledAt: null, lastSeen: {}, seenNumbers: [], items: [] });
 const copy = (value) => JSON.parse(JSON.stringify(value));
-const issueKey = (item) => String(item.updatedAt || '') + ':' + crypto.createHash('sha256').update(item.body || '').digest('hex');
+const issueKey = (item) => String(item.updatedAt || '') + ':' + crypto.createHash('sha256')
+  .update((item.title || '') + '\n' + (item.labels || []).join(',') + '\n' + (item.body || '')).digest('hex');
 const oldest = (item) => Date.parse(item.createdAt) || Date.parse(item.updatedAt) || 0;
 const newest = (item) => Date.parse(item.updatedAt) || Date.parse(item.createdAt) || 0;
 
@@ -51,20 +53,25 @@ function storedItem(item) {
   if (clean.status === 'in-progress' && typeof item.chat === 'string') clean.chat = item.chat;
   if (item.triage && typeof item.triage === 'object' && !Array.isArray(item.triage)) clean.triage = item.triage;
   if (typeof item.triageKey === 'string') clean.triageKey = item.triageKey;
+  if (item.autoTriaged === true) clean.autoTriaged = true;
   return clean;
 }
 
 function createIssueStore({ file, now = Date.now, fs = defaultFs }) {
   if (typeof file !== 'string' || !file) throw new TypeError('Issue store file is required.');
   let projects = Object.create(null);
+  let triageRuns = [];
 
   function load() {
     projects = Object.create(null);
+    triageRuns = [];
     try {
       if (fs.statSync(file).size > MAX_FILE_BYTES) throw new Error('Issue store is too large.');
       const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (!saved || typeof saved !== 'object' || Array.isArray(saved) ||
           !saved.projects || typeof saved.projects !== 'object' || Array.isArray(saved.projects)) throw new Error('Invalid issue store.');
+      triageRuns = Array.isArray(saved.triageRuns) ? saved.triageRuns.filter((at) =>
+        Number.isFinite(at) && at > now() - 86400000 && at <= now()).slice(-500) : [];
       for (const [project, record] of Object.entries(saved.projects)) {
         if (['__proto__', 'constructor', 'hasOwnProperty'].includes(project)) continue;
         if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('Invalid project state.');
@@ -78,6 +85,7 @@ function createIssueStore({ file, now = Date.now, fs = defaultFs }) {
       }
     } catch (error) {
       projects = Object.create(null);
+      triageRuns = [];
       if (error.code !== 'ENOENT') {
         try { fs.renameSync(file, file + '.bak'); fs.chmodSync(file + '.bak', 0o600); } catch {}
       }
@@ -89,7 +97,7 @@ function createIssueStore({ file, now = Date.now, fs = defaultFs }) {
   function save() {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const temp = file + '.tmp';
-    fs.writeFileSync(temp, JSON.stringify({ projects }), { mode: 0o600 });
+    fs.writeFileSync(temp, JSON.stringify({ projects, triageRuns }), { mode: 0o600 });
     fs.chmodSync(temp, 0o600);
     fs.renameSync(temp, file);
   }
@@ -198,7 +206,8 @@ function createIssueStore({ file, now = Date.now, fs = defaultFs }) {
     if (!triage || typeof triage !== 'object' || Array.isArray(triage)) throw new TypeError('Invalid triage.');
     const key = issueKey(item);
     const clean = { action: ACTIONS.has(triage.action) ? triage.action : 'none', at: now(), key };
-    for (const [field, limit] of Object.entries({ size: 40, summary: 600, proposedPlan: 6000, draftReply: 4000 })) {
+    if (SIZES.has(triage.size)) clean.size = triage.size;
+    for (const [field, limit] of Object.entries({ summary: 600, proposedPlan: 6000, draftReply: 4000 })) {
       if (typeof triage[field] === 'string') clean[field] = triage[field].slice(0, limit);
     }
     item.triage = clean;
@@ -210,6 +219,26 @@ function createIssueStore({ file, now = Date.now, fs = defaultFs }) {
   function needsTriage(project, number) {
     const item = requireItem(project, number);
     return !item.triage || item.triageKey !== issueKey(item);
+  }
+
+  function markAutoTriaged(project, number) {
+    const item = requireItem(project, number);
+    item.autoTriaged = true;
+    save();
+  }
+
+  function triageRunCount() {
+    const length = triageRuns.length;
+    triageRuns = triageRuns.filter((at) => at > now() - 86400000);
+    if (triageRuns.length !== length) save();
+    return triageRuns.length;
+  }
+
+  function recordTriageRun(cap) {
+    if (triageRunCount() >= cap) return false;
+    triageRuns.push(now());
+    save();
+    return true;
   }
 
   function list(project) {
@@ -238,6 +267,7 @@ function createIssueStore({ file, now = Date.now, fs = defaultFs }) {
 
   load();
   return { load, pollState, enable, disable, applyPoll, setStatus, setTriage, needsTriage,
+    markAutoTriaged, triageRunCount, recordTriageRun,
     list, listAll, unseenCount, markSeen, tick: expireSnoozes };
 }
 

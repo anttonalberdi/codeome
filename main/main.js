@@ -9,6 +9,8 @@ const github = require('./github');
 const { pollProject } = require('./githubissues');
 const { createIssueStore } = require('./issuestore');
 const { createIssuesPoller } = require('./issuespoller');
+const { triageIssue } = require('./issuetriage');
+const { oneShot } = require('./oneshot');
 const { issueNotificationText } = require('./remote-ntfy');
 const ssh = require('./ssh');
 const sftp = require('./sftp');
@@ -86,6 +88,8 @@ const transfers = new Map();
 let cfg = null;
 let issueStore = null;
 let issuePoller = null;
+let triagingIssue = null;
+let triagingDone = Promise.resolve();
 let secretFileStore = null;
 const placedSecrets = new Set();
 let heartbeatTimer = null;
@@ -1097,6 +1101,48 @@ function issueCounts() {
   return Object.fromEntries([...new Set(openRoots().map((root) => path.resolve(root)))].map((project) => [project, issueStore.unseenCount(project)]));
 }
 function issueChanged(project) { send('issues:changed', { project, counts: issueCounts() }); }
+async function assessIssue(project, number, { automatic = false } = {}) {
+  if (triagingIssue) throw new Error('An issue is already being assessed.');
+  const issue = issueStore.list(project).find((item) => item.number === number);
+  if (!issue) throw new Error('Issue not found.');
+  if (!automatic && issue.triage && !issueStore.needsTriage(project, number)) throw new Error('Issue has already been assessed.');
+  if (!issueStore.recordTriageRun(cfg.issues.dailyTriageCap)) throw new Error('Daily triage limit reached');
+  if (automatic) issueStore.markAutoTriaged(project, number);
+  triagingIssue = { project, number };
+  let finish;
+  triagingDone = new Promise((resolve) => { finish = resolve; });
+  try {
+    issueChanged(project);
+    const acct = launchOn('claude', null, cliCmd('claude'));
+    const dir = (cfg.accounts.claude.list.find((a) => a.name === acct.info.name) || {}).dir || '';
+    const env = { ...acct.env };
+    if (!dir) for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'])
+      if (process.env[key]) env[key] = process.env[key];
+    const result = await triageIssue({ issue, project, oneShot: (engine, options) => oneShot(engine, {
+      ...options, bin: cliCmd(engine), dir
+    }), model: cfg.issues.model, env, timeoutMs: 90000 });
+    if (result.error) return result;
+    const current = issueStore.list(project).find((item) => item.number === number);
+    if (!current || current.updatedAt !== issue.updatedAt || current.title !== issue.title ||
+        current.body !== issue.body || JSON.stringify(current.labels) !== JSON.stringify(issue.labels))
+      return { error: 'Issue changed during assessment.' };
+    return issueStore.setTriage(project, number, result);
+  } catch { return { error: 'Could not assess this issue.' }; }
+  finally { triagingIssue = null; try { issueChanged(project); } finally { finish(); } }
+}
+async function triageNewIssues(project, numbers) {
+  const cap = cfg.issues?.triageCap ?? 3;
+  if (!cap) return;
+  const pending = new Set(numbers);
+  const items = issueStore.list(project).filter((item) => pending.has(item.number) && !item.triage && !item.autoTriaged &&
+    (cfg.issues.autoTriageOutsiders !== false || item.authorAssociation !== 'NONE'));
+  for (const item of items.slice(0, cap)) {
+    if (triagingIssue) await triagingDone;
+    const current = issueStore.list(project).find((entry) => entry.number === item.number);
+    if (!current || current.triage || current.autoTriaged || issueStore.triageRunCount() >= cfg.issues.dailyTriageCap) continue;
+    await assessIssue(project, item.number, { automatic: true });
+  }
+}
 function notifyNewIssues(project, { added } = {}) {
   if (!cfg.issues?.notify || !added?.length) return;
   remoteService.notifyIssues(project, added.length);
@@ -1114,10 +1160,18 @@ function notifyNewIssues(project, { added } = {}) {
 }
 ipcMain.handle('issues:list', wrap(({ project }) => {
   project = issueRoot(project);
-  return { items: issueStore.list(project), settings: { global: cfg.issues,
+  return { items: issueStore.list(project).map((item) => ({ ...item,
+    triaging: triagingIssue?.project === project && triagingIssue.number === item.number,
+    triageStale: !!item.triage && issueStore.needsTriage(project, item.number) })), settings: { global: cfg.issues,
     project: cfg.projectIssues[project] || { enabled: false, enabledAt: null } }, lastError: issuePoller.lastError(project) };
 }));
 ipcMain.handle('issues:refresh', wrap(async ({ project }) => issuePoller.refresh(issueRoot(project), { force: true })));
+ipcMain.handle('issues:assess', wrap(({ project, number }) => {
+  project = issueRoot(project);
+  if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Issue number must be a positive integer.');
+  if (!cfg.issues.enabled || !cfg.projectIssues[project]?.enabled) throw new Error('Issue inbox is disabled for this project.');
+  return assessIssue(project, number);
+}));
 ipcMain.handle('issues:setStatus', wrap(({ project, number, status, until }) => {
   project = issueRoot(project);
   if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Issue number must be a positive integer.');
@@ -1749,7 +1803,8 @@ app.whenReady().then(() => {
     projects: () => [...new Set(openRoots().map((root) => path.resolve(root)))].filter((root) => cfg.projectIssues[root]?.enabled),
     poll: (root, state, settings) => pollProject({ store: accountStore(), root, getSecret: config.getSecret,
       fetch, now: Date.now, run, state, settings }),
-    onChange: (project, changes) => { issueChanged(project); notifyNewIssues(project, changes); } });
+    onChange: (project, changes) => { issueChanged(project); notifyNewIssues(project, changes); },
+    triageHook: triageNewIssues });
   remoteService.sync();
   applyProxy();
   app.setName('Codeome');
