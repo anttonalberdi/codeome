@@ -10,6 +10,8 @@
   let page, nav, main, savedEl, agentsHost, globalHost, setupHost, serverList, storageHost, accountsHost;
   let sections = {};
   let current = 'hpc'; // the section shown; reopening Settings returns to it
+  const secretCollapsed = new Set(), secretSearchCollapsed = new Set();
+  let secretQuery = '';
 
   const DEFAULT_DIR = { claude: '~/.claude', codex: '~/.codex' };
 
@@ -55,6 +57,7 @@
   S.close = () => {
     if (!page || page.hidden) return;
     phoneController?.stop();
+    secretCollapsed.clear(); secretSearchCollapsed.clear(); secretQuery = '';
     page.hidden = true; S.isOpen = false;
     document.getElementById('app').classList.remove('settings-open');
     App.views.editor.layout();
@@ -730,9 +733,6 @@
     return el;
   }
 
-  function openFile(p) { S.close(); App.views.editor.openFile(p); }
-
-  // The shared modal closes on submit, so agent dialogs use its markup while keeping IPC errors visible.
   // AGENTS.md is the project's main instructions for every agent; CLAUDE.md just imports it for Claude Code.
   function instructionsCard(project, ins) {
     const ready = ins && !ins.error && ins.hasAgents && ins.hasClaude && ins.claudeImports;
@@ -747,6 +747,9 @@
       h('div.row', h('button.btn.small' + (ins && ins.hasAgents ? '' : '.primary'), { onclick: open }, ins && ins.hasAgents ? 'Edit AGENTS.md' : 'Create AGENTS.md')));
   }
 
+  function openFile(p) { S.close(); App.views.editor.openFile(p); }
+
+  // The shared modal closes on submit, so agent dialogs use its markup while keeping IPC errors visible.
   function agentDialog(title, body, ok, submit) {
     const overlay = document.getElementById('overlay');
     const previous = document.activeElement;
