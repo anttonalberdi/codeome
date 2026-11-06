@@ -330,11 +330,12 @@
   };
 
   // ---------- panel show/hide/resize ----------
-  T.showPanel = () => { document.getElementById('panel').classList.remove('collapsed'); };
+  T.showPanel = () => { const p = document.getElementById('panel'); if (p.classList.contains('collapsed')) { p.classList.remove('collapsed'); App.layout && App.layout.save(); } };
   T.togglePanel = () => {
     const p = document.getElementById('panel');
     p.classList.toggle('collapsed');
     if (!p.classList.contains('collapsed')) { const t = T.current(); if (t) setTimeout(() => { t.fit.fit(); t.term.focus(); }); else showEmpty(); }
+    App.layout.save();
   };
   T.retheme = () => { for (const t of T.list) t.term.options.theme = theme(); };
 
@@ -351,7 +352,7 @@
       const startY = e.clientY, panel = document.getElementById('panel'), startH = panel.getBoundingClientRect().height;
       panel.classList.remove('collapsed');
       const move = (ev) => { const nh = Math.max(120, Math.min(innerHeight - 200, startH - (ev.clientY - startY))); document.documentElement.style.setProperty('--panel-h', nh + 'px'); };
-      const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); const t = T.current(); if (t) t.fit.fit(); App.views.editor.layout(); };
+      const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); const t = T.current(); if (t) t.fit.fit(); App.views.editor.layout(); App.layout.save(); };
       addEventListener('mousemove', move); addEventListener('mouseup', up);
     });
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', T.retheme);

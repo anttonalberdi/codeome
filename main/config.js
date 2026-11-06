@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const { app, safeStorage } = require('electron');
 const { kindOf, extError } = require('./secrets');
+const notifySettings = require('./notifysettings');
 
 const DEFAULTS = {
   localRoot: path.join(os.homedir()),
@@ -88,6 +89,8 @@ const DEFAULTS = {
   forum: { defaultBudget: 0, summaryTokens: 6000, recentMessages: 8, checkModel: 'haiku', codexCheckModel: '', checkEffort: 'low', checkTimeoutMs: 30000 },
   issues: { enabled: false, pollMinutes: 10, model: 'sonnet', notify: true, triageCap: 3,
     dailyTriageCap: 30, autoTriageOutsiders: true, authors: 'everyone', label: '' },
+  notifications: notifySettings.DEFAULTS,
+  projectNotify: {},    // project path → notification overrides; absent fields inherit
   projectIssues: {},      // project path → { enabled, enabledAt }; first enable time is an ISO string or null
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs
   openProjects: [],       // project cards in the left column, in order
@@ -106,6 +109,7 @@ const DEFAULTS = {
   projectChat: {},        // project path → agent chat defaults
   showHidden: true,       // list dotfiles (.gitignore, .readthedocs.yaml…) in the file views
   activeProject: null,
+  projectLayout: {},      // project → { side, fold, panelH, panelOff }: sidebar width, folded side, terminal panel height and fold
   projectViews: {},       // project → { view, pane } it was left on; restored when switching back or reopening
   // panes: the Files view's sections (local / remote / storage) → { title, collapsed, weight };
   // pkgPanes: the same for the Packages view (python / r), plus shown: true|false for R;
@@ -120,7 +124,10 @@ function file(name) { return path.join(app.getPath('userData'), name); }
 function deepMerge(base, over) {
   if (Array.isArray(base) || typeof base !== 'object' || base === null) return over === undefined ? base : over;
   const out = { ...base };
-  for (const k of Object.keys(over || {})) out[k] = deepMerge(base[k], over[k]);
+  for (const k of Object.keys(over || {})) {
+    if (['__proto__', 'constructor', 'prototype'].includes(k)) continue;
+    out[k] = deepMerge(base[k], over[k]);
+  }
   return out;
 }
 
@@ -203,6 +210,8 @@ function load() {
     const cfg = deepMerge(DEFAULTS, saved);
     cfg.forum = forumSettings(cfg.forum);
     cfg.issues = issueSettings(saved.issues);
+    cfg.notifications = notifySettings.sanitize(saved.notifications);
+    cfg.projectNotify = notifySettings.sanitizeProject(saved.projectNotify);
     cfg.projectIssues = projectIssuesSettings(cfg.projectIssues);
     cfg.projectHpc = projectHpcSettings(cfg.projectHpc);
     cfg.secrets = secretSettings(cfg.secrets);
@@ -216,6 +225,8 @@ function save(cfg) {
   const error = validateRemoteConfig(cfg.remote);
   if (error) throw new Error(error);
   cfg.forum = forumSettings(cfg.forum);
+  cfg.notifications = notifySettings.sanitize(cfg.notifications);
+  cfg.projectNotify = notifySettings.sanitizeProject(cfg.projectNotify);
   cfg.projectHpc = projectHpcSettings(cfg.projectHpc);
   cfg.secrets = secretSettings(cfg.secrets);
   fs.mkdirSync(app.getPath('userData'), { recursive: true });

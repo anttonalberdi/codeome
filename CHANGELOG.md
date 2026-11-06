@@ -2,15 +2,16 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.6.0
 
 ### Added
-- **Messages between chats, with your approval**: an agent can ask to message another live chat by its code, broadcast to all live chats, open a new chat or hand over a task (`codeome-agent send`, `codeome-agent inbox`). Nothing is sent until you approve it on an *Awaiting your approval* card in the sender's chat (Approve, Edit, Decline); approval is bound to what the card shows and cards expire after 1 hour. A broadcast shows a recipient checklist, and a new chat or handoff shows what will be started. The new chat opens in the same project with the default permission settings.
+- **Messages between chats, with your approval**: an agent can ask to message another live chat by its code, broadcast to all live chats, open a new chat or hand over a task (`codeome-agent send`, `codeome-agent inbox`). Nothing is sent until you approve it on an *Awaiting your approval* card in the sender's chat (Approve, Edit, Decline); approval is bound to what the card shows and cards expire after 1 hour. A broadcast shows a recipient checklist, and a new chat or handoff shows what will be started. The new chat opens in the same project with the default permission settings. `codeome-agent inbox` shows only ids, kinds and statuses, never message text: text reaches an agent only through the message Codeome injects after you approve.
 - **Incoming message cards, replies and receipts**: the recipient chat gets the text framed as an untrusted message from another agent, with an *incoming message* card, an untrusted badge, delivered and read receipts and a Reply button (your reply needs no approval; chains stop after 3 hops).
 - **Task handoff**: a written brief (Goal, Context, Constraints, Acceptance check, Out of scope) shows a *Start task* / *Dismiss* card on the receiving chat; the agent sees nothing until you click Start.
-- **Conflict notices from Codeome**: when two chats edit the same file, Codeome itself tells both with a *Codeome notice* card and an injected line.
+- **Conflict notices from Codeome**: when two chats edit the same file, Codeome itself tells both with a *Codeome notice* card and a fixed one-line notice naming the file and the other chat's code (never its title or note), at most a few a minute.
 
 ### Changed
+- **Layout per project**: each project now remembers its own sidebar width, whether the editor/terminal side or the sidebar is folded away, and the terminal panel's height and fold. Switching projects restores that project's layout, and it survives a restart. A project you haven't arranged yet keeps the layout on screen.
 - **Agent kit 0.9.4**: adds `send` and `inbox`; projects must update the kit to get them, and `send` refuses if the app cannot show approval cards. Limits are 6 requests a minute, 5 pending, 3 broadcasts and 3 new chats an hour. `.codeome/inbox/`, `.codeome/outbox/` and `.codeome/inbox-support.json` are git-ignored. This guards the messaging channel only; agents can still influence each other through shared files.
 
 ## 1.5.0

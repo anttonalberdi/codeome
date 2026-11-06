@@ -207,12 +207,44 @@
       }
     };
     addEventListener('resize', fit);
+    // Each project keeps its own layout in App.cfg.projectLayout[dir]: sidebar width, which side is
+    // folded away, and the terminal panel's height and fold. A project never seen before keeps
+    // whatever layout is on screen.
+    const root = document.documentElement, panel = document.getElementById('panel');
+    App.layout = {
+      save() {
+        if (!App.project) return;
+        const all = App.cfg.projectLayout = App.cfg.projectLayout || {};
+        const cur = {
+          side: parseInt(root.style.getPropertyValue('--side-w'), 10) || 300,
+          fold: autoW !== null ? 'both' : state(),
+          panelH: parseInt(root.style.getPropertyValue('--panel-h'), 10) || 300,
+          panelOff: panel.classList.contains('collapsed')
+        };
+        const old = all[App.project];
+        if (old && Object.keys(cur).every((k) => old[k] === cur[k])) return;
+        all[App.project] = cur;
+        App.saveConfig();
+      },
+      apply(dir) {
+        const l = dir && (App.cfg.projectLayout || {})[dir];
+        if (!l) return;
+        autoW = null;
+        setW(l.side); root.style.setProperty('--panel-h', l.panelH + 'px');
+        panel.classList.toggle('collapsed', !!l.panelOff);
+        show(l.fold === 'main' || l.fold === 'side' ? l.fold : 'both');
+        fit();
+        const t = !l.panelOff && App.views.terminals.current();
+        if (t) setTimeout(() => t.fit.fit());
+      }
+    };
+    App.listen('project', (dir) => App.layout.apply(dir));
     // Opening a file, preview or terminal unfolds the editor/terminal pane if it was folded away.
     App.expandMain = () => { autoW = null; if (state() === 'main') { setW(420); show('both'); } };
-    mainBand.addEventListener('click', () => { autoW = null; setW(420); show('both'); });
-    sideBand.addEventListener('click', () => { setW(300); show('both'); });
+    mainBand.addEventListener('click', () => { autoW = null; setW(420); show('both'); App.layout.save(); });
+    sideBand.addEventListener('click', () => { setW(300); show('both'); App.layout.save(); });
     // Picking a view in the rail while the sidebar is folded away opens it again.
-    document.getElementById('rail').addEventListener('click', () => { if (state() === 'side') { setW(300); show('both'); } }, true);
+    document.getElementById('rail').addEventListener('click', () => { if (state() === 'side') { setW(300); show('both'); App.layout.save(); } }, true);
     rz.addEventListener('mousedown', (e) => {
       autoW = null;
       const start = e.clientX, s0 = state();
@@ -225,7 +257,7 @@
         setW(Math.max(MIN, Math.min(MAX, raw)));
         show('both');
       };
-      const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); App.views.editor.layout(); };
+      const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); App.views.editor.layout(); App.layout.save(); };
       addEventListener('mousemove', move); addEventListener('mouseup', up);
     });
   }
