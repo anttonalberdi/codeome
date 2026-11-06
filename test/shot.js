@@ -162,6 +162,32 @@ const steps = {
     second.code = 'GHJK'; second.note = 'Checking the tab display.'; second.started = true;
     C.activate(second);
   })(); 0`],
+  xmsg: [`(async () => {
+    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    App.setView('agents'); App.views.agents.show('chat');
+    const C = App.views.chat;
+    for (let i = 0; i < 40 && !C.current(); i++) await new Promise((r) => setTimeout(r, 50));
+    await C.newChat();
+    const chat = C.current();
+    chat.title = 'Cross-chat approvals'; chat.code = 'GHJK'; chat.started = true;
+    const ts = Date.now() / 1000;
+    const brief = { goal: 'Review the parser change', context: 'The tests fail after the recent import update.',
+      constraints: 'Keep the existing API.', acceptance_check: 'Parser tests pass.', out_of_scope: 'No release work.' };
+    chat.items.push(
+      { t: 'outbox', id: '1-abcdef01', kind: 'message', status: 'pending', to: { code: 'BCDF', chat_id: 'peer', title: 'Parser review' }, text: 'Can you check the failing parser test?', ts },
+      { t: 'outbox', id: '2-abcdef02', kind: 'message', status: 'pending', to: 'all', recipients: [
+        { code: 'BCDF', chat_id: 'peer', title: 'Parser review' }, { code: 'TVWX', chat_id: 'other', title: 'Release notes' }], text: 'Please share your current status.', ts },
+      { t: 'outbox', id: '3-abcdef03', kind: 'handoff', status: 'pending', to: null, title: 'Fix parser tests', brief, ts },
+      { t: 'outbox', id: '4-abcdef04', kind: 'message', status: 'read', to: { code: 'BCDF', chat_id: 'peer' }, readBy: 'BCDF', text: 'I sent the test case.', ts },
+      { t: 'xmsg', id: '5-abcdef05', kind: 'message', status: 'delivered', from: { code: 'TVWX', title: 'Release notes', chat_id: 'other' }, text: 'The release draft is ready for review.', ts },
+      { t: 'xmsg', id: '6-abcdef06', kind: 'handoff', status: 'awaiting_accept', awaiting: true, from: { code: 'BCDF', title: 'Parser review', chat_id: 'peer' }, brief, ts },
+      { t: 'xmsg', id: '7-abcdef07', kind: 'message', status: 'delivered', from: { code: 'BCDF', title: 'Parser review', chat_id: 'peer' }, text: '<img src=x onerror=alert(1)>', ts }
+    );
+    C.activate(chat);
+    document.querySelector('.chat-log').style.zoom = '.8';
+    // SHOT_SCROLL=top shows the pending approval cards at the top of the log instead of the newest ones.
+    if (${JSON.stringify(process.env.SHOT_SCROLL || '')} === 'top') document.querySelector('.chat-log').scrollTop = 0;
+  })(); 0`],
   // Run: npx electron test/shot.js <outdir> forum; use SHOT_DARK=1 for the dark theme.
   forum: [`(async () => {
     const project = ${JSON.stringify(path.resolve(__dirname, '..'))};
@@ -421,6 +447,7 @@ app.whenReady().then(() => {
     let dbg, error;
     try {
     const win = BrowserWindow.getAllWindows()[0];
+    if (scenario === 'xmsg') win.setSize(1500, 1400);
     // SHOT_W: window width in px, to check the title bar in a narrow window.
     if (process.env.SHOT_W) win.setSize(Number(process.env.SHOT_W), win.getSize()[1]);
     win.webContents.on('console-message', (_e, level, msg) => { if (level >= 1) console.log('[renderer]', msg); });

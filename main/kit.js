@@ -25,7 +25,7 @@ const KIT = path.join(__dirname, '..', 'kit');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(KIT, 'manifest.json'), 'utf8'));
 const HOOK_CMD = 'python3 "$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent" hook';
 const PERMISSION = 'Bash(.codeome/bin/codeome-agent *)';
-const IGNORE = ['.codeome/jobs/', '.codeome/worktrees/', '.codeome/plans/', '.codeome/context/', '.codeome/touched/'];
+const IGNORE = ['.codeome/jobs/', '.codeome/worktrees/', '.codeome/plans/', '.codeome/context/', '.codeome/touched/', '.codeome/inbox/', '.codeome/outbox/', '.codeome/inbox-support.json'];
 const ENGINE_LABEL = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
 const ENGINES = Object.keys(ENGINE_LABEL);
 const ROUTING = '.claude/skills/orchestrate/routing.md';
@@ -177,6 +177,15 @@ function mergeSettings(project) {
   add('PreToolUse', 'Edit|Write|MultiEdit|NotebookEdit');
   add('SubagentStart');
   add('SubagentStop');
+  if (Array.isArray(s.hooks.UserPromptSubmit)) {
+    s.hooks.UserPromptSubmit = s.hooks.UserPromptSubmit.flatMap((group) => {
+      if (!Array.isArray(group?.hooks)) return [group];
+      const hooks = group.hooks.filter((hook) => hook.command !== HOOK_CMD);
+      if (hooks.length === group.hooks.length) return [group];
+      return hooks.length ? [{ ...group, hooks }] : [];
+    });
+    if (!s.hooks.UserPromptSubmit.length) delete s.hooks.UserPromptSubmit;
+  }
   s.permissions = s.permissions || {};
   s.permissions.allow = s.permissions.allow || [];
   if (!s.permissions.allow.includes(PERMISSION)) s.permissions.allow.push(PERMISSION);

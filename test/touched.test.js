@@ -356,6 +356,38 @@ test('clear removes a record and tolerates a missing record', (t) => {
   assert.doesNotThrow(() => touched.clear(root, 'first'));
 });
 
+test('clear removes only this chat inbox and outbox files', (t) => {
+  const root = project(t);
+  const base = path.join(root, '.codeome');
+  for (const kind of ['inbox', 'outbox']) {
+    for (const chat of ['first', 'other']) {
+      const dir = path.join(base, kind, chat);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, '100-aaaaaaaa.json'), '{}');
+    }
+  }
+  touched.clear(root, 'first');
+  for (const kind of ['inbox', 'outbox']) {
+    assert.equal(fs.existsSync(path.join(base, kind, 'first')), false);
+    assert.equal(fs.existsSync(path.join(base, kind, 'other', '100-aaaaaaaa.json')), true);
+  }
+});
+
+test('clear skips an unsafe inbox directory and continues with outbox', (t) => {
+  const root = project(t);
+  const base = path.join(root, '.codeome');
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-unsafe-inbox-'));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  touched.record(root, 'first', meta, 'notes.txt', 'Edit');
+  fs.symlinkSync(outside, path.join(base, 'inbox'));
+  const outbox = path.join(base, 'outbox', 'first');
+  fs.mkdirSync(outbox, { recursive: true });
+  fs.writeFileSync(path.join(outbox, '100-aaaaaaaa.json'), '{}');
+  assert.doesNotThrow(() => touched.clear(root, 'first'));
+  assert.equal(fs.existsSync(outbox), false);
+  assert.equal(fs.lstatSync(path.join(base, 'inbox')).isSymbolicLink(), true);
+});
+
 test('record keeps the 200 most recent files', (t) => {
   const root = project(t);
   for (let i = 0; i < 201; i++) touched.record(root, 'first', meta, `file-${i}.txt`, 'Edit');

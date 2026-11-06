@@ -201,6 +201,7 @@ test('a failed chat start detaches the remote session', () => {
     ChatCode: require('../renderer/js/chat-code'),
     chats: new Map(), fs: { existsSync: () => true }, chat: { engineOf: (value) => value, listChats: () => [] },
     createAgentSession: () => ({ s: session, acct: { info: { name: 'Default' } } }),
+    createInboxIpc: () => ({}), inboxWire: { onAssistantEvent() {} },
     remote: { attach: () => calls.push('attach'), detach: () => calls.push('detach') },
     send() {}, scratch: { isScratch: () => false }, stats: { record() {} }, console
   });

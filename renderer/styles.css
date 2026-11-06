@@ -721,6 +721,28 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 
 .note { font-size: 12px; color: var(--muted); white-space: pre-wrap; padding: 4px 9px; border-left: 3px solid var(--line-strong); }
 .note.error { color: var(--fail); border-left-color: var(--fail); }
+.xmsg-card { align-self: stretch; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 10px 12px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.xmsg-outbox { border-left-color: var(--pend); background: var(--surface-2); }
+.xmsg-outbox.decided { border-left-color: var(--line-strong); }
+.xmsg-incoming { border-left-color: var(--accent); }
+.xmsg-conflict { padding: 7px 10px; gap: 4px; font-size: 12px; }
+.xmsg-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.xmsg-icon { font-size: 17px; color: var(--accent); }
+.xmsg-outbox .xmsg-icon { color: var(--pend); }
+.xmsg-time { color: var(--muted); font-size: 11px; margin-left: auto; }
+.xmsg-target, .xmsg-title { font-weight: 600; }
+.xmsg-badge { align-self: flex-start; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--muted); font-size: 10px; padding: 2px 5px; }
+.xmsg-text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.xmsg-brief { display: grid; gap: 8px; }
+.xmsg-section strong { display: block; margin-bottom: 3px; font-size: 11px; color: var(--muted); }
+.xmsg-section textarea, .xmsg-editor, .xmsg-reply textarea { display: block; width: 100%; box-sizing: border-box; resize: vertical; min-height: 58px; }
+.xmsg-recipients { border: 1px solid var(--line); border-radius: 5px; display: grid; gap: 4px; }
+.xmsg-recipients label { display: flex; gap: 6px; align-items: center; }
+.xmsg-status { font-size: 11px; color: var(--muted); }
+.xmsg-error { font-size: 11px; color: var(--fail); }
+.xmsg-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.xmsg-reply label { display: grid; gap: 4px; }
+.xmsg-card button:focus-visible, .xmsg-card textarea:focus-visible, .xmsg-card input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .tool { font-size: 12px; margin: -4px 0; }
 .tool-line { display: flex; align-items: center; gap: 7px; width: 100%; border: 0; background: transparent; padding: 2px 0; cursor: pointer; text-align: left; color: var(--muted); min-width: 0; }
@@ -905,6 +927,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .ctab.waiting .ct, .ctab.done .ct, .ctab.error .ct { color: var(--text); font-weight: 600; }
 .ctab .cjobs { font-size: 10px; font-weight: 600; line-height: 14px; min-width: 15px; padding: 0 4px; border-radius: 7px; text-align: center; background: color-mix(in srgb, var(--run) 18%, transparent); color: var(--run); font-variant-numeric: tabular-nums; }
 .ctab .ccollisions { font-size: 10px; font-weight: 600; line-height: 14px; min-width: 15px; padding: 0 4px; border-radius: 7px; text-align: center; background: color-mix(in srgb, var(--pend) 18%, transparent); color: var(--pend); font-variant-numeric: tabular-nums; }
+.ctab .cattention { font-size: 10px; font-weight: 600; line-height: 14px; padding: 0 4px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); }
 .ctab .cx { width: 18px; height: 18px; border: 0; background: transparent; border-radius: 4px; color: var(--muted); cursor: pointer; display: none; place-items: center; font-size: 14px; line-height: 1; flex: none; }
 .ctab:hover .cx, .ctab.active .cx, .ctab:focus-visible .cx { display: grid; }
 .ctab .cx:hover { background: var(--line-strong); color: var(--text); }

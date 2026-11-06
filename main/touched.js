@@ -210,6 +210,24 @@ function clear(cwd, chatId) {
     try { fs.unlinkSync(path.join(touchedDir(cwd), `${chatId}${suffix}.json`)); }
     catch (e) { if (e.code !== 'ENOENT') throw e; }
   }
+  for (const kind of ['inbox', 'outbox']) {
+    try {
+      const base = path.join(cwd, '.codeome');
+      const parent = path.join(base, kind);
+      const dir = path.join(parent, chatId);
+      let missing = false;
+      for (const part of [base, parent, dir]) {
+        try { if (!fs.lstatSync(part).isDirectory()) throw new Error('Unsafe message directory'); }
+        catch (e) { if (e.code === 'ENOENT') { missing = true; break; } throw e; }
+      }
+      if (missing) continue;
+      for (const name of fs.readdirSync(dir)) {
+        const file = path.join(dir, name);
+        if (fs.lstatSync(file).isFile()) fs.unlinkSync(file);
+      }
+      try { fs.rmdirSync(dir); } catch (e) { if (e.code !== 'ENOTEMPTY') throw e; }
+    } catch (e) { if (e.message !== 'Unsafe message directory') throw e; }
+  }
 }
 
-module.exports = { start, writeStatus, readMeta, record, heartbeat, list, conflicts, clear };
+module.exports = { start, writeStatus, readMeta, record, heartbeat, list, conflicts, clear, readJSON };

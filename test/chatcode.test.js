@@ -31,6 +31,7 @@ test('chat start resolves a saved code clash before session environment and resp
     awake: { track() {} }, remote: { attach() {}, detach() {} }, stats: { record() {} },
     touched: { start(_project, _id, meta) { touchedCode = meta.code; }, clear() {} },
     shouldRecord: () => true, send() {}, crashlog: { log() {} }, statusline: null,
+    refreshOutbox() {}, inboxWire: { onAssistantEvent() {} },
   };
   vm.runInNewContext(section, context);
   const result = handlers['chat:start'](null, { id: 'new', project: '/project', code: 'BCDF' });

@@ -9,8 +9,10 @@
   const Collisions = App.chatCollisions;
   const ChatCode = App.chatCode;
   const Presence = App.chatPresence;
+  const Xmsg = App.chatXmsg;
   App.views.chat = C;
   const dom = new WeakMap(); // item → element
+  const newChatAttempts = new Set(); // origin id + request id; also guards duplicate events during async setup
   let logEl, ta, attEl, sugEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl, noticeEl;
 
   const MODES = [
@@ -95,6 +97,7 @@
       if (it.t === 'tool' && !it.done) it.done = true;
       if (it.t === 'progress' && it.status === 'running') { it.status = 'stale'; it.endedAt ||= Date.now(); }
       if (it.t === 'text') it.live = false;
+      if (it.t === 'outbox' || it.t === 'xmsg') it.acting = false;
     }
     C.byId[chat.id] = chat;
     return chat;
@@ -104,7 +107,7 @@
   C.current = cur;
   C.isBusy = (project) => tabsOf(project).some((c) => c.busy);
   C.title = () => { const c = cur(); return c && c.title; };
-  const waiting = (c) => Object.keys(c.requests).length > 0;
+  const waiting = (c) => Object.keys(c.requests).length > 0 || c.items.some((it) => it.t === 'outbox' && it.status === 'pending');
   const runningJobs = (c) => c.items.filter((x) => x.t === 'job' && (x.status === 'running' || x.status === 'pausing'));
   const presenceScheduler = Presence && codeome.chat.presence ? Presence.createScheduler({
     getPayload: (chat) => Presence.presenceOf(chat, { waiting, runningJobs }),
@@ -142,6 +145,7 @@
     }
     const pending = codeome.chat.pending ? await codeome.chat.pending().catch(() => []) : [];
     for (const c of tabs) reconcilePending(c, pending);
+    await Promise.all(tabs.map(refreshOutbox));
     if (!tabs.length) tabs.push(blank(project));
     return { tabs, active: tabs.find((c) => c.id === saved.active) || tabs[0] };
   }
@@ -174,16 +178,21 @@
     if (now) return run(); else saveTimers[chat.id] = setTimeout(run, 800);
   }
 
-  // A new tab; an unused blank tab is reused rather than piling up.
-  C.newChat = async (opts = {}) => {
-    const project = App.project;
+  // A new tab; an unused blank tab is reused rather than piling up for manual creation.
+  function newChatTab(project, opts = {}, reuse = true) {
     if (!project) return App.toast('Open a project folder first.');
     const t = C.byProject[project] || (C.byProject[project] = { tabs: [], active: null });
-    let chat = t.tabs.find((c) => !c.started && !c.items.length && !c.running);
+    let chat = reuse && t.tabs.find((c) => !c.started && !c.items.length && !c.running);
     if (chat) { chat.role = ''; chat.enginePicked = false; chat.modePicked = false; refreshBlank(chat, opts); if (opts.account) chat.account = opts.account; }
     else { chat = blank(project, opts); t.tabs.push(chat); }
+    return chat;
+  }
+  C.newChat = async (opts = {}) => {
+    const chat = newChatTab(App.project, opts);
+    if (!chat || typeof chat !== 'object') return;
     C.activate(chat);
-    if (opts.send) C.send(opts.send); else focus();
+    if (opts.send) await sendTo(chat, opts.send); else focus();
+    return chat;
   };
 
   // Open a saved conversation in a tab (or show its tab).
@@ -199,6 +208,7 @@
       t.tabs.push(c);
     }
     reconcilePending(c, codeome.chat.pending ? await codeome.chat.pending().catch(() => []) : []);
+    await refreshOutbox(c);
     C.activate(c);
   };
 
@@ -209,6 +219,7 @@
     const old = t.active;
     if (old && ta && chat.project === App.project && old !== chat) old.draft = ta.value;
     t.active = chat;
+    chat.attention = false;
     schedulePresence(chat);
     if (chat.project !== App.project) return persistTabs(chat.project);
     if (ta && old !== chat) { ta.value = chat.draft || ''; autosize(); }
@@ -445,31 +456,33 @@
 
   const firstTitle = (text, files) => (text || files.map(App.basename).join(', ')).replace(/\s+/g, ' ').slice(0, 80);
 
-  C.send = async (text, files = []) => {
-    const chat = cur();
+  C.send = (text, files = []) => sendTo(cur(), text, files);
+  async function sendTo(chat, text, files = [], retry = false) {
     text = String(text || '').trim();
-    if (!chat || (!text && !files.length)) return;
+    if (!chat || (!text && !files.length)) return { ok: false, error: 'The message is empty.' };
     if (!chat.title) chat.title = firstTitle(text, files);
-    push(chat, files.length ? { t: 'user', text, files } : { t: 'user', text });
+    if (!retry) push(chat, files.length ? { t: 'user', text, files } : { t: 'user', text });
     clearSuggest(chat);
     App.emit('chat');
-    if (!chat.running && !(await start(chat))) return;
+    if (!chat.running && !(await start(chat))) return { ok: false, error: chat.startError || 'Could not start the chat.' };
     chat.busy = true; chat.busySince = Date.now(); paintState();
     schedulePresence(chat);
     const r = await codeome.chat.send(chat.id, withFiles(text, files));
     if (r.error) { note(chat, r.error, 'error'); chat.busy = false; paintState(); }
     schedulePresence(chat);
     chat.started = true;
-    save(chat, true);
+    await save(chat, true);
     persistTabs(chat.project);
-  };
+    return r.error ? { ok: false, error: r.error } : { ok: true };
+  }
 
   async function start(chat) {
-    if (!(await App.setup.ensureCli(engineOf(chat)))) { note(chat, `${ENGINE[engineOf(chat)]} is not installed on this Mac, so this chat cannot start.`, 'error'); return false; }
+    if (!(await App.setup.ensureCli(engineOf(chat)))) { chat.startError = `${ENGINE[engineOf(chat)]} is not installed on this Mac, so this chat cannot start.`; note(chat, chat.startError, 'error'); return false; }
     // A conversation lives in its account's config folder, so it resumes there.
     const r = await codeome.chat.start({ id: chat.id, project: chat.project, code: chat.code, engine: engineOf(chat), role: chat.role || '', account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
       meter: chat.usage ? { context: chat.usage.context, run: chat.usage.run } : null });
-    if (r.error) { note(chat, r.error, 'error'); return false; }
+    if (r.error) { chat.startError = r.error; note(chat, r.error, 'error'); return false; }
+    chat.startError = '';
     if (r.code && chat.code !== r.code) { chat.code = r.code; scheduleTabs(); }
     chat.running = true;
     schedulePresence(chat, true);
@@ -593,6 +606,22 @@
 
   function handle(chat, m) {
     switch (m.type) {
+      case 'outgoing': upsertOutbox(chat, m); break;
+      case 'receipt': {
+        const it = chat.items.find((x) => x.t === 'outbox' && x.id === m.id);
+        if (it && Xmsg.receipt(it, m)) { update(chat, it); save(chat); scheduleTabs(); schedulePresence(chat); }
+        break;
+      }
+      case 'newchat': {
+        const it = chat.items.find((x) => x.t === 'outbox' && x.id === m.id);
+        if (it && !it.newChatCode && !it.newChat?.tabId) {
+          it.status = 'approved'; it.newChat = { engine: m.engine, title: m.title, prompt: m.prompt, brief: m.brief };
+          update(chat, it); save(chat); scheduleTabs(); schedulePresence(chat);
+          void startApprovedChat(chat, it);
+        }
+        break;
+      }
+      case 'inbox': upsertIncoming(chat, m); break;
       case 'collision':
         if (!tabsOf(chat.project).includes(chat)) break;
         chat.collisions = Collisions.add(chat.collisions, m);
@@ -975,6 +1004,62 @@
     }
   }
 
+  async function refreshOutbox(chat) {
+    if (codeome.inbox?.pending) {
+      const rows = await codeome.inbox.pending(chat.id).catch(() => []);
+      if (Array.isArray(rows)) for (const row of rows) if (row?.type === 'outgoing') upsertOutbox(chat, row);
+    }
+    if (!codeome.inbox?.status) return;
+    const cards = chat.items.filter((it) => ['outbox', 'xmsg'].includes(it.t) &&
+      !['read', 'declined', 'expired', 'dismissed', 'undeliverable'].includes(it.status));
+    for (let start = 0; start < cards.length; start += 50) {
+      const batch = cards.slice(start, start + 50);
+      const states = await codeome.inbox.status(chat.id, chat.project,
+        batch.map((it) => ({ id: it.id, box: it.t === 'outbox' ? 'outbox' : 'inbox' }))).catch(() => []);
+      if (!Array.isArray(states) || states.length !== batch.length) continue;
+      for (let n = 0; n < batch.length; n++) {
+        const it = batch[n], row = states[n];
+        if (row?.id !== it.id || typeof row.status !== 'string') continue;
+        if (it.t === 'outbox') {
+          Xmsg.receipt(it, row);
+          if (row.new_chat_code) it.newChatCode = row.new_chat_code;
+        } else {
+          it.status = row.status;
+          it.awaiting = row.status === 'awaiting_accept';
+        }
+        update(chat, it);
+      }
+      save(chat); scheduleTabs();
+    }
+  }
+
+  function upsertOutbox(chat, row) {
+    if (!row || typeof row.id !== 'string' || !['message', 'handoff', 'newchat'].includes(row.kind)) return;
+    const prior = chat.items.find((it) => it.t === 'outbox' && it.id === row.id);
+    if (prior) {
+      if (prior.status !== 'pending') return;
+      Object.assign(prior, { kind: row.kind, from: row.from, to: row.to, recipients: row.recipients, title: row.title,
+        engine: row.engine, text: row.text, brief: row.brief, textHash: row.textHash, ts: row.ts });
+      update(chat, prior);
+    } else push(chat, { t: 'outbox', id: row.id, kind: row.kind, from: row.from, to: row.to, recipients: row.recipients,
+      title: row.title, engine: row.engine, text: row.text, brief: row.brief, textHash: row.textHash,
+      ts: row.ts, status: 'pending' });
+    save(chat); scheduleTabs(); schedulePresence(chat);
+  }
+
+  function upsertIncoming(chat, row) {
+    if (!row || typeof row.id !== 'string') return;
+    const prior = chat.items.find((it) => it.t === 'xmsg' && it.id === row.id);
+    if (prior) {
+      Object.assign(prior, { status: row.status, awaiting: !!row.awaiting, from: row.from,
+        text: row.text, brief: row.brief, by_user: row.by_user, ts: row.ts });
+      update(chat, prior);
+    } else push(chat, { t: 'xmsg', id: row.id, kind: row.kind, status: row.status,
+      awaiting: !!row.awaiting, from: row.from, text: row.text, brief: row.brief,
+      by_user: row.by_user, ts: row.ts });
+    save(chat);
+  }
+
   async function decide(chat, it, decision, feedback) {
     const req = chat.requests[it.requestId];
     if (!req) return;
@@ -1046,7 +1131,7 @@
   function push(chat, it) {
     if (!it.at) it.at = Date.now();
     chat.items.push(it);
-    if (['user', 'job', 'perm', 'ask'].includes(it.t)) schedulePresence(chat);
+    if (['user', 'job', 'perm', 'ask', 'outbox'].includes(it.t)) schedulePresence(chat);
     if (chat === cur() && logEl) { const stick = atBottom(); logEl.querySelector('.chat-empty')?.remove(); logEl.append(render(chat, it)); paintThinking(); if (stick) scrollEnd(); }
   }
 
@@ -1079,7 +1164,7 @@
   let raf = new Set(), rafId = 0;
   function update(chat, it) {
     if (it.t === 'job') scheduleTabs();
-    if (it.t === 'job' || it.t === 'perm' || it.t === 'ask') schedulePresence(chat);
+    if (it.t === 'job' || it.t === 'perm' || it.t === 'ask' || it.t === 'outbox') schedulePresence(chat);
     if (chat !== cur() || !dom.get(it)) return;
     raf.add(it);
     if (!rafId) rafId = requestAnimationFrame(() => {
@@ -1186,6 +1271,8 @@
       case 'user': el = h('div.msg.user', it.text, it.files ? h('div.msg-files', it.files.map((f) => h('span.fchip', { title: App.tildify(f) }, h('span', App.basename(f))))) : null); break;
       case 'text': el = h('div.msg.md' + (it.live ? '.live' : ''), { html: App.md(it.text) }); break;
       case 'note': el = h('div.note.' + (it.kind || 'info'), it.text, it.newChat ? [' ', h('button.btn.small', { onclick: () => C.newChat() }, 'New chat')] : null); break;
+      case 'outbox': el = outboxCard(chat, it); break;
+      case 'xmsg': el = incomingCard(chat, it); break;
       case 'tool': {
         const [verb, what] = summary(it.name, it.input || {}, chat.project);
         el = h('div.tool' + (it.done ? '' : '.run') + (it.error ? '.err' : '') + (it.open ? '.open' : ''),
@@ -1231,6 +1318,246 @@
     if ((it.t === 'user' || it.t === 'text') && it.at) el.prepend(stamp(it.at));
     dom.set(it, el);
     return el;
+  }
+
+  const xmsgTime = (it) => Number.isFinite(it.ts) ? new Date(it.ts * 1000).toLocaleString() : '';
+  function briefView(brief, editable, values, onChange) {
+    const parts = Xmsg.briefParts(brief);
+    return h('div.xmsg-brief', Xmsg.sections.filter(([key]) => editable || Object.hasOwn(parts, key))
+      .map(([key, label]) => h('div.xmsg-section',
+      h('strong', label), editable
+        ? h('textarea', { rows: 2, 'aria-label': label, value: values[key] ?? parts[key],
+          oninput: (e) => onChange(key, e.target.value) })
+        : h('div.xmsg-text', parts[key]))));
+  }
+
+  function outboxTarget(chat, it) {
+    if (it.to === 'all') return 'To all live chats';
+    if (it.to == null) return it.kind === 'handoff'
+      ? `Hand off a task to a new ${it.engine || engineOf(chat)} chat`
+      : `Start a new ${it.engine || engineOf(chat)} chat`;
+    const target = tabsOf(chat.project).find((c) => c.id === it.to?.chat_id);
+    const title = it.to?.title || target?.title || '';
+    return `${it.kind === 'handoff' ? 'Hand off a task to' : 'To'} ${Xmsg.plain(it.to?.code)}${title ? ' - ' + Xmsg.plain(title) : ''}`;
+  }
+
+  function approvedFirstTurn(origin, it) {
+    if (it.kind !== 'handoff') return Xmsg.plain(it.newChat?.prompt);
+    const brief = Xmsg.editedBrief(Xmsg.briefParts(it.newChat?.brief));
+    return `Started at the user's approval from chat ${origin.code} (${origin.title || 'Untitled chat'}). Brief:\n\n${brief}`;
+  }
+
+  async function startApprovedChat(origin, it) {
+    if (!it.newChat || it.newChatCode) return;
+    const key = `${origin.id}:${it.id}`;
+    if (newChatAttempts.has(key)) return;
+    newChatAttempts.add(key);
+    let target;
+    try {
+      const states = await codeome.inbox.status(origin.id, origin.project, [{ id: it.id, box: 'outbox' }]);
+      const approved = states?.[0];
+      if (approved?.id !== it.id || approved.status !== 'approved' || !approved.new_chat)
+        throw new Error('The approved prompt is no longer available.');
+      it.newChat = { ...it.newChat, ...approved.new_chat };
+      target = it.newChat.tabId && C.byId[it.newChat.tabId];
+      if (!target && it.newChat.tabId) {
+        const saved = await codeome.chat.load(origin.project, it.newChat.tabId);
+        if (!saved?.items) throw new Error('The new chat tab could not be loaded.');
+        target = live(saved);
+        const tabs = tabsOf(origin.project);
+        if (!tabs.includes(target)) tabs.push(target);
+      }
+      if (!target) {
+        target = newChatTab(origin.project, { engine: it.newChat.engine || engineOf(origin) }, false);
+        if (!target || typeof target !== 'object') throw new Error('Could not create a chat tab.');
+        if (it.newChat.title) target.title = it.newChat.title;
+        note(target, `Started from chat ${origin.code} at your approval`);
+        target.attention = true;
+        it.newChat.tabId = target.id;
+        await save(target, true);
+        await save(origin, true); // The tab id survives a reload before the first turn starts.
+        persistTabs(origin.project);
+        scheduleTabs();
+      }
+      if (!it.newChat.sent && target.started && target.items.some((item) =>
+        item.t === 'user' && item.text === approvedFirstTurn(origin, it))) it.newChat.sent = true;
+      if (!it.newChat.sent) {
+        const result = await sendTo(target, approvedFirstTurn(origin, it), [], target.items.some((item) => item.t === 'user'));
+        it.newChat.attempted = true;
+        if (!result.ok) throw new Error(result.error || 'Could not send the first turn.');
+        it.newChat.sent = true;
+        await save(origin, true);
+      }
+      const result = await codeome.inbox.setNewChatCode(origin.id, it.id, target.code);
+      if (!result?.ok) throw new Error('Could not record the new chat code. Try again.');
+      it.newChatCode = target.code;
+      it.error = '';
+      save(origin, true);
+      scheduleTabs();
+    } catch (cause) {
+      it.newChat.attempted = true;
+      it.error = cause instanceof Error ? cause.message : 'Could not start the chat. Try again.';
+      if (target) save(target, true);
+      save(origin, true);
+    } finally {
+      newChatAttempts.delete(key);
+      update(origin, it);
+    }
+  }
+
+  async function outboxAction(chat, it, action) {
+    if (it.acting || it.status !== 'pending') return;
+    if (action === 'approve' && it.editing) {
+      const edited = it.kind === 'handoff' ? Xmsg.editedBrief(it.briefDraft || Xmsg.briefParts(it.brief)) : it.draft ?? it.text;
+      const limit = it.kind === 'handoff' ? 8000 : it.kind === 'newchat' ? 4000 : 2000;
+      const complete = it.kind !== 'handoff' || Xmsg.sections.every(([key]) =>
+        (it.briefDraft?.[key] ?? Xmsg.briefParts(it.brief)[key]).trim());
+      it.fieldError = !edited.trim() || !complete ? 'Fill in the message and every brief section.'
+        : edited.length > limit ? `Keep the edited text within ${limit} characters.` : '';
+      if (it.fieldError) { update(chat, it); return; }
+    }
+    it.fieldError = '';
+    it.acting = true; it.error = ''; update(chat, it);
+    try {
+      let result;
+      if (action === 'decline') result = await codeome.inbox.decline(chat.id, it.id);
+      else {
+        const options = { textHash: it.textHash };
+        if (it.to === 'all') options.recipients = it.selectedRecipients || [];
+        if (it.editing) options.edited = it.kind === 'handoff'
+          ? { brief: Xmsg.editedBrief(it.briefDraft || Xmsg.briefParts(it.brief)) }
+          : it.draft ?? it.text;
+        result = await codeome.inbox.approve(chat.id, it.id, options);
+      }
+      if (result?.ok) {
+        if (it.status === 'pending') it.status = action === 'decline' ? 'declined' : 'approved';
+        it.editing = false;
+        if (action !== 'decline' && result.record) {
+          it.text = result.record.text;
+          it.brief = result.record.brief;
+        }
+      } else {
+        const reason = result?.reason;
+        it.error = reason === 'changed' ? 'The request changed; review it again.'
+          : reason === 'no_recipients' ? 'Select at least one live chat.'
+            : reason === 'expired' ? 'This request expired.'
+              : reason === 'invalid_edit' ? 'Check the edited text and required brief sections.'
+                : 'Could not ' + (action === 'decline' ? 'decline' : 'approve') + ' this request (' + (reason || 'error') + ').';
+        if (reason === 'expired') it.status = 'expired';
+        if (reason === 'changed') {
+          it.editing = false; it.draft = undefined; it.briefDraft = undefined;
+          await refreshOutbox(chat);
+        }
+      }
+    } catch { it.error = 'Could not complete this action. Try again.'; }
+    it.acting = false; update(chat, it); save(chat); scheduleTabs(); schedulePresence(chat);
+  }
+
+  function outboxCard(chat, it) {
+    const pending = it.status === 'pending';
+    const recipients = Array.isArray(it.recipients) ? it.recipients : [];
+    if (it.to === 'all' && !Array.isArray(it.selectedRecipients)) it.selectedRecipients = recipients.map((r) => r.chat_id);
+    const selection = it.selectedRecipients || [];
+    const editing = pending && it.editing;
+    const status = ({ pending: 'Awaiting your approval', approved: it.newChatCode ? `Started chat ${it.newChatCode}` : it.newChat ? 'Approved - starting chat' : 'Approved',
+      delivered: 'Delivered' + (it.readBy ? ' to ' + it.readBy : ''), read: 'Read' + (it.readBy ? ' by ' + it.readBy : ''),
+      declined: 'Declined', expired: 'Expired', dismissed: 'Dismissed', undeliverable: 'Could not be delivered' })[it.status] || Xmsg.plain(it.status);
+    return h('section.xmsg-card.xmsg-outbox' + (pending ? '' : '.decided'), { 'aria-label': 'Cross-chat approval' },
+      h('div.xmsg-head', h('span.xmsg-icon', { 'aria-hidden': 'true' }, '↗'), h('strong', pending ? 'Awaiting your approval' : 'Outgoing message'),
+        h('span.xmsg-time', xmsgTime(it))),
+      h('div.xmsg-target', outboxTarget(chat, it)),
+      it.from ? h('div.xmsg-sender', `From ${Xmsg.plain(it.from.code)}${it.from.title ? ' - ' + Xmsg.plain(it.from.title) : ''}`) : null,
+      it.title ? h('div.xmsg-title', Xmsg.plain(it.title)) : null,
+      it.to === 'all' ? h('fieldset.xmsg-recipients', h('legend', 'Recipients'), recipients.map((r) =>
+        h('label', h('input', { type: 'checkbox', checked: selection.includes(r.chat_id), disabled: !pending || it.acting,
+          onchange: (e) => {
+            const current = it.selectedRecipients || [];
+            it.selectedRecipients = e.target.checked
+              ? [...current, r.chat_id] : current.filter((id) => id !== r.chat_id);
+            const approve = e.currentTarget?.closest('.xmsg-card')?.querySelector('.xmsg-actions .primary');
+            if (approve) approve.disabled = !it.selectedRecipients.length;
+            else update(chat, it);
+            save(chat);
+          } }),
+          `${Xmsg.plain(r.code)}${r.title ? ' - ' + Xmsg.plain(r.title) : ''}`))) : null,
+      it.kind === 'handoff'
+        ? briefView(it.brief, editing, it.briefDraft || {}, (key, value) => {
+          it.briefDraft ||= Xmsg.briefParts(it.brief); it.briefDraft[key] = value;
+        })
+        : editing
+          ? h('textarea.xmsg-editor', { rows: 5, 'aria-label': 'Edit outgoing message', value: it.draft ?? it.text,
+            oninput: (e) => { it.draft = e.target.value; } })
+          : h('div.xmsg-text', Xmsg.plain(it.text)),
+      it.fieldError ? h('div.xmsg-error', { role: 'alert' }, it.fieldError) : null,
+      h('div.xmsg-status', { role: 'status' }, status),
+      it.error ? h('div.xmsg-error', { role: 'alert' }, it.error) : null,
+      it.newChatCode ? h('div.xmsg-actions', h('button.btn.small', {
+        onclick: () => { if (it.newChat?.tabId) void C.open(it.newChat.tabId); }
+      }, `Open chat ${it.newChatCode}`)) : null,
+      it.newChat && it.status === 'approved' && !it.newChatCode ? h('div.xmsg-actions', h('button.btn.small.primary', {
+        disabled: newChatAttempts.has(`${chat.id}:${it.id}`), onclick: () => { void startApprovedChat(chat, it); }
+      }, 'Retry')) : null,
+      pending ? h('div.xmsg-actions',
+        h('button.btn.small.primary', { disabled: !!it.acting || it.to === 'all' && !selection.length,
+          onclick: () => outboxAction(chat, it, 'approve') }, editing ? 'Approve edited' : 'Approve'),
+        h('button.btn.small', { disabled: !!it.acting, onclick: () => { it.editing = !it.editing; it.error = ''; update(chat, it); } }, editing ? 'Cancel edit' : 'Edit'),
+        h('button.btn.small', { disabled: !!it.acting, onclick: () => outboxAction(chat, it, 'decline') }, 'Decline')) : null);
+  }
+
+  async function incomingAction(chat, it, action) {
+    if (it.acting) return;
+    if (action === 'reply') {
+      it.fieldError = !it.replyDraft?.trim() ? 'Write a reply before sending.'
+        : it.replyDraft.length > 2000 ? 'Keep the reply within 2000 characters.' : '';
+      if (it.fieldError) { update(chat, it); return; }
+    }
+    it.fieldError = '';
+    it.acting = true; it.error = ''; update(chat, it);
+    try {
+      const result = action === 'reply'
+        ? await codeome.inbox.reply(chat.id, it.id, it.replyDraft)
+        : await codeome.inbox[action](chat.id, it.id);
+      if (result?.ok) {
+        if (action === 'accept') { it.awaiting = false; it.status = 'delivered'; }
+        else if (action === 'dismiss') { it.awaiting = false; it.status = 'dismissed'; }
+        else { it.replying = false; it.replySent = true; it.replyDraft = ''; }
+      } else it.error = result?.reason === 'expired' ? (it.status = 'expired', 'Expired')
+        : result?.reason === 'gone' ? 'The sending chat is no longer live.'
+        : result?.reason === 'rate_limit' ? 'Reply limit reached; try again in a minute.'
+          : 'Could not ' + (action === 'reply' ? 'send reply' : 'complete action') + ' (' + (result?.reason || 'error') + ').';
+    } catch { it.error = 'Could not complete this action. Try again.'; }
+    it.acting = false; update(chat, it); save(chat);
+  }
+
+  function incomingCard(chat, it) {
+    if (it.kind === 'conflict') return h('section.xmsg-card.xmsg-incoming.xmsg-conflict',
+      { 'aria-label': 'Codeome notice: file conflict' },
+      h('div.xmsg-head', h('strong', 'Codeome notice: file conflict'), h('span.xmsg-time', xmsgTime(it))),
+      h('div.xmsg-text', Xmsg.plain(it.text)));
+    const handoff = it.kind === 'handoff';
+    const awaiting = handoff && (it.awaiting || it.status === 'awaiting_accept');
+    const from = `${Xmsg.plain(it.from?.code)}${it.from?.title ? ' - ' + Xmsg.plain(it.from.title) : ''}`;
+    return h('section.xmsg-card.xmsg-incoming', { 'aria-label': handoff ? 'Incoming task handoff' : 'Incoming cross-chat message' },
+      h('div.xmsg-head', h('span.xmsg-icon', { 'aria-hidden': 'true' }, '↙'),
+        h('strong', handoff ? `Task handed off from ${from}` : `Message from chat ${from}`), h('span.xmsg-time', xmsgTime(it))),
+      h('span.xmsg-badge', it.by_user ? 'Written by the user' : 'Untrusted: written by another agent'),
+      handoff ? briefView(it.brief, false, {}, () => {}) : h('div.xmsg-text', Xmsg.plain(it.text)),
+      h('div.xmsg-status', { role: 'status' }, awaiting ? 'The agent has not seen this task.'
+        : it.status === 'dismissed' ? 'Dismissed; the agent did not see this task.'
+          : it.status === 'expired' ? 'Expired'
+          : it.replySent ? '✓✓ Reply sent' : '✓✓ Delivered to this chat'),
+      it.error ? h('div.xmsg-error', { role: 'alert' }, it.error) : null,
+      awaiting ? h('div.xmsg-actions',
+        h('button.btn.small.primary', { disabled: !!it.acting, onclick: () => incomingAction(chat, it, 'accept') }, 'Start task'),
+        h('button.btn.small', { disabled: !!it.acting, onclick: () => incomingAction(chat, it, 'dismiss') }, 'Dismiss'))
+        : !['dismissed', 'expired', 'undeliverable'].includes(it.status) && it.from?.chat_id ? it.replying
+          ? h('div.xmsg-reply', h('label', 'Reply', h('textarea', { rows: 3, maxlength: 2000, value: it.replyDraft || '',
+            oninput: (e) => { it.replyDraft = e.target.value; } })),
+            it.fieldError ? h('div.xmsg-error', { role: 'alert' }, it.fieldError) : null,
+            h('div.xmsg-actions',
+            h('button.btn.small.primary', { disabled: !!it.acting, onclick: () => incomingAction(chat, it, 'reply') }, 'Send'),
+            h('button.btn.small', { disabled: !!it.acting, onclick: () => { it.replying = false; it.error = ''; update(chat, it); } }, 'Cancel')))
+          : h('div.xmsg-actions', h('button.btn.small', { onclick: () => { it.replying = true; update(chat, it); } }, 'Reply')) : null);
   }
 
   function openJob(it) {
@@ -1781,6 +2108,7 @@
       engineOf(c) === 'codex' ? h('span.ceng', 'Codex') : null,
       c.role ? h('span.ceng.persona', { title: personaName(c.role) }, personaName(c.role)) : null,
       h('span.ct', title),
+      c.attention ? h('span.cattention', { 'aria-label': 'New chat started' }, 'New') : null,
       jobs.length ? h('span.cjobs', { title: `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` }, String(jobs.length)) : null,
       collisions.length ? h('span.ccollisions', { 'aria-hidden': 'true' }, String(collisions.length)) : null,
       h('button.cx', { title: 'Close chat', 'aria-label': 'Close ' + title, tabindex: '-1', onclick: (e) => { e.stopPropagation(); C.closeTab(c); } }, '×'));

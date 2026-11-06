@@ -168,11 +168,12 @@ test('agent secret metadata exposes file kind and quit hooks clean up files', ()
     app: { on: (name, fn) => { hooks[name] = fn; } }, secretFileStore: { cleanupAll: () => cleaned.push(true) },
     awake: { track() {}, sync() {}, dispose() {} }, forumHost: { disposeAll: () => {} }, clearCopied: () => {}, stopLogins: () => {}, tunnel: null,
     heartbeatTimer: null, clearInterval: () => {}, flushRendererLogs: () => {}, crashlog: { markClean: () => {} },
-    remoteService: { stop() {} }
+    remoteService: { stop() {} }, closeOutbox: () => cleaned.push('outbox')
   });
   hooks['before-quit']();
   hooks['will-quit']();
-  assert.equal(cleaned.length, 2);
+  assert.equal(cleaned.length, 3);
+  assert.ok(cleaned.includes('outbox'), 'quit closes the outbox watchers');
   assert.match(source, /app\.whenReady\(\)\.then\(\(\) => \{\s*secretFileStore = createStore\(app\.getPath\('userData'\)\);\s*try \{ secretFileStore\.sweepStale\(\); \} catch \{\}/);
 });
 

@@ -30,6 +30,9 @@ const chat = require('./chat');
 const touched = require('./touched');
 const ChatCode = require('../renderer/js/chat-code');
 const { applyPresence, shouldRecord } = require('./presence');
+const inbox = require('./inbox');
+const { createInboxWire } = require('./inboxwire');
+const { createInboxIpc, createOutboxWatcher } = require('./inboxipc');
 const projectChat = require('./projectchat');
 const policy = require('./policy');
 const resources = require('./resources');
@@ -128,6 +131,9 @@ function logRendererLine(message, source) {
 }
 
 function send(channel, payload) { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); }
+const inboxWire = createInboxWire({ inbox, chats, touched, send: (id, msg) => send('chat:event', { id, msg }) });
+const { refresh: refreshOutbox, close: closeOutbox } = createOutboxWatcher({ inboxWire, chats,
+  appVersion: require('../package.json').version });
 const remote = createRemote({ send, loadChat: chat.loadChat });
 const remoteService = createService({ createServer, createAuth, createLimiter, remote, sessions: chats,
   loadChat: chat.loadChat, listChats: chat.listChats, getConfig: () => cfg,
@@ -1515,7 +1521,12 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     const taken = new Set(chat.listChats(project).filter((c) => c.id !== id).map((c) => c.code));
     const code = ChatCode.isCode(askedCode) && !taken.has(askedCode) ? askedCode : ChatCode.generate(taken);
     const { s, acct } = createAgentSession({ id, project, engine, account, resume, mode, meter, persona, code });
-    s.on('message', (msg) => send('chat:event', { id, msg }));
+    s.on('message', (msg) => {
+      send('chat:event', { id, msg });
+      if (msg?.type === 'collision' && Array.isArray(msg.others))
+        for (const other of msg.others) inboxWire.conflict(id, { path: msg.path, other: { chatId: other.chat_id } });
+      inboxWire.onAssistantEvent(id, msg);
+    });
     remote.attach(s, id, { project, engine, role: persona, seed: resume });
     // Codex limits are read from its app-server by the usage poll, so only Claude's are recorded here.
     s.on('turn', (t) => { if (scratch.isScratch(project)) return; try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, engine, ...t }); } catch (e) { console.error('chat stats', e); } });
@@ -1524,11 +1535,15 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     chats.set(id, s);
     if (shouldRecord({ forum: false, scratch: scratch.isScratch(project), hasCodeomeDir: fs.existsSync(path.join(project, '.codeome')) })) {
       try { touched.start(project, id, { engine, title: s.getTitle(), code }); } catch {}
+      if (!scratch.isScratch(project)) refreshOutbox(project);
     }
     return { ok: true, account: acct.info, code };
   } catch (e) { remote.detach(id); return { error: String(e.message || e) }; }
 });
 ipcMain.handle('chat:presence', (_e, payload) => applyPresence(chats, payload, { touched }));
+
+const inboxIpc = createInboxIpc({ chats, inboxWire, getWindow: () => win, loadChat: chat.loadChat });
+for (const [name, handler] of Object.entries(inboxIpc)) ipcMain.handle(`inbox:${name}`, handler);
 
 const forumHost = createHost({ getCfg: () => cfg, send, claudeCmd, codexCmd, launchOn, stats,
   makeAgentSession: (seat, project) => createAgentSession({ id: seat.sessionId, project, engine: seat.engine,
@@ -1628,7 +1643,7 @@ ipcMain.handle('chat:move', (_e, { id, from, to, engine }) => {
     return { ok: true };
   } catch (e) { return { error: String(e.message || e) }; }
 });
-ipcMain.handle('chat:send', (_e, { id, text }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; s.user(text); remote.recordUser(id, text); return { ok: true }; });
+ipcMain.handle('chat:send', (_e, { id, text }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; inboxWire.onUserTurn(id); s.user(text); remote.recordUser(id, text); return { ok: true }; });
 ipcMain.handle('chat:respond', (_e, { id, requestId, response }) => remote.respond(id, requestId, response, 'desktop'));
 ipcMain.handle('chat:pending', () => remote.registry.list());
 ipcMain.handle('chat:control', async (_e, { id, request }) => { const s = chats.get(id); if (!s) return { error: 'The session is not running.' }; const result = await s.control(request); if (!result?.error && request?.subtype === 'set_permission_mode') s.permissionMode = request.mode; return result; });
@@ -1866,9 +1881,13 @@ app.whenReady().then(() => {
   }
   let warnedWorkingSet = 0;
   heartbeatTimer = setInterval(() => {
+    const projects = new Set();
     for (const [id, session] of chats) {
       try { touched.heartbeat(session.cwd, id); } catch (err) { crashlog.logError('touched heartbeat', err); }
+      if (shouldRecord({ forum: false, scratch: scratch.isScratch(session.cwd),
+        hasCodeomeDir: fs.existsSync(path.join(session.cwd, '.codeome')) }) && !scratch.isScratch(session.cwd)) projects.add(session.cwd);
     }
+    for (const project of projects) refreshOutbox(project);
     try {
       const mem = app.getAppMetrics().map((m) => ({ type: m.type, pid: m.pid, workingSetSize: m.memory.workingSetSize }));
       crashlog.heartbeat({ mem });
@@ -1887,6 +1906,7 @@ app.whenReady().then(() => {
 });
 app.on('before-quit', () => {
   quitting = true;
+  try { closeOutbox(); } catch {}
   if (typeof issuePoller !== 'undefined' && issuePoller) issuePoller.stop();
   remoteService.stop();
   awake.dispose();

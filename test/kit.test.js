@@ -18,7 +18,7 @@ const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const agentBin = (project) => path.join(project, '.codeome', 'bin', 'codeome-agent');
 
 test('every role has the metadata the installer and router need', () => {
-  assert.strictEqual(kit.MANIFEST.version, '0.9.3');
+  assert.strictEqual(kit.MANIFEST.version, '0.9.4');
   assert.match(fs.readFileSync(path.join(__dirname, '../kit/roles/_report.md'), 'utf8'), /^## Progress$/m);
   const groups = Object.keys(kit.MANIFEST.groups);
   for (const r of kit.roles()) {
@@ -64,9 +64,13 @@ test('install writes roles, skills, routing, runner, hooks and gitignore', () =>
   assert.ok(s.hooks.PreToolUse.some((g) => g.matcher === 'Bash'));
   assert.ok(s.hooks.PreToolUse.some((g) => g.matcher === 'Edit|Write|MultiEdit|NotebookEdit'));
   assert.ok(s.hooks.SubagentStop[0].hooks[0].command.includes('codeome-agent'));
+  assert.equal(s.hooks.UserPromptSubmit, undefined);
   assert.ok(s.permissions.allow.includes('Bash(.codeome/bin/codeome-agent *)'));
   assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^node_modules\/\n\n# Codeome agent jobs\n\.codeome\/jobs\/\n/);
   assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^\.codeome\/touched\/$/m);
+  assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^\.codeome\/inbox\/$/m);
+  assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^\.codeome\/outbox\/$/m);
+  assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^\.codeome\/inbox-support\.json$/m);
   const st = kit.status(p);
   assert.strictEqual(st.installed, true);
   assert.strictEqual(st.outdated, false);
@@ -95,6 +99,23 @@ test('reinstall is idempotent and keeps existing settings', () => {
   assert.strictEqual(editHooks.length, 1);
   assert.deepStrictEqual(editHooks[0].hooks, [{ type: 'command', command: 'python3 "$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent" hook' }]);
   assert.strictEqual(s.hooks.SubagentStart.length, 1);
+  assert.equal(s.hooks.UserPromptSubmit, undefined);
+});
+
+test('install removes the obsolete inbox hook while keeping unrelated user hooks', () => {
+  const p = tmp();
+  fs.mkdirSync(path.join(p, '.claude'));
+  fs.writeFileSync(path.join(p, '.claude/settings.json'), JSON.stringify({ hooks: { UserPromptSubmit: [
+    { hooks: [{ type: 'command', command: 'python3 "$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent" hook' },
+      { type: 'command', command: 'another-hook' }] },
+    { hooks: [{ type: 'command', command: 'my-hook' }] }
+  ] } }));
+  kit.install(p);
+  const s = readJson(path.join(p, '.claude/settings.json'));
+  assert.deepEqual(s.hooks.UserPromptSubmit, [
+    { hooks: [{ type: 'command', command: 'another-hook' }] },
+    { hooks: [{ type: 'command', command: 'my-hook' }] }
+  ]);
 });
 
 test('files edited by the user or present before the kit are never overwritten or removed', () => {

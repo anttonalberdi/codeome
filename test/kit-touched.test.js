@@ -50,6 +50,17 @@ function merged(root, chat) {
   return JSON.parse(result.stdout);
 }
 
+function notices(root, chat) {
+  const dir = path.join(root, '.codeome', 'inbox', chat);
+  return fs.existsSync(dir) ? fs.readdirSync(dir).filter((name) => name.endsWith('.json'))
+    .map((name) => JSON.parse(fs.readFileSync(path.join(dir, name)))) : [];
+}
+
+function code(root, chat, value) {
+  fs.writeFileSync(path.join(root, '.codeome', 'touched', `${chat}.status.json`),
+    JSON.stringify({ code: value, status: 'working', status_at: Date.now() / 1000 }));
+}
+
 test('edit hook asks when the app already recorded the caller file, then remembers the ask', (t) => {
   const root = project(t);
   const real = path.join(root, 'real');
@@ -65,6 +76,37 @@ test('edit hook asks when the app already recorded the caller file, then remembe
   assert.equal(hook(root, 'caller', file), '');
   assert.equal(JSON.parse(hook(root, 'fresh', file, 'MultiEdit', { env: { CODEOME_COLLISIONS: 'unknown' } }))
     .hookSpecificOutput.permissionDecision, 'ask');
+});
+
+test('touched --path reports collisions without writing conflict notices', (t) => {
+  const root = project(t);
+  const file = path.join(root, 'src', 'shared.txt');
+  record(root, 'caller', {}, { title: 'Current chat' });
+  record(root, 'peer', { [file]: Date.now() / 1000 }, { title: 'Other chat' });
+  const options = { env: { CODEOME_CHAT_ID: 'caller' } };
+  assert.match(run(root, ['touched', '--path', file], '', options), /Other chat/);
+  assert.equal(notices(root, 'caller').length, 0);
+  assert.equal(notices(root, 'peer').length, 0);
+  assert.equal(fs.existsSync(path.join(root, '.codeome', 'conflict-notices.json')), false);
+});
+
+test('the edit hook keeps its deny output without writing notices', (t) => {
+  const root = project(t);
+  const file = path.join(root, 'shared.txt');
+  record(root, 'peer', { [file]: Date.now() / 1000 }, { title: 'Other chat' });
+  const result = JSON.parse(hook(root, 'caller', file, 'Edit', { env: { CODEOME_COLLISIONS: 'deny' } }));
+  assert.deepEqual(result, { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
+    permissionDecisionReason: `Chat 'Other chat' (untrusted title) (codex) edited ${file} 0 min ago. Pick another file or ask the user.` } });
+  assert.equal(notices(root, 'caller').length, 0);
+  assert.equal(notices(root, 'peer').length, 0);
+  hook(root, 'caller', file, 'Edit', { env: { CODEOME_COLLISIONS: 'deny' } });
+  assert.equal(notices(root, 'caller').length, 0);
+  assert.equal(notices(root, 'peer').length, 0);
+
+  const dead = path.join(root, 'dead.txt');
+  record(root, 'sleeping', { [dead]: Date.now() / 1000 }, { mtime: Date.now() / 1000 - 121 });
+  hook(root, 'caller', dead);
+  assert.equal(notices(root, 'sleeping').length, 0);
 });
 
 test('hook resolves dot segments before symlinks and uses the nearest real parent for missing files', (t) => {

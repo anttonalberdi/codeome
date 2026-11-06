@@ -146,6 +146,16 @@ contextBridge.exposeInMainWorld('codeome', {
     delete: (project, id) => ipcRenderer.invoke('chat:delete', { project, id }),
     onEvent: on('chat:event'), onExit: on('chat:exit'), onDecided: on('chat:decided')
   },
+  inbox: {
+    pending: (chatId) => ipcRenderer.invoke('inbox:pending', { chatId }),
+    status: (chatId, project, cards) => ipcRenderer.invoke('inbox:status', { chatId, project, cards }),
+    approve: (chatId, id, options) => ipcRenderer.invoke('inbox:approve', { chatId, id, ...options }),
+    decline: (chatId, id) => ipcRenderer.invoke('inbox:decline', { chatId, id }),
+    accept: (chatId, id) => ipcRenderer.invoke('inbox:accept', { chatId, id }),
+    dismiss: (chatId, id) => ipcRenderer.invoke('inbox:dismiss', { chatId, id }),
+    reply: (chatId, id, text) => ipcRenderer.invoke('inbox:reply', { chatId, id, text }),
+    setNewChatCode: (chatId, id, code) => ipcRenderer.invoke('inbox:setNewChatCode', { chatId, id, code })
+  },
   forum: {
     create: invoke('forum:create'), open: (project, id) => ipcRenderer.invoke('forum:open', { project, id }),
     list: invoke('forum:list'), close: (id) => ipcRenderer.invoke('forum:close', { id }),
