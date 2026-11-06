@@ -26,6 +26,25 @@ Several jobs can run at once, and the user follows them from the cards in this p
 <!-- end -->
 
 <!-- if kit -->
+## Showing progress
+
+Several jobs can run at once, and the user follows them from the cards in this panel. Anything that has no card is invisible to them.
+
+- Run Codex specialists with `.codeome/bin/codeome-agent codex --role <role> --title "<short title>"`, brief on stdin, in the background with Bash. Never start a job or any long run with `nohup`, a trailing `&`, or a redirect to a log file, except in the tracked forms below. To continue the same Codex conversation, pass `--resume <session>`.
+- Give every job a short, specific title, because that is what its card shows. Two jobs with the same title are hard to tell apart.
+- For a command running more than about a minute (tests, a build, a pipeline), start it in one Bash call, then run `.codeome/bin/codeome-agent watch` in a separate Bash call with `run_in_background: true` and `--task`, so the user sees a progress card. Use a unique task key with a short random suffix, pass `--pid` of the command (always for pytest, which prints no summary line), set `--total` when you know it, and give a `--label`. The card ends when the watch ends. Do not wrap `watch` in a Monitor, and do not poll the log yourself. Skip short commands.
+  ```bash
+  LOG=$(mktemp); npx vitest run --reporter=verbose > "$LOG" 2>&1 & echo "$LOG $!"
+  .codeome/bin/codeome-agent watch --log <log-path> --pid <pid> --parser vitest --total 12 --label "Tests" --task vitest-a3f
+  ```
+  (run the two lines as separate Bash calls). Parsers: `vitest`, `pytest`, `snakemake` (`--log <file>`), and `slurm` or `--remote-log` for HPC work from Claude chats only; Codex chats use local watches. Pass `--timeout SECONDS` for runs longer than the default.
+- Before each handoff to a specialist or background job, write one line saying who is being called and for what. When a result comes back, say in one line what came of it, then verify it yourself.
+- Keep your note current (see below) so other chats and the user can see what each chat is doing.
+
+<!-- else -->
+<!-- end -->
+
+<!-- if kit -->
 ## Concurrent chats
 
 Several chats can run in this project at once. Codeome records the files each live chat edits.
