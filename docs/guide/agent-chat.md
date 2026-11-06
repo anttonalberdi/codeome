@@ -22,11 +22,17 @@ The agents report the steps; Codeome does not guess them from logs. Progress is 
 
 ### Test and build progress
 
-For a long test run or build, the agent can start `codeome-agent watch` in the background. It tails the log and parses Vitest, pytest, `tsc -b`, Snakemake or a custom pattern. The chat then shows a card of its own, but only for a Bash or Monitor call that contains `codeome-agent watch ... --task <key>`; other background commands get no card. The card has the same block as a job card: a bar, the time left estimated from past runs, and a stall badge after 120 seconds without an update. The progress file decides the outcome, so a run with failed tests ends the card as failed even though the command itself exits 0. A finished card stays in the chat history as its last snapshot.
+For a long test run or build, the agent can start `codeome-agent watch` in the background. It tails the log and parses Vitest, pytest, `tsc -b`, Snakemake or a custom pattern. The chat then shows a card of its own, but only for a Bash or Monitor call that contains `codeome-agent watch ... --task <key>`; other background commands get no card. The card has the same block as a job card: a bar, the time left estimated from past runs (see [Expected durations](#expected-durations)), and a stall badge after 120 seconds without an update. The progress file decides the outcome, so a run with failed tests ends the card as failed even though the command itself exits 0. A finished card stays in the chat history as its last snapshot.
 
 The same card follows a Snakemake run (steps, local or Slurm executor) and, on the HPC, Slurm jobs and arrays or a Snakemake log. The HPC forms go through the ssh connection Codeome already has open, so they need a connected HPC (Settings > HPC) and are for Claude chats and the Claude `hpc-operator`; Codex chats use only local logs. Nothing is installed on the HPC.
 
 It needs agent kit 0.9.0 (0.8.0 for the local Vitest, pytest and tsc parsers); projects with an older kit see it as outdated. The parsers and options are in [Agent kit](/reference/agent-kit#watching-a-log).
+
+### Expected durations
+
+Progress cards and specialist job cards show how long things usually take, but only from what Codeome has recorded in the project, never from a guess. On a progress card, a waiting stage reads `expected ~2m (5 runs)` (`1 run` for a single earlier run); a running stage reads `elapsed 1m 5s / ~4m`; a stage with a known total keeps its `~Z left`; a done stage shows its actual time. A waiting stage with nothing recorded says `no estimate yet`. If the agent supplied its own figure, the card shows `expected ~3m (agent estimate)` until real history exists, and then history replaces it. A queued or running Codex or Claude job card shows `usually ~9m (10 runs)`, the median of the last 10 successful jobs with the same role and engine. The range (for example 5m-9m) is in the tooltip, and only with 3 or more runs.
+
+Agents are told to run `codeome-agent estimate` before a long run and quote it, and not to invent a duration. In the orchestrator's plan approval step, the task table has an `Est.` column and a total, with `no history` where there is none. Only run time is estimated, so the queue wait of a Slurm job is not; the first run of anything has no estimate, and different suites need different stage ids. How the history is kept is in [Agent kit](/reference/agent-kit#expected-durations).
 
 ## Attachments and saved messages
 

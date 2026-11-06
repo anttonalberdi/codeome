@@ -32,6 +32,34 @@ test('running stage reports elapsed time, extrapolated ETA, and overall progress
   assert.equal(view.stalled, false);
 });
 
+test('history and agent baselines reach the view, with expected time only while waiting', () => {
+  const view = progressView({ stages: [
+    { id: 'waiting', state: 'waiting', baselineSeconds: 120, baselineSource: 'history',
+      baselineRuns: 5, baselineLo: 42, baselineHi: 78 },
+    { id: 'running', state: 'running', startedAt: start, baselineSeconds: 180,
+      baselineSource: 'agent', baselineRuns: 0, baselineLo: null, baselineHi: null },
+    { id: 'done', state: 'done', baselineSeconds: 100 }
+  ] }, now);
+  assert.deepEqual([view.stages[0].baselineSeconds, view.stages[0].baselineSource,
+    view.stages[0].baselineRuns, view.stages[0].baselineLo, view.stages[0].baselineHi,
+    view.stages[0].expectedSeconds], [120, 'history', 5, 42, 78, 120]);
+  assert.equal(view.stages[1].expectedSeconds, null);
+  assert.equal(view.stages[1].etaSeconds, 60);
+  assert.equal(view.stages[2].expectedSeconds, null);
+  assert.equal(view.stages[2].baselineSource, null);
+  assert.equal(view.stages[2].baselineRuns, null);
+});
+
+test('old progress omits estimate metadata without changing its timing', () => {
+  const old = progressView({ stages: [{ id: 'work', state: 'running', startedAt: start, baselineSeconds: 180 }] }, now);
+  assert.equal(old.stages[0].baselineSeconds, 180);
+  assert.equal(old.stages[0].etaSeconds, 60);
+  assert.equal(old.stages[0].baselineSource, null);
+  assert.equal(old.stages[0].baselineRuns, null);
+  assert.equal(old.stages[0].baselineLo, null);
+  assert.equal(old.stages[0].baselineHi, null);
+});
+
 test('stall threshold uses stage update and falls back to progress update', () => {
   assert.equal(STALL_SECONDS, 120);
   const at = Date.parse(start);

@@ -18,6 +18,8 @@ const Progress = (() => {
       const stage = entry || {};
       const { id, label, state, kind, unit } = stage;
       const done = finite(stage.done), total = finite(stage.total), baselineSeconds = finite(stage.baselineSeconds);
+      const baselineSource = ['history', 'agent'].includes(stage.baselineSource) ? stage.baselineSource : null;
+      const baselineRuns = finite(stage.baselineRuns), baselineLo = finite(stage.baselineLo), baselineHi = finite(stage.baselineHi);
       const pct = done !== null && total !== null && total > 0 ? Math.max(0, Math.min(100, done / total * 100)) : null;
       const startedAt = timestamp(stage.startedAt);
       const running = state === 'running' && (options.status == null || options.status === 'running' || options.status === 'pausing');
@@ -34,7 +36,9 @@ const Progress = (() => {
         if (pct !== null && done > 0) etaSeconds = finite(Math.max(0, elapsedSeconds / done * (total - done)));
         else if (baselineSeconds !== null) etaSeconds = finite(Math.max(0, baselineSeconds - elapsedSeconds));
       }
-      return { id, label, state: state === 'running' && !running ? 'stopped' : state, kind, pct, done, total, unit, elapsedSeconds, baselineSeconds, etaSeconds, stalled: stageStalled };
+      return { id, label, state: state === 'running' && !running ? 'stopped' : state, kind, pct, done, total, unit,
+        elapsedSeconds, baselineSeconds, baselineSource, baselineRuns, baselineLo, baselineHi,
+        expectedSeconds: state === 'waiting' ? baselineSeconds : null, etaSeconds, stalled: stageStalled };
     });
     // Only the first running stage contributes partial progress.
     const overallPct = (doneCount + (current === -1 ? 0 : (stages[current].pct || 0) / 100)) / stages.length * 100;

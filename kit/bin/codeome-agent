@@ -9,6 +9,7 @@ events.jsonl and result.md; Codeome's Agent chat and Jobs list read those folder
   codeome-agent codex --role ROLE --title TITLE [--worktree] [--model M] [--resume SESSION] [--account NAME] < brief
   codeome-agent usage [--json]  (Claude and Codex limits per account, as Codeome last saw them)
   codeome-agent list [--json] [--limit N]
+  codeome-agent estimate (--role ROLE [--engine ENGINE] | --stage ID) [--total N] [--json]
   codeome-agent show ID [--brief | --log]
   codeome-agent cancel ID
   codeome-agent pause ID
@@ -88,10 +89,11 @@ def job_dir(job_id):
 
 
 def write_json(path, data):
+    content = json.dumps(data, indent=2, allow_nan=False)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + '.tmp.' + secrets.token_hex(4)
     with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
+        f.write(content)
     os.replace(tmp, path)
 
 
@@ -163,17 +165,17 @@ def duration(job):
 
 
 # ---------- stage progress ----------
-def progress_text(path):
+def progress_text(path, limit=256 * 1024):
     try:
         info = os.stat(path, follow_symlinks=False)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > 256 * 1024:
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             return ''
         fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | os.O_NONBLOCK)
         try:
             opened = os.fstat(fd)
-            if not stat.S_ISREG(opened.st_mode) or opened.st_size > 256 * 1024:
+            if not stat.S_ISREG(opened.st_mode) or opened.st_size > limit:
                 return ''
-            chunks, remaining = [], 256 * 1024 + 1
+            chunks, remaining = [], limit + 1
             while remaining:
                 chunk = os.read(fd, remaining)
                 if not chunk:
@@ -181,7 +183,7 @@ def progress_text(path):
                 chunks.append(chunk)
                 remaining -= len(chunk)
             content = b''.join(chunks)
-            return content.decode('utf-8') if len(content) <= 256 * 1024 else ''
+            return content.decode('utf-8') if len(content) <= limit else ''
         finally:
             os.close(fd)
     except (OSError, UnicodeError):
@@ -209,32 +211,142 @@ def progress_unlock(fd):
             pass
 
 
+HISTORY_KEY = re.compile(r'[A-Za-z0-9_.:-]{1,64}\Z')
+
+
+def history_key_ok(key):
+    return isinstance(key, str) and bool(HISTORY_KEY.fullmatch(key)) and '..' not in key
+
+
+def stage_key(value, fallback='stage'):
+    if history_key_ok(value):
+        return value
+    key = re.sub(r'[^A-Za-z0-9_.:-]+|\.{2,}', '-', value).strip('-')[:64].strip('-')
+    return key or fallback
+
+
+def valid_seconds(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool) and
+            1 <= value <= 1e7 and math.isfinite(value))
+
+
+def valid_total(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool) and
+            1e-6 <= value <= 1e9 and math.isfinite(value))
+
+
 def progress_history():
     try:
-        data = json.loads(progress_text(os.path.join(JOBS, '.progress-history.json')))
-    except ValueError:
+        data = json.loads(progress_text(os.path.join(JOBS, '.progress-history.json'), 1024 * 1024))
+    except (ValueError, RecursionError):
         return {}
     if not isinstance(data, dict):
         return {}
-    return {k: [v for v in values[-5:] if isinstance(v, (int, float)) and not isinstance(v, bool)
-                and math.isfinite(v) and v >= 1]
-            for k, values in list(data.items())[-500:] if isinstance(k, str) and isinstance(values, list)}
+    history = {}
+    for key, entries in data.items():
+        if not history_key_ok(key) or not isinstance(entries, list):
+            continue
+        values = []
+        for entry in entries:
+            seconds = entry.get('s') if isinstance(entry, dict) else entry
+            if not valid_seconds(seconds):
+                continue
+            if isinstance(entry, dict):
+                value = {'s': seconds}
+                if valid_total(entry.get('t')):
+                    value['t'] = entry['t']
+                values.append(value)
+            else:
+                values.append(entry)
+        if values:
+            history[key] = values[-10:]
+            if len(history) > 500:
+                history.pop(next(iter(history)))
+    return history
 
 
-def progress_stage(stage_id, label, stamp, history):
-    values = history.get(stage_id) or []
-    return {'id': stage_id, 'label': label, 'state': 'waiting', 'kind': 'indeterminate',
+def estimate_values(values, key, total=None):
+    scaled = valid_total(total) and sum(isinstance(v, dict) and 't' in v for v in values) >= 3
+    samples = ([v['s'] / v['t'] for v in values if isinstance(v, dict) and 't' in v]
+               if scaled else [v['s'] if isinstance(v, dict) else v for v in values])
+    samples = samples[-10:]
+    if len(samples) >= 5:
+        center = statistics.median(samples)
+        samples = [v for v in samples if 0.2 * center <= v <= 5 * center]
+    samples.sort()
+    runs = len(samples)
+    factor = total if scaled else 1
+    if not runs:
+        return {'seconds': None, 'lo': None, 'hi': None, 'runs': 0,
+                'source': 'none', 'scaled': False, 'key': key}
+    lo = hi = None
+    if runs >= 4:
+        lo = statistics.median(samples[:runs // 2]) * factor
+        hi = statistics.median(samples[(runs + 1) // 2:]) * factor
+    elif runs == 3:
+        lo, hi = samples[0] * factor, samples[-1] * factor
+    seconds = statistics.median(samples) * factor
+    if scaled and any(not math.isfinite(value) or value > 1e7 for value in (seconds, lo, hi) if value is not None):
+        return estimate_values(values, key)
+    return {'seconds': seconds, 'lo': lo, 'hi': hi,
+            'runs': runs, 'source': 'history', 'scaled': scaled, 'key': key}
+
+
+def estimate_stage(history, key, total=None, fallback_key=None):
+    used = key if history.get(key) else fallback_key if fallback_key and history.get(fallback_key) else key
+    return estimate_values(history.get(used) or [], used, total)
+
+
+def record_stage_history(stage):
+    if stage['state'] != 'done' or not history_key_ok(stage['id']):
+        return
+    start, end = parse_iso(stage.get('startedAt')), parse_iso(stage.get('endedAt'))
+    if start is None or end is None or start > time.time() or not valid_seconds(end - start):
+        return
+    history_fd = progress_lock(os.path.join(JOBS, '.progress-history.lock'))
+    try:
+        history = progress_history()
+        if stage['id'] not in history and len(history) >= 500:
+            history.pop(next(iter(history)))
+        entry = {'s': end - start}
+        if valid_total(stage.get('total')):
+            entry['t'] = stage['total']
+        history[stage['id']] = (history.get(stage['id']) or [])[-9:] + [entry]
+        write_json(os.path.join(JOBS, '.progress-history.json'), history)
+    finally:
+        progress_unlock(history_fd)
+
+
+def update_stage_baseline(stage, history, fallback_key=None):
+    estimate = estimate_stage(history, stage['id'], stage['total'], fallback_key)
+    if estimate['source'] == 'history':
+        stage.update(baselineSeconds=estimate['seconds'], baselineSource='history',
+                     baselineRuns=estimate['runs'], baselineLo=estimate['lo'], baselineHi=estimate['hi'])
+    elif stage['baselineSource'] != 'agent':
+        stage.update(baselineSeconds=None, baselineSource=None, baselineRuns=0,
+                     baselineLo=None, baselineHi=None)
+
+
+def progress_stage(stage_id, label, stamp, history, total=None, fallback_key=None):
+    stage = {'id': stage_id, 'label': label, 'state': 'waiting', 'kind': 'indeterminate',
             'done': 0, 'total': None, 'unit': None, 'startedAt': None, 'endedAt': None,
-            'updatedAt': stamp, 'baselineSeconds': statistics.median(values) if values else None}
+            'updatedAt': stamp, 'baselineSeconds': None, 'baselineSource': None,
+            'baselineRuns': 0, 'baselineLo': None, 'baselineHi': None}
+    stage['total'] = total
+    stage['kind'] = 'determinate' if total is not None else 'indeterminate'
+    update_stage_baseline(stage, history, fallback_key)
+    return stage
 
 
 def progress_number(value, name, integer=False):
     try:
         number = int(value) if integer else float(value)
-    except (TypeError, ValueError, OverflowError):
+    except (TypeError, ValueError, ArithmeticError):
         raise ValueError('%s must be a number' % name)
-    if not math.isfinite(number) or (name != '--done' and number < 0):
+    if (not isinstance(number, int) and not math.isfinite(number)) or (name != '--done' and number < 0):
         raise ValueError('%s must be non-negative and finite' % name)
+    if name == '--total' and number > 1e9:
+        raise ValueError('--total must be at most 1000000000')
     return number
 
 
@@ -245,14 +357,14 @@ def cmd_progress(a):
         return
     lock_fd = progress_lock(os.path.join(job_dir(job_id), '.progress.lock'))
     try:
-        if not a.stage and not a.plan:
+        if a.stage is None and not a.plan:
             raise ValueError('--stage or --plan is required')
         if a.state is not None and a.state not in ('waiting', 'running', 'done', 'failed'):
             raise ValueError('--state must be waiting, running, done or failed')
         done = progress_number(a.done, '--done', True) if a.done is not None else None
         total = progress_number(a.total, '--total', True) if a.total is not None else None
         baseline = progress_number(a.baseline, '--baseline') if a.baseline is not None else None
-        if not a.stage and any(x is not None for x in (a.label, a.state, a.done, a.total, a.unit, a.baseline)):
+        if a.stage is None and any(x is not None for x in (a.label, a.state, a.done, a.total, a.unit, a.baseline)):
             raise ValueError('stage options require --stage')
         plan = []
         if a.plan:
@@ -260,7 +372,7 @@ def cmd_progress(a):
                 if ':' not in item or not item.split(':', 1)[0]:
                     raise ValueError('--plan requires id:label entries')
                 stage_id, label = item.split(':', 1)
-                plan.append((stage_id[:40], label[:120] or stage_id[:40]))
+                plan.append((stage_id[:64], label[:120] or stage_id[:64]))
         stamp = now_progress_iso()
         history = progress_history()
         progress_path = os.path.join(job_dir(job_id), 'progress.json')
@@ -273,10 +385,11 @@ def cmd_progress(a):
             for item in old['stages']:
                 if not isinstance(item, dict) or not isinstance(item.get('id'), str) or not item['id']:
                     continue
-                stage_id = item['id'][:40]
+                stage_id = item['id'][:64]
                 if any(s['id'] == stage_id for s in stages) or len(stages) >= 50:
                     continue
-                stage = progress_stage(stage_id, str(item.get('label') or stage_id)[:120], stamp, history)
+                stage = progress_stage(stage_id, str(item.get('label') or stage_id)[:120], stamp,
+                                       history if item.get('state') in ('waiting', 'running') else {})
                 stage.update({k: item[k] for k in stage if k in item})
                 stage['id'], stage['label'] = stage_id, str(stage['label'])[:120]
                 if stage['state'] not in ('waiting', 'running', 'done', 'failed'):
@@ -289,16 +402,17 @@ def cmd_progress(a):
                 stage['kind'] = 'determinate' if stage['total'] is not None else 'indeterminate'
                 stage['unit'] = str(stage['unit'])[:20] if stage['unit'] is not None else None
                 if not isinstance(stage['baselineSeconds'], (int, float)) or isinstance(stage['baselineSeconds'], bool) or not math.isfinite(stage['baselineSeconds']) or stage['baselineSeconds'] < 0:
-                    # A finished stage keeps what it had: refilling it from history would give it its own duration.
-                    stage['baselineSeconds'] = progress_stage(stage_id, stage['label'], stamp, history)['baselineSeconds'] if stage['state'] in ('waiting', 'running') else None
+                    stage['baselineSeconds'] = None
+                if stage['baselineSource'] not in ('history', 'agent'):
+                    stage['baselineSource'] = 'agent' if stage['baselineSeconds'] is not None else None
+                if stage['state'] in ('waiting', 'running'):
+                    update_stage_baseline(stage, history)
                 stages.append(stage)
         for stage_id, label in plan:
             if not any(s['id'] == stage_id for s in stages) and len(stages) < 50:
                 stages.append(progress_stage(stage_id, label, stamp, history))
-        if a.stage:
-            stage_id = a.stage[:40]
-            if not stage_id:
-                raise ValueError('--stage must not be empty')
+        if a.stage is not None:
+            stage_id = stage_key(a.stage)
             stage = next((s for s in stages if s['id'] == stage_id), None)
             if stage is None:
                 if len(stages) >= 50:
@@ -322,8 +436,11 @@ def cmd_progress(a):
                 stage['unit'] = a.unit[:20]
             if baseline is not None:
                 stage['baselineSeconds'] = baseline
-            if stage['baselineSeconds'] is None and history.get(stage_id):
-                stage['baselineSeconds'] = statistics.median(history[stage_id])
+                stage['baselineSource'] = 'agent'
+                stage['baselineRuns'] = 0
+                stage['baselineLo'] = stage['baselineHi'] = None
+            if stage['state'] in ('waiting', 'running') or baseline is not None:
+                update_stage_baseline(stage, history)
             if stage['state'] == 'running':
                 if previous in ('done', 'failed') or not stage['startedAt']:
                     stage['startedAt'] = stamp
@@ -332,19 +449,9 @@ def cmd_progress(a):
                 stage['endedAt'] = stamp
             stage['updatedAt'] = stamp
             if stage['state'] == 'done' and previous != 'done':
-                start, end = parse_iso(stage['startedAt']), parse_iso(stage['endedAt'])
-                if start is not None and end is not None and end - start >= 1:
-                    history_fd = progress_lock(os.path.join(JOBS, '.progress-history.lock'))
-                    try:
-                        history = progress_history()
-                        if stage_id not in history and len(history) >= 500:
-                            history.pop(next(iter(history)))
-                        history[stage_id] = (history.get(stage_id) or [])[-4:] + [end - start]
-                        write_json(os.path.join(JOBS, '.progress-history.json'), history)
-                    finally:
-                        progress_unlock(history_fd)
+                record_stage_history(stage)
         write_json(progress_path, {'v': 1, 'updatedAt': stamp, 'stages': stages})
-    except (OSError, ValueError, TypeError) as e:
+    except (OSError, ValueError, TypeError, ArithmeticError) as e:
         print('codeome-agent: warning: progress: %s' % e, file=sys.stderr)
     finally:
         progress_unlock(lock_fd)
@@ -352,6 +459,7 @@ def cmd_progress(a):
 
 # ---------- log progress watcher ----------
 WATCH_KEY = re.compile(r'[A-Za-z0-9][\w.-]{0,63}\Z')
+WATCH_PARSERS = ('vitest', 'pytest', 'tsc', 'snakemake', 'regex', 'slurm')
 WATCH_VITEST = re.compile(r'^\s*([✓✗×↓-])\s+([A-Za-z0-9_./@-]+\.(?:test|spec)\.[cm]?[jt]sx?)')
 WATCH_PERCENT = re.compile(r'\[\s*(\d{1,3})%\]')
 WATCH_TSC_COUNT = re.compile(r'^\D*(\d+) of (\d+)')
@@ -753,8 +861,6 @@ def cmd_watch(a):
         raise ValueError('--task must be a safe key of at most 64 characters')
     if not a.label or not a.label.strip():
         raise ValueError('--label is required')
-    if a.stage is not None and not a.stage:
-        raise ValueError('--stage must not be empty')
     total = progress_number(a.total, '--total', True) if a.total is not None else None
     if total is not None and total < 1:
         raise ValueError('--total must be positive')
@@ -793,10 +899,14 @@ def cmd_watch(a):
     for directory in (os.path.join(ROOT, '.codeome'), JOBS, task_root, os.path.join(task_root, a.task)):
         watch_real_dir(directory)
     watch_prune(task_root, a.task)
-    stage_id = (a.stage or a.parser)[:40]
+    slug = re.sub(r'[^a-z0-9]+', '-', a.label.lower()).strip('-')[:40].strip('-')
+    stage_id = stage_key(a.stage, a.parser) if a.stage is not None else a.parser + (':' + slug if slug else '')
+    fallback_key = a.parser if a.stage is None else None
     stamp = now_progress_iso()
-    stage = progress_stage(stage_id, a.label[:120], stamp, progress_history())
-    stage.update(state='running', kind='determinate', done=0, total=100 if a.parser == 'pytest' else total or 0,
+    history = progress_history()
+    stage = progress_stage(stage_id, a.label[:120], stamp, history,
+                           100 if a.parser == 'pytest' else total or 0, fallback_key)
+    stage.update(state='running', done=0,
                  unit={'vitest': 'files', 'pytest': '%', 'tsc': 'projects', 'snakemake': 'steps',
                        'regex': None, 'slurm': 'tasks'}[a.parser], startedAt=stamp)
     path = os.path.join(task_root, a.task, 'progress.json')
@@ -808,6 +918,8 @@ def cmd_watch(a):
         current = (stage['state'], stage['done'], stage['total'])
         if current == last_written:
             return
+        if last_written is None or stage['total'] != last_written[2]:
+            update_stage_baseline(stage, history, fallback_key)
         delay = 1 - (time.monotonic() - last_time)
         if delay > 0 and not force:
             return
@@ -1122,17 +1234,7 @@ def cmd_watch(a):
         signal.signal(signal.SIGTERM, old_term)
         signal.signal(signal.SIGINT, old_int)
         if stage['state'] == 'done':
-            start, end = parse_iso(stage['startedAt']), parse_iso(stage['endedAt'])
-            if start is not None and end is not None and end - start >= 1:
-                history_fd = progress_lock(os.path.join(JOBS, '.progress-history.lock'))
-                try:
-                    history = progress_history()
-                    if stage_id not in history and len(history) >= 500:
-                        history.pop(next(iter(history)))
-                    history[stage_id] = (history.get(stage_id) or [])[-4:] + [end - start]
-                    write_json(os.path.join(JOBS, '.progress-history.json'), history)
-                finally:
-                    progress_unlock(history_fd)
+            record_stage_history(stage)
         if reason or stopped:
             print('codeome-agent: warning: watch: %s' % (reason or 'stopped'), file=sys.stderr)
         if not a.quiet:
@@ -1611,6 +1713,87 @@ def cmd_codex(a):
 
 
 # ---------- list / show / cancel ----------
+def estimate_job_duration(job):
+    start, end = parse_iso(job.get('startedAt')), parse_iso(job.get('endedAt'))
+    if start is None or end is None or start > time.time() or not valid_seconds(end - start):
+        return None
+    return end - start
+
+
+def compact_duration(seconds):
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return '%ds' % seconds
+    if seconds < 3600:
+        minutes, remain = divmod(seconds, 60)
+        return '%dm%s' % (minutes, ' %ds' % remain if remain else '')
+    hours, minutes = divmod((seconds + 30) // 60, 60)
+    return '%dh%s' % (hours, ' %dm' % minutes if minutes else '')
+
+
+def cmd_estimate(a):
+    if a.engine and not a.role:
+        raise ValueError('--engine requires --role')
+    total = progress_number(a.total, '--total') if a.total is not None else None
+    if a.stage is not None:
+        key = stage_key(a.stage)
+        parser, separator, slug = key.partition(':')
+        fallback = parser if (separator and parser in WATCH_PARSERS and len(slug) <= 40 and
+                              re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', slug)) else None
+        result = estimate_stage(progress_history(), key, total, fallback)
+        result['fallback'] = result['key'] != key
+    else:
+        key = 'role:%s%s' % (a.role, ':' + a.engine if a.engine else '')
+        jobs = []
+        try:
+            names = os.listdir(JOBS)
+        except OSError:
+            names = []
+        for name in names:
+            if name.startswith('.'):
+                continue
+            try:
+                if not stat.S_ISDIR(os.lstat(os.path.join(JOBS, name)).st_mode):
+                    continue
+            except OSError:
+                continue
+            try:
+                job = json.loads(progress_text(os.path.join(JOBS, name, 'job.json'), 1024 * 1024))
+            except (ValueError, RecursionError):
+                continue
+            if not isinstance(job, dict) or not isinstance(job.get('startedAt'), str):
+                continue
+            started = parse_iso(job['startedAt'])
+            if started is not None:
+                jobs.append((started, job))
+        jobs.sort(key=lambda item: item[0], reverse=True)
+        values = []
+        for _, job in jobs[:300]:
+            if job.get('role') != a.role or (a.engine and job.get('engine') != a.engine) or job.get('status') != 'done':
+                continue
+            seconds = estimate_job_duration(job)
+            if seconds is not None:
+                values.append(seconds)
+                if len(values) == 10:
+                    break
+        result = estimate_values(values, key)
+        result['fallback'] = False
+    if a.json:
+        print(json.dumps(result, allow_nan=False))
+    elif result['seconds'] is None:
+        print('no estimate yet')
+    else:
+        details = []
+        if result['lo'] is not None:
+            details.append('range %s-%s' % (compact_duration(result['lo']), compact_duration(result['hi'])))
+        details.extend(('%d run%s' % (result['runs'], '' if result['runs'] == 1 else 's'), result['source']))
+        if result['scaled']:
+            details.append('scaled')
+        if result['fallback']:
+            details.append('parser-level history')
+        print('~%s (%s)' % (compact_duration(result['seconds']), ', '.join(details)))
+
+
 def cmd_list(a):
     jobs = all_jobs()[:a.limit]
     if a.json:
@@ -2510,6 +2693,14 @@ def main():
     ls.add_argument('--json', action='store_true')
     ls.add_argument('--limit', type=int, default=20)
     ls.set_defaults(fn=cmd_list)
+    es = sub.add_parser('estimate', help='estimate duration from recorded history')
+    selector = es.add_mutually_exclusive_group(required=True)
+    selector.add_argument('--role', help='estimate successful jobs for this role')
+    selector.add_argument('--stage', help='estimate a progress stage by its safe ID')
+    es.add_argument('--engine', help='filter role jobs by engine')
+    es.add_argument('--total', help='scale stage history to this total')
+    es.add_argument('--json', action='store_true', help='print the estimate as JSON')
+    es.set_defaults(fn=cmd_estimate)
     sh = sub.add_parser('show', help="print a job's result (or brief/log)")
     sh.add_argument('id')
     g = sh.add_mutually_exclusive_group()
@@ -2537,7 +2728,7 @@ def main():
     wa.add_argument('--log')
     wa.add_argument('--remote-log')
     wa.add_argument('--jobs')
-    wa.add_argument('--parser', required=True, choices=['vitest', 'pytest', 'tsc', 'snakemake', 'regex', 'slurm'])
+    wa.add_argument('--parser', required=True, choices=WATCH_PARSERS)
     wa.add_argument('--total')
     wa.add_argument('--label', required=True)
     wa.add_argument('--task', required=True)
@@ -2592,6 +2783,11 @@ def main():
             a.fn(a)
         except OSError as e:
             message_fail(a.cmd, str(e))
+    elif a.cmd == 'estimate':
+        try:
+            a.fn(a)
+        except (ValueError, ArithmeticError) as e:
+            p.error(str(e))
     else:
         a.fn(a)
 

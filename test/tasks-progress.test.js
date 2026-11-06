@@ -22,11 +22,11 @@ test('task progress returns only valid, sanitised files without changing jobs.li
   const root = project(t);
   const dir = taskDir(root, 'task-1');
   fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify({ v: 1, updatedAt: 'u'.repeat(80), extra: true,
-    stages: [{ id: 'i'.repeat(50), label: 'l'.repeat(130), state: 'running', kind: 'determinate',
+    stages: [{ id: 'i'.repeat(70), label: 'l'.repeat(130), state: 'running', kind: 'determinate',
       done: 2, total: 5, unit: 'x'.repeat(30), startedAt: null, extra: true },
     { id: 'bad', state: 'unknown' }] }));
   assert.deepEqual(tasks.progress(root, ['task-1', 'missing']), {
-    'task-1': { updatedAt: 'u'.repeat(64), stages: [{ id: 'i'.repeat(40), label: 'l'.repeat(120),
+    'task-1': { updatedAt: 'u'.repeat(64), stages: [{ id: 'i'.repeat(64), label: 'l'.repeat(120),
       state: 'running', kind: 'determinate', done: 2, total: 5, unit: 'x'.repeat(20), startedAt: null }] }
   });
   assert.deepEqual(await list(root), []);

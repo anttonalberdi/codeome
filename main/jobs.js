@@ -1,6 +1,7 @@
 // Agent jobs recorded by codeome-agent in <project>/.codeome/jobs/<id>/.
 const fs = require('fs');
 const path = require('path');
+const { Buffer } = require('buffer');
 const { execFile, spawn } = require('child_process');
 const { parseClaudeTranscript, parseCodexEvents } = require('./jobview');
 const kit = require('./kit');
@@ -17,7 +18,26 @@ function alive(pid) {
 
 function load(project, id) {
   if (!/^[\w.-]+$/.test(id || '') || id === '.' || id === '..') return null;
-  try { return JSON.parse(fs.readFileSync(path.join(jobsDir(project), id, 'job.json'), 'utf8')); } catch { return null; }
+  try {
+    const dir = path.join(jobsDir(project), id);
+    const file = path.join(dir, 'job.json');
+    if (!fs.lstatSync(dir).isDirectory()) return null;
+    const info = fs.lstatSync(file);
+    if (!info.isFile() || info.size > 1024 * 1024) return null;
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    try {
+      const opened = fs.fstatSync(fd);
+      if (!opened.isFile() || opened.size > 1024 * 1024) return null;
+      const buffer = Buffer.alloc(opened.size);
+      let size = 0;
+      while (size < buffer.length) {
+        const read = fs.readSync(fd, buffer, size, buffer.length - size, size);
+        if (!read) break;
+        size += read;
+      }
+      return JSON.parse(buffer.toString('utf8', 0, size));
+    } finally { fs.closeSync(fd); }
+  } catch { return null; }
 }
 
 // Same liveness rules as codeome-agent's own list: a running Codex job whose
@@ -53,9 +73,10 @@ function readProgressFile(file) {
     const clip = (value, max) => typeof value === 'string' ? value.slice(0, max) : undefined;
     const nullable = (value, max) => value === null ? null : clip(value, max);
     const number = (value) => value === null ? null : typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    const nonnegative = (value) => value === null ? null : typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
     const stages = data.stages.slice(0, 50).filter((s) => s && typeof s === 'object' && !Array.isArray(s) &&
       typeof s.id === 'string' && s.id && ['waiting', 'running', 'done', 'failed'].includes(s.state)).map((s) => ({
-      id: clip(s.id, 40),
+      id: clip(s.id, 64),
       ...(clip(s.label, 120) !== undefined ? { label: clip(s.label, 120) } : {}),
       state: s.state,
       ...(['determinate', 'indeterminate'].includes(s.kind) ? { kind: s.kind } : {}),
@@ -65,7 +86,11 @@ function readProgressFile(file) {
       ...(nullable(s.startedAt, 64) !== undefined ? { startedAt: nullable(s.startedAt, 64) } : {}),
       ...(nullable(s.endedAt, 64) !== undefined ? { endedAt: nullable(s.endedAt, 64) } : {}),
       ...(clip(s.updatedAt, 64) !== undefined ? { updatedAt: clip(s.updatedAt, 64) } : {}),
-      ...(number(s.baselineSeconds) !== undefined ? { baselineSeconds: number(s.baselineSeconds) } : {})
+      ...(nonnegative(s.baselineSeconds) !== undefined ? { baselineSeconds: nonnegative(s.baselineSeconds) } : {}),
+      ...(['history', 'agent'].includes(s.baselineSource) ? { baselineSource: s.baselineSource } : {}),
+      ...(nonnegative(s.baselineRuns) !== undefined ? { baselineRuns: nonnegative(s.baselineRuns) } : {}),
+      ...(nonnegative(s.baselineLo) !== undefined ? { baselineLo: nonnegative(s.baselineLo) } : {}),
+      ...(nonnegative(s.baselineHi) !== undefined ? { baselineHi: nonnegative(s.baselineHi) } : {})
     }));
     return { ...(clip(data.updatedAt, 64) !== undefined ? { updatedAt: clip(data.updatedAt, 64) } : {}), stages };
   } catch { return null; }
@@ -96,6 +121,38 @@ function taskProgress(project, keys) {
 
 const tasks = { progress: taskProgress };
 
+function estimateJobs(jobs, now) {
+  const samples = new Map();
+  const iso = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/;
+  const started = (value) => typeof value === 'string' && iso.test(value) ? Date.parse(value) : NaN;
+  const newest = jobs.map((job) => ({ job, start: started(job.startedAt) }))
+    .filter(({ start }) => Number.isFinite(start)).sort((a, b) => b.start - a.start).slice(0, 300);
+  for (const { job, start } of newest) {
+    if (job.status !== 'done' || typeof job.role !== 'string' || typeof job.engine !== 'string') continue;
+    const end = started(job.endedAt);
+    const seconds = (end - start) / 1000;
+    if (start > now || !Number.isFinite(seconds) || seconds < 1 || seconds > 1e7) continue;
+    const key = JSON.stringify([job.role, job.engine]);
+    if (!samples.has(key)) samples.set(key, []);
+    const values = samples.get(key);
+    if (values.length < 10) values.push(seconds);
+  }
+  const estimates = new Map();
+  const median = (sorted) => (sorted[Math.floor((sorted.length - 1) / 2)] + sorted[Math.floor(sorted.length / 2)]) / 2;
+  for (const [key, values] of samples) {
+    if (values.length >= 5) {
+      const center = median([...values].sort((a, b) => a - b));
+      values.splice(0, values.length, ...values.filter((value) => value >= 0.2 * center && value <= 5 * center));
+    }
+    values.sort((a, b) => a - b);
+    const runs = values.length;
+    if (runs) estimates.set(key, { seconds: median(values), runs,
+      lo: runs >= 4 ? median(values.slice(0, Math.floor(runs / 2))) : runs === 3 ? values[0] : null,
+      hi: runs >= 4 ? median(values.slice(Math.floor((runs + 1) / 2))) : runs === 3 ? values[runs - 1] : null });
+  }
+  return estimates;
+}
+
 async function list(project) {
   if (!project) return [];
   let names;
@@ -112,7 +169,9 @@ async function list(project) {
     const summary = progress(project, n);
     return summary ? { ...job, progress: summary } : job;
   }).filter(Boolean);
-  return jobs.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+  const estimates = estimateJobs(jobs, now);
+  return jobs.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))
+    .map((job) => ({ ...job, estimate: estimates.get(JSON.stringify([job.role, job.engine])) || null }));
 }
 
 async function readJsonl(p, parse) {

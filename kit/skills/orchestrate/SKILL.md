@@ -36,7 +36,7 @@ For code you have not read in this session, send the `explorer` a focused questi
 
 Send the `planner` the task, what the explorer found, and the contents of routing.md. Save the plan it returns to `.codeome/plans/<YYYY-MM-DD>-<slug>.md`.
 
-**GATE 1.** Show the user the task table (task, role, engine, acceptance check) and the decisions that need their input. Ask with AskUserQuestion: approve / change / cancel. Do not start implementation before approval. Apply any changes they ask for to the plan file.
+**GATE 1.** Before showing it, run `.codeome/bin/codeome-agent estimate --role <role> --engine <engine>` for each task (never invent a duration). Show the user the task table (task, role, engine, `Est.`, acceptance check) with a total line, writing `no history` in `Est.` when there is none (always show the column), and the decisions that need their input. Ask with AskUserQuestion: approve / change / cancel. Do not start implementation before approval. Apply any changes they ask for to the plan file.
 
 ## 3. Execute
 

@@ -777,6 +777,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .jc-top .spinner { width: 9px; height: 9px; border-width: 1.5px; }
 .jc-role { color: var(--muted); }
 .jc-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.jc-usually { color: var(--muted); font-variant-numeric: tabular-nums; }
 .jc-title { font-weight: 600; }
 .jc-act { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jc-action { align-self: flex-start; margin-top: 5px; }

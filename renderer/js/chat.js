@@ -172,8 +172,8 @@
     clearTimeout(saveTimers[chat.id]);
     const run = () => {
       const items = chat.items.map((it) => {
-        const item = it.t === 'job' && Object.hasOwn(it, 'progress') ? { ...it } : it;
-        if (item !== it) delete item.progress;
+        const item = it.t === 'job' && (Object.hasOwn(it, 'progress') || Object.hasOwn(it, 'estimate')) ? { ...it } : it;
+        if (item !== it) { delete item.progress; delete item.estimate; }
         return item.result && item.result.length > 4000 ? { ...item, result: item.result.slice(0, 4000) + '\n…' } : item;
       });
       return Promise.resolve(codeome.chat.save(chat.project, { id: chat.id, code: chat.code, title: chat.title, engine: engineOf(chat), role: chat.role || '', account: chat.account, accountName: chat.accountName, mode: chat.mode, started: chat.started, createdAt: chat.createdAt, usage: chat.usage, items }))
@@ -953,6 +953,7 @@
         it.account = j.account;
         it.resumedBy = j.resumedBy;
         if (j.progress) it.progress = j.progress; else delete it.progress;
+        if (j.estimate) it.estimate = j.estimate; else delete it.estimate;
       }
       if (it.status === 'running' || it.status === 'pausing' || j) update(chat, it);
     }
@@ -1236,6 +1237,13 @@
     return Math.floor(s / 3600) + 'h ' + String(Math.floor(s % 3600 / 60)).padStart(2, '0') + 'm';
   }
 
+  function estimateTooltip(lo, hi, runs, source) {
+    if (Number.isFinite(lo) && Number.isFinite(hi) && runs >= 3)
+      return `range ${formatProgressDuration(lo)}-${formatProgressDuration(hi)} from ${runs} runs`;
+    if (source === 'agent') return 'agent estimate';
+    return runs > 0 ? `from ${runs} ${runs === 1 ? 'run' : 'runs'}` : '';
+  }
+
   function progressBar(pct, label, small = false) {
     return h('div.jc-prog-bar' + (small ? '.small' : ''), {
       role: 'progressbar', 'aria-label': label, 'aria-valuenow': Math.round(pct), 'aria-valuemin': 0, 'aria-valuemax': 100
@@ -1262,11 +1270,24 @@
         const details = [];
         if (stage.state !== 'waiting' && stage.pct !== null) details.push(`${stage.done}/${stage.total}${stage.unit ? ' ' + stage.unit : ''}`);
         if (stage.state === 'running' && stage.pct === null && stage.elapsedSeconds !== null) {
-          details.push('elapsed ' + formatProgressDuration(stage.elapsedSeconds) +
-            (stage.baselineSeconds !== null ? ' / ~' + formatProgressDuration(stage.baselineSeconds) : ''));
+          const duration = 'elapsed ' + formatProgressDuration(stage.elapsedSeconds);
+          if (stage.baselineSeconds !== null) {
+            const tooltip = estimateTooltip(stage.baselineLo, stage.baselineHi, stage.baselineRuns, stage.baselineSource);
+            details.push(h('span', duration, h('span.jc-prog-estimate', tooltip ? { title: tooltip } : {},
+              ' / ~' + formatProgressDuration(stage.baselineSeconds) + (stage.baselineSource === 'agent' ? ' (agent estimate)' : ''))));
+          } else details.push(duration);
         }
         if (stage.state === 'done' && stage.elapsedSeconds !== null) details.push(formatProgressDuration(stage.elapsedSeconds));
-        if (stage.etaSeconds !== null) details.push('~' + formatProgressDuration(stage.etaSeconds) + ' left');
+        if (stage.state === 'waiting' && stage.expectedSeconds !== null && stage.baselineSource) {
+          const suffix = stage.baselineSource === 'agent' ? 'agent estimate' : `${stage.baselineRuns} ${stage.baselineRuns === 1 ? 'run' : 'runs'}`;
+          const tooltip = estimateTooltip(stage.baselineLo, stage.baselineHi, stage.baselineRuns, stage.baselineSource);
+          details.push(h('span.jc-prog-estimate', tooltip ? { title: tooltip } : {},
+            `expected ~${formatProgressDuration(stage.expectedSeconds)} (${suffix})`));
+        } else if (stage.state === 'waiting' && stage.baselineRuns !== null) {
+          details.push(h('span.jc-prog-no-estimate', 'no estimate yet'));
+        }
+        if (stage.state === 'running' && stage.etaSeconds !== null && (stage.pct !== null || stage.baselineSource === null))
+          details.push('~' + formatProgressDuration(stage.etaSeconds) + ' left');
         const source = it.progress.stages[n];
         const updatedAt = source && source.updatedAt != null ? source.updatedAt : it.progress.updatedAt;
         const updateMs = typeof updatedAt === 'number' ? updatedAt : Date.parse(updatedAt);
@@ -1274,7 +1295,7 @@
         return h('div.jc-prog-row.' + state,
           h('span.jc-prog-icon', { role: 'img', 'aria-label': state }, icon),
           h('span.jc-prog-label', h('span', label), stage.stalled ? h('span.jc-prog-stall', `no update for ${stalledSeconds}s`) : null),
-          h('span.jc-prog-meta', details.length ? h('span.jc-prog-detail', details.join(' · ')) : null,
+          h('span.jc-prog-meta', details.length ? h('span.jc-prog-detail', details.flatMap((detail, index) => index ? [' · ', detail] : [detail])) : null,
             stage.state !== 'waiting' && stage.pct !== null ? progressBar(stage.pct, label + ' progress', true) : null));
       })) : null);
   }
@@ -1314,10 +1335,17 @@
         const live = it.status === 'running' || it.status === 'pausing';
         const nowMs = Date.now();
         const progress = Progress.progressView(it.progress, nowMs, { status: it.status });
+        const estimate = it.estimate;
+        const pending = ['queued', 'running', 'pausing'].includes(it.status);
+        const hasEstimate = pending && estimate && Number.isFinite(estimate.seconds) && estimate.seconds >= 0 &&
+          Number.isInteger(estimate.runs) && estimate.runs > 0;
+        const estimateTitle = hasEstimate ? estimateTooltip(estimate.lo, estimate.hi, estimate.runs, 'history') : '';
         el = h('div.jobcard.' + it.status, { tabindex: '0', role: 'button', title: it.jobId ? 'Open the brief, log and result' : 'Waiting for the job record',
           onclick: () => openJob(it), onkeydown: (e) => { if (e.target === e.currentTarget && e.key === 'Enter') openJob(it); } },
           h('div.jc-top', h('span.pill' + (it.engine === 'codex' ? '.codex' : '.ok'), ENGINE[it.engine]), h('span.jc-role', it.role), h('span.grow'),
-            h('span.state.' + (it.status === 'held' ? 'failed' : it.status), live ? h('span.spinner') : null, ' ', STATUS[it.status] || it.status), h('span.jc-time', elapsed(it))),
+            h('span.state.' + (it.status === 'held' ? 'failed' : it.status), live ? h('span.spinner') : null, ' ', STATUS[it.status] || it.status), h('span.jc-time', elapsed(it)),
+            hasEstimate ? h('span.jc-usually', estimateTitle ? { title: estimateTitle } : {},
+              `usually ~${formatProgressDuration(estimate.seconds)} (${estimate.runs} ${estimate.runs === 1 ? 'run' : 'runs'})`) : null),
           h('div.jc-title', it.title),
           it.activity && live ? h('div.jc-act', it.activity) : null,
           !live && it.account && App.cfg.accounts[it.engine] && App.cfg.accounts[it.engine].list.length > 1 ? h('div.jc-act', 'on ' + it.account) : null,

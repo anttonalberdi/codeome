@@ -192,6 +192,34 @@ const steps = {
     // SHOT_SCROLL=top shows the pending approval cards at the top of the log instead of the newest ones.
     if (${JSON.stringify(process.env.SHOT_SCROLL || '')} === 'top') document.querySelector('.chat-log').scrollTop = 0;
   })(); 0`],
+  estimates: [`(async () => {
+    await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))});
+    App.setView('agents'); App.views.agents.show('chat');
+    const C = App.views.chat;
+    for (let i = 0; i < 40 && !C.current(); i++) await new Promise((r) => setTimeout(r, 50));
+    await C.newChat();
+    const chat = C.current();
+    chat.title = 'Expected durations'; chat.started = true;
+    // The fake progress card has no task folder, so the periodic sync would delete its stages: switch it off here.
+    C.syncTasks = async () => {};
+    const now = Date.now();
+    const at = (seconds) => new Date(now - seconds * 1000).toISOString();
+    chat.items.push(
+      { t: 'progress', id: 'estimate-progress', label: 'Process project files', status: 'running', startedAt: now - 180000,
+        progress: { updatedAt: at(10), stages: [
+          { id: 'prepare', label: 'Prepare inputs', state: 'done', startedAt: at(180), endedAt: at(135) },
+          { id: 'process', label: 'Process data', state: 'running', kind: 'indeterminate', startedAt: at(65), baselineSeconds: 240,
+            baselineSource: 'history', baselineRuns: 5, baselineLo: 190, baselineHi: 310, updatedAt: at(10) },
+          { id: 'check', label: 'Check outputs', state: 'waiting', baselineSeconds: 120,
+            baselineSource: 'history', baselineRuns: 5, baselineLo: 42, baselineHi: 78 },
+          { id: 'report', label: 'Write report', state: 'waiting', baselineSeconds: 180, baselineSource: 'agent', baselineRuns: 0 },
+          { id: 'archive', label: 'Archive results', state: 'waiting', baselineRuns: 0 }
+        ] } },
+      { t: 'job', id: 'estimate-job', jobId: 'shot-estimate', engine: 'codex', role: 'frontend', title: 'Build the dashboard',
+        status: 'running', startedAt: now - 105000, estimate: { seconds: 540, runs: 10, lo: 420, hi: 660 } }
+    );
+    C.activate(chat);
+  })(); 0`],
   // Run: npx electron test/shot.js <outdir> forum; use SHOT_DARK=1 for the dark theme.
   forum: [`(async () => {
     const project = ${JSON.stringify(path.resolve(__dirname, '..'))};

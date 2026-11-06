@@ -141,7 +141,7 @@ test('array progress counts completed tasks poll by poll', async (t) => {
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual([stage(p, 'array').id, stage(p, 'array').label, stage(p, 'array').done,
     stage(p, 'array').total, stage(p, 'array').unit, stage(p, 'array').state],
-  ['slurm', 'HPC jobs', 3, 3, 'tasks', 'done']);
+  ['slurm:hpc-jobs', 'HPC jobs', 3, 3, 'tasks', 'done']);
 });
 
 test('each terminal Slurm failure ends failed with completed count', async (t) => {

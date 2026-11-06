@@ -36,7 +36,7 @@ Specialists report the stages of a job with `.codeome/bin/codeome-agent progress
 | `--baseline SECONDS` | expected duration, if the agent knows it |
 | `--plan id:Label,...` | declare all stages up front; quote the whole value when a label has spaces |
 
-The command never fails the job: bad input prints a warning and exits 0. It writes `.codeome/jobs/<id>/progress.json` (schema version 1) and keeps the last five durations of each stage in `.codeome/jobs/.progress-history.json`, which give the baseline and the time-left estimate. With no history there is no estimate. The chat shows the result on the job card (see [Agent chat](/guide/agent-chat)). Existing projects see the kit as outdated until updated.
+The command never fails the job: bad input prints a warning and exits 0. It writes `.codeome/jobs/<id>/progress.json` (schema version 1) and keeps the durations of finished stages in `.codeome/jobs/.progress-history.json`, which give the expected duration and the time-left estimate (see [Expected durations](#expected-durations)). With no history there is no estimate, unless the agent passes `--baseline`. The chat shows the result on the job card (see [Agent chat](/guide/agent-chat)). Existing projects see the kit as outdated until updated.
 
 ### Watching a log
 
@@ -56,7 +56,7 @@ For a long test run or build, the agent starts `watch` once in the background in
 | `--label TEXT` | the name on the card |
 | `--task KEY` | the card's key: letters, digits, `.`, `_` or `-`, at most 64 characters; use a short random suffix to keep it unique |
 | `--pid P` | the process that writes the log; the watch ends when it does |
-| `--stage ID` | the stage id, which also keys the duration history; defaults to the parser name |
+| `--stage ID` | the stage id, which also keys the duration history; defaults to `<parser>:<slug of the label>`, for example `vitest:tests-unit`, and falls back to the history of all runs of that parser (see [Expected durations](#expected-durations)) |
 | `--regex PATTERN` | for the `regex` parser |
 | `--timeout SECONDS` | give up after this long (default 21600, six hours; 259200, 72 hours, for `slurm` and `--remote-log`) |
 | `--quiet` | no final line |
@@ -94,6 +94,35 @@ Kit 0.9.0 can also follow work on the HPC. `watch` still runs on the Mac, never 
 Problems end the watch with a reason: three failed polls give "lost connection to HPC", three empty `sacct` polls give "no job data", and if the connection is not available it ends at once with "HPC connection not available", without trying to log in. The remote modes need a connected HPC (Settings > HPC). The app gives the Claude agent's shell `CODEOME_HPC_HOST` and `CODEOME_HPC_SOCKET` when a host is configured, so they are for Claude chats and the Claude `hpc-operator`; Codex chats and jobs have no network and use only the local forms. Nextflow and array summaries beyond the card are not included.
 
 Codeome's own task files under `.codeome/jobs/.tasks/` are pruned when a watch starts: folders older than 7 days, or beyond the newest 50, are removed. `.codeome/jobs/` is git-ignored. Slice 1's `progress` command is unchanged. Projects with an older kit see it as outdated until updated.
+
+## Expected durations
+
+Codeome shows an expected duration only when it has recorded history for it; it never guesses. `codeome-agent estimate` prints it, and the chat shows it on progress cards and on specialist job cards (see [Agent chat](/guide/agent-chat#expected-durations)).
+
+```
+.codeome/bin/codeome-agent estimate --stage tests-unit --total 12
+.codeome/bin/codeome-agent estimate --role debugger --engine codex
+```
+
+| Option | What |
+|---|---|
+| `--role ROLE` | estimate successful jobs for this role |
+| `--engine ENGINE` | filter role jobs by engine; only with `--role` |
+| `--stage STAGE` | estimate a progress stage by its safe ID |
+| `--total TOTAL` | scale stage history to this total |
+| `--json` | print the estimate as JSON |
+
+Give exactly one of `--role` and `--stage`. The output is one line, such as `~7m (range 5m-9m, 5 runs, history)`, or `no estimate yet`; the command exits 0 either way. With `--json` the fields are `seconds`, `lo`, `hi`, `runs`, `source`, `scaled`, `key` and `fallback`.
+
+How the numbers are made:
+
+- **History file**: `.codeome/jobs/.progress-history.json` in the project; it never leaves the project. It keeps the last 10 runs of each stage key. Runs under 1 second are ignored, and so are outliers (outside 0.2x to 5x of the median, once there are 5 or more runs). A stage that failed, was stopped or paused is never recorded.
+- **Estimate**: the median of the recorded runs. The range is shown only with 3 or more runs. When the number of units is known (`--total`) and at least 3 runs recorded their units, the estimate is the median seconds per unit times the total. A zero or unknown total uses the unscaled median; a `--total` above 1,000,000,000 is rejected.
+- **Job estimates**: for `--role`, the median of the last 10 successful jobs with the same role (and engine, if given).
+- **Stage keys**: `watch` uses `<parser>:<slug of the label>` by default, for example `vitest:tests-unit`, and when that key has no history falls back to the parser-level history (all `vitest` runs); `estimate` then marks it `(parser-level history)`. An explicit `--stage` is used as given, with no fallback: letters, digits and `_ . : -` are kept, anything else becomes `-`, at most 64 characters. Use the same `--stage` in `estimate` and in `watch` or `progress`, and a different one for a different suite.
+- **`--baseline SECONDS`** on `progress` is the agent's own estimate. The card marks it as an agent estimate until real history exists, then history replaces it.
+
+Limits: only run time is estimated, so the queue wait of a Slurm job is not; the first run of anything has no estimate.
 
 ## Touched files
 

@@ -125,6 +125,37 @@ test('vitest tails a growing log and counts unique files', async (t) => {
   assert.equal(stage(root, 'vitest').baselineSeconds, 3);
 });
 
+test('watch keeps finite initial estimates and only default stages use parser history', (t) => {
+  const root = project(t);
+  const log = path.join(root, 'empty.log');
+  fs.writeFileSync(log, '');
+  const jobs = path.join(root, '.codeome', 'jobs');
+  fs.mkdirSync(jobs, { recursive: true });
+  fs.writeFileSync(path.join(jobs, '.progress-history.json'), JSON.stringify({
+    scaled: [{ s: 10, t: 1 }, { s: 20, t: 1 }, { s: 30, t: 1 }],
+    tsc: [40, 50, 60], 'Build-step': [70]
+  }));
+  const watch = (task, extra) => run(root, ['watch', '--log', log, '--parser', 'tsc', '--label', 'Unit tests',
+    '--task', task, '--timeout', '0.1', ...extra]);
+  for (const [task, extra, id, baseline] of [
+    ['zero', ['--stage', 'scaled'], 'scaled', 20],
+    ['normalised', ['--stage', 'Build step'], 'Build-step', 70],
+    ['valid', ['--stage', 'a--'], 'a--', null],
+    ['capped', ['--stage', 'x'.repeat(70)], 'x'.repeat(64), null],
+    ['empty', ['--stage', '!!!'], 'tsc', 50],
+    ['explicit', ['--stage', 'tsc:custom'], 'tsc:custom', null],
+    ['default', [], 'tsc:unit-tests', 50]
+  ]) {
+    const result = watch(task, extra);
+    assert.equal(result.status, 0, result.stderr);
+    const raw = fs.readFileSync(paths(root, task).file, 'utf8');
+    assert.doesNotMatch(raw, /NaN|Infinity/);
+    assert.deepEqual([stage(root, task).id, stage(root, task).baselineSeconds], [id, baseline]);
+  }
+  assert.equal(JSON.parse(run(root, ['estimate', '--stage', 'Build step', '--json']).stdout).key, 'Build-step');
+  assert.equal(JSON.parse(run(root, ['estimate', '--stage', 'tsc:custom', '--json']).stdout).fallback, true);
+});
+
 test('vitest failure marker makes a complete count fail', (t) => {
   const root = project(t);
   const log = path.join(root, 'fail.log');
@@ -184,7 +215,7 @@ test('snakemake tails a growing log and gets its total from Job stats', async (t
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual([stage(root, 'snake').id, stage(root, 'snake').label, stage(root, 'snake').done,
     stage(root, 'snake').total, stage(root, 'snake').unit, stage(root, 'snake').state],
-  ['snakemake', 'Workflow', 3, 3, 'steps', 'done']);
+  ['snakemake:workflow', 'Workflow', 3, 3, 'steps', 'done']);
 });
 
 test('snakemake retry does not lower progress for the same total', (t) => {

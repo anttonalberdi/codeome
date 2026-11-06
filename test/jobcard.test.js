@@ -42,8 +42,12 @@ test('job cards copy progress and drop it when the job record no longer has it',
   const progress = { updatedAt: '2026-10-22T08:01:00Z', stages: [{ id: 'work', state: 'running' }] };
   App.views.chat.syncJobs(project, [{ ...job, progress }]);
   assert.equal(card.progress, progress);
+  const estimate = { seconds: 420, runs: 5, lo: 300, hi: 540 };
+  App.views.chat.syncJobs(project, [{ ...job, progress, estimate }]);
+  assert.equal(card.estimate, estimate);
   App.views.chat.syncJobs(project, [job]);
   assert.equal(Object.hasOwn(card, 'progress'), false);
+  assert.equal(Object.hasOwn(card, 'estimate'), false);
 });
 
 test('saving a chat omits runtime progress without changing the live card', async () => {
@@ -55,14 +59,17 @@ test('saving a chat omits runtime progress without changing the live card', asyn
   vm.runInNewContext(source, { App, codeome, document: { hidden: true }, requestAnimationFrame: () => 1,
     clearTimeout() {}, setTimeout: () => 1 });
   const progress = { stages: [{ id: 'work', state: 'running' }] };
-  const card = { t: 'job', id: 'card', status: 'running', progress, result: 'complete' };
+  const estimate = { seconds: 420, runs: 5, lo: 300, hi: 540 };
+  const card = { t: 'job', id: 'card', status: 'running', progress, estimate, result: 'complete' };
   const chat = { id: 'chat', project, started: true, items: [card] };
   const active = { id: 'active', project, started: true, items: [] };
   App.views.chat.byProject[project] = { tabs: [chat, active], active };
   await App.views.chat.closeTab(chat);
   assert.equal(Object.hasOwn(saved.items[0], 'progress'), false);
+  assert.equal(Object.hasOwn(saved.items[0], 'estimate'), false);
   assert.equal(saved.items[0].result, 'complete');
   assert.equal(card.progress, progress);
+  assert.equal(card.estimate, estimate);
 });
 
 function renderHarness(now) {
@@ -184,12 +191,84 @@ test('indeterminate progress shows elapsed and baseline only when available', ()
   const { render } = renderHarness(now);
   const base = { t: 'job', engine: 'claude', status: 'running', startedAt: now,
     progress: { stages: [{ label: 'Work', state: 'running', startedAt: '2026-10-22T08:00:00Z', baselineSeconds: 600 }] } };
-  assert.match(content(render({}, base)), /elapsed 3m \/ ~10m · ~7m left/);
+  assert.match(content(render({}, base)), /elapsed 3m \/ ~10m/);
+  assert.match(content(render({}, base)), /~7m left/);
   const withoutBaseline = { ...base, progress: { stages: [{ label: 'Work', state: 'running', startedAt: '2026-10-22T08:00:00Z' }] } };
   const tree = render({}, withoutBaseline);
   assert.match(content(tree), /elapsed 3m/);
   assert.doesNotMatch(content(tree), /left|~10m/);
   assert.equal(nodes(tree, 'div.jc-prog-bar.small').length, 0);
+});
+
+test('progress stages show history, agent, and missing estimates in the right states', () => {
+  const now = Date.parse('2026-10-22T08:03:00Z');
+  const { render } = renderHarness(now);
+  const card = { t: 'job', engine: 'claude', status: 'running', startedAt: now - 180000,
+    progress: { stages: [
+      { id: 'done', label: 'Finished', state: 'done', startedAt: '2026-10-22T08:00:00Z', endedAt: '2026-10-22T08:00:45Z',
+        baselineSeconds: 120, baselineSource: 'history', baselineRuns: 5 },
+      { id: 'running', label: 'Work', state: 'running', startedAt: '2026-10-22T08:02:00Z',
+        baselineSeconds: 120, baselineSource: 'history', baselineRuns: 5, baselineLo: 42, baselineHi: 78 },
+      { id: 'planned', label: 'Plan', state: 'waiting', baselineSeconds: 120,
+        baselineSource: 'history', baselineRuns: 5, baselineLo: 42, baselineHi: 78 },
+      { id: 'one', label: 'One sample', state: 'waiting', baselineSeconds: 60,
+        baselineSource: 'history', baselineRuns: 1 },
+      { id: 'agent', label: 'Agent', state: 'waiting', baselineSeconds: 180,
+        baselineSource: 'agent', baselineRuns: 0 },
+      { id: 'none', label: 'None', state: 'waiting', baselineRuns: 0 }
+    ] } };
+  const tree = render({}, card);
+  assert.equal(content(nodes(tree, 'div.jc-prog-row.done')[0]), '✓Finished45s');
+  const running = nodes(tree, 'div.jc-prog-row.running')[0];
+  assert.match(content(running), /elapsed 1m \/ ~2m/);
+  assert.doesNotMatch(content(running), /left/);
+  const waiting = nodes(tree, 'div.jc-prog-row.waiting');
+  assert.equal(content(waiting[0]), '○Planexpected ~2m (5 runs)');
+  assert.equal(content(waiting[1]), '○One sampleexpected ~1m (1 run)');
+  assert.equal(content(waiting[2]), '○Agentexpected ~3m (agent estimate)');
+  assert.equal(content(waiting[3]), '○Noneno estimate yet');
+  assert.equal(nodes(tree, 'span.jc-prog-no-estimate').length, 1);
+  assert.deepEqual(nodes(tree, 'span.jc-prog-estimate').map((node) => node.attrs.title), [
+    'range 42s-1m 18s from 5 runs', 'range 42s-1m 18s from 5 runs', 'from 1 run', 'agent estimate'
+  ]);
+  const agentRun = { ...card, progress: { stages: [{ id: 'agent', state: 'running', startedAt: '2026-10-22T08:02:00Z',
+    baselineSeconds: 180, baselineSource: 'agent', baselineRuns: 0 }] } };
+  const agentTree = render({}, agentRun);
+  assert.match(content(agentTree), /elapsed 1m \/ ~3m \(agent estimate\)/);
+  assert.equal(nodes(agentTree, 'span.jc-prog-estimate')[0].attrs.title, 'agent estimate');
+  const old = { ...card, progress: { stages: [{ id: 'old', state: 'waiting' }] } };
+  assert.doesNotMatch(content(render({}, old)), /no estimate yet|expected/);
+});
+
+test('specialist cards show historical estimates only before they finish', () => {
+  const now = Date.parse('2026-10-22T08:03:00Z');
+  const { render } = renderHarness(now);
+  const base = { t: 'job', engine: 'codex', role: 'frontend', title: 'Build UI', startedAt: now - 60000,
+    estimate: { seconds: 420, runs: 5, lo: 300, hi: 540 } };
+  for (const status of ['queued', 'running', 'pausing']) {
+    const tree = render({}, { ...base, status });
+    assert.equal(content(nodes(tree, 'span.jc-usually')[0]), 'usually ~7m (5 runs)');
+    assert.equal(nodes(tree, 'span.jc-usually')[0].attrs.title, 'range 5m-9m from 5 runs');
+  }
+  const one = render({}, { ...base, status: 'running', estimate: { seconds: 60, runs: 1, lo: null, hi: null } });
+  assert.equal(content(nodes(one, 'span.jc-usually')[0]), 'usually ~1m (1 run)');
+  assert.equal(nodes(one, 'span.jc-usually')[0].attrs.title, 'from 1 run');
+  assert.equal(nodes(render({}, { ...base, status: 'done', endedAt: now }), 'span.jc-usually').length, 0);
+  assert.equal(nodes(render({}, { ...base, status: 'running', estimate: null }), 'span.jc-usually').length, 0);
+});
+
+test('labels and estimate fields containing HTML remain text', () => {
+  const now = Date.parse('2026-10-22T08:03:00Z');
+  const { render } = renderHarness(now);
+  const attack = '<img onerror=alert(1)>';
+  const tree = render({}, { t: 'job', engine: 'codex', status: 'running', role: attack, title: attack,
+    startedAt: now - 1000, estimate: { seconds: attack, runs: 5, lo: null, hi: null },
+    progress: { stages: [{ id: 'x', label: attack, state: 'waiting', baselineSeconds: 120,
+      baselineSource: 'history', baselineRuns: 5 }] } });
+  assert.match(content(tree), /<img onerror=alert\(1\)>/);
+  assert.equal(nodes(tree, 'span.jc-usually').length, 0);
+  const all = [tree, ...nodes(tree, 'div.jc-prog-row.waiting')];
+  assert.equal(all.some((node) => Object.hasOwn(node.attrs, 'html')), false);
 });
 
 test('progress durations use compact seconds, minutes, and hours', () => {
