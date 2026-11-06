@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const { validateRemoteConfig } = require('../main/remote-server');
 const { createRemote, validateTabsPayload } = require('../main/remote');
+const notifySettings = require('../main/notifysettings');
 
 const main = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
 const preload = fs.readFileSync(path.join(__dirname, '../main/preload.js'), 'utf8');
@@ -22,7 +23,7 @@ test('config IPC hides device credentials and preserves them on renderer save', 
   let configChanges = 0;
   const events = new EventEmitter();
   events.on('config-changed', () => configChanges++);
-  const context = { cfg: { remoteDevices: [{ id: 'private', tokenHash: 'secret' }],
+  const context = { notifySettings, cfg: { remoteDevices: [{ id: 'private', tokenHash: 'secret' }],
     remote: { enabled: false }, accounts: {}, secrets: [], gitAccounts: [], projectAccounts: {} },
   remote: { events }, pruneRemoteTabs() {},
   ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },

@@ -35,6 +35,9 @@ const extra = {
   policydefaults: { policyDefaults: { slurmSubmit: 'never', requirePlan: 'on' } },
   projectsettings: { policyDefaults: { slurmSubmit: 'never' }, projectPolicy: { [path.resolve(__dirname, '..')]: { slurmSubmit: 'ask' } },
     projectChat: { [path.resolve(__dirname, '..')]: { mode: 'plan' } } },
+  'project-notifications': { projectNotify: { [path.resolve(__dirname, '..')]: {
+    events: { finished: false }, minSeconds: 120, quietHours: { enabled: true, start: '23:00', end: '07:00' }
+  } } },
   transfer: { storage: { host: 'erda', root: storageDir || '' } },
   files: { storage: { host: 'erda', root: storageDir || '' }, ui: { panes: { remote: { collapsed: false }, storage: { title: 'ERDA archive', weight: 1.4 }, local: { weight: 1 } } } },
   // SHOT_HOST: the HPC login to check (default myhpc). Uses Codeome's own VPN tunnel.
@@ -87,6 +90,7 @@ const steps = {
   editor: [`App.views.editor.openFile(${JSON.stringify(path.resolve(__dirname, '../main/slurm.js'))})`],
   slurm: [`App.views.slurm.refresh = ()=>{}; App.hpcConnected = true; App.emit('hpc', true); App.views.slurm.queue = [{id:'4810231',name:'metaspades_assembly',state:'RUNNING',elapsed:'5:12:40',limit:'1-00:00:00',cpus:'32',partition:'gpu',reason:'node-a17',workdir:'/projects/holo/asm'},{id:'4810240',name:'kraken2_classify',state:'PENDING',elapsed:'0:00',limit:'8:00:00',cpus:'16',partition:'standard',reason:'(Priority)'}]; App.views.slurm.history=[{id:'4810101',name:'fastp_qc',state:'COMPLETED',elapsed:'00:42:10',exitcode:'0:0',maxrss:'3.1G',end:new Date(Date.now()-3600e3).toISOString()},{id:'4810099',name:'bowtie2_map',state:'OUT_OF_MEMORY',elapsed:'01:02:00',exitcode:'0:125',maxrss:'64G',end:new Date(Date.now()-7200e3).toISOString()}]; App.emit('jobs',{running:1,pending:1,failed:1}); App.views.slurm.resources = {total:{nodes:42,offline:2,cpus:2560,cpusUsed:1984,mem:20480000,memUsed:9216000,gpus:8,gpusUsed:5},partitions:[{name:'standard',nodes:36,offline:2,cpus:2176,cpusUsed:1900,mem:17408000,memUsed:8000000,gpus:0,gpusUsed:0,pendingJobs:212,pendingCpus:3392},{name:'gpu',nodes:4,offline:0,cpus:384,cpusUsed:84,mem:3072000,memUsed:1216000,gpus:8,gpusUsed:5,pendingJobs:0,pendingCpus:0}]}; if (${JSON.stringify(process.env.SHOT_DARK || '')}) document.documentElement.dataset.theme = 'dark'; App.setView('slurm'); App.views.slurm.render();`],
   projectsettings: [`(async () => { await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))}); document.documentElement.style.setProperty('--side-w', '380px'); App.setView('projectSettings'); })(); 0`],
+  'project-notifications': [`(async () => { await App.openProject(${JSON.stringify(path.resolve(__dirname, '..'))}); document.documentElement.style.setProperty('--side-w', '420px'); App.setView('projectSettings'); setTimeout(() => { const card = [...document.querySelectorAll('.view[data-view="projectSettings"] .ps-card')].find((el) => el.querySelector('.ps-card-title')?.textContent === 'Notifications'); card?.scrollIntoView(); }, 800); })(); 0`],
   policydefaults: [`App.views.settings.open('policy'); 0`],
   // SHOT_PROJECT: a repository to show (e.g. one with many changed files).
   // SHOT_SIDE / SHOT_PANEL: sidebar width and terminal panel height in px, to check tight layouts.
@@ -224,6 +228,7 @@ const steps = {
   })(); 0`],
   settings: [`document.documentElement.dataset.theme=${JSON.stringify(process.env.SHOT_THEME || 'dark')}; App.views.editor.applyTheme(); App.views.terminals.retheme(); App.views.settings.open(${JSON.stringify(process.env.SHOT_SECTION || '')}); 0`],
   'settings-git': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('git'); 0`],
+  'settings-notifications': [`App.views.settings.open('notifications'); 0`],
   // The HPC setup checklist; SHOT_TEST also runs the key test.
   'settings-hpc': [`if (${JSON.stringify(process.env.SHOT_DARK || '')}) { document.documentElement.dataset.theme = 'dark'; App.views.editor.applyTheme(); } App.views.settings.open('hpc').then(() => { if (!${JSON.stringify(process.env.SHOT_TOP || '')}) setTimeout(() => document.querySelector('.su-list').scrollIntoView(), 600); }); if (${JSON.stringify(process.env.SHOT_TEST || '')}) setTimeout(() => App.setup.testLogin(), 800); if (${JSON.stringify(process.env.SHOT_VPN || '')}) setTimeout(() => App.setup.testVpn(), 800); 0`],
   // Signing in to Codeome's VPN tunnel; put a stand-in openconnect first on PATH (and SHELL=/bin/sh).
@@ -531,6 +536,16 @@ app.whenReady().then(() => {
       if (!layout.bottomVisible) throw new Error('Project settings cannot scroll to its last row and footer.');
       await new Promise((r) => setTimeout(r, 150));
       fs.writeFileSync(path.join(out, 'projectsettings-bottom.png'), await shoot());
+    }
+    if (scenario === 'project-notifications') {
+      await win.webContents.executeJavaScript(`(() => {
+        const panel = document.querySelector('.view[data-view="projectSettings"]');
+        const card = [...panel.querySelectorAll('.ps-card')].find((el) => el.querySelector('.ps-card-title')?.textContent === 'Notifications');
+        if (!card) throw new Error('Notifications card is missing.');
+        panel.scrollTop = card.offsetTop + card.offsetHeight - panel.clientHeight + 24;
+      })()`);
+      await new Promise((r) => setTimeout(r, 150));
+      fs.writeFileSync(path.join(out, 'project-notifications-bottom.png'), await shoot());
     }
     const errs = await win.webContents.executeJavaScript('window.__errs || []').catch(() => []);
     console.log('saved', scenario, errs.length ? errs : '');

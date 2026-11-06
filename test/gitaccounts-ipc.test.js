@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const github = require('../main/github');
 const scratch = require('../main/scratch');
 const usage = require('../main/usage');
+const notifySettings = require('../main/notifysettings');
 
 const source = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
 
@@ -19,7 +20,7 @@ function section(start, end) {
 test('config:set keeps main-process GitHub bindings and renderer policy and chat defaults', () => {
   const handlers = {};
   const current = { accounts: {}, gitAccounts: [{ id: 'real' }], projectAccounts: { '/project': 'real' } };
-  const context = { awake: { sync() {} },
+  const context = { awake: { sync() {} }, notifySettings,
     cfg: current,
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } },
     usage: { ENV_VAR: {} },

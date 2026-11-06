@@ -4,7 +4,7 @@ Open Project settings with `⌘9`, the last item in the left rail. It sets rules
 
 ## App defaults and project overrides
 
-Most of these settings exist at two levels. **Settings → Agent policy** sets the five switches below as defaults for all projects. **Settings → Agents** sets the Claude and Codex model and effort, and also a *Default permission mode* (*As last used*, *Default*, *Accept edits*, *Auto* or *Plan*) and a *Default engine* (Claude or Codex). Project settings can override any of them for the open project.
+Most of these settings exist at two levels. **Settings → Agent policy** sets the five switches below as defaults for all projects. **Settings → Agents** sets the Claude and Codex model and effort, and also a *Default permission mode* (*As last used*, *Default*, *Accept edits*, *Auto* or *Plan*) and a *Default engine* (Claude or Codex). **Settings → Notifications** sets the macOS notification defaults. Project settings can override any of them for the open project.
 
 The rule is the same everywhere: the project value, else the app default, else the built-in default. A row you have not touched in a project inherits, so later changes to the app default reach it. Picking a value in a project always stores it, even when it equals the built-in default, so that project stops following the app default.
 
@@ -41,6 +41,10 @@ These are the five switches in *Agent policy*, in Settings and in each project.
 *Allow* for Slurm pre-approves submissions in Codeome, so you are not asked each time, and tells the agent that the project owner has authorised it. Claude's own safety checks may still refuse to submit. If that happens, submit the job yourself.
 
 Switches marked *advisory* are weaker. *Require a plan* only adds a line to the agent's instructions. *HPC access* adds the same kind of instruction and also denies the commands listed above, but only the ones Codeome recognises.
+
+## Notifications
+
+The *Notifications* card overrides the defaults from Settings → Notifications for this project: *Show macOS notifications*, the four event switches, *Only when Codeome is not the front window*, *At most one notification per chat every (seconds)*, *Play a sound* and *Quiet hours* with *From* and *To*. Each row shows *Use app default* (inherit), *On* or *Off*; an overridden row is tagged *overridden*, shows *App default: …* and has a *Reset* button that removes the override. *Reset to app defaults* at the foot clears them too. *Send test notification* sends a test. See [Notifications](/guide/agent-chat#notifications).
 
 ## Issue inbox
 

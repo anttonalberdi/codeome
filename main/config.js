@@ -89,7 +89,7 @@ const DEFAULTS = {
   forum: { defaultBudget: 0, summaryTokens: 6000, recentMessages: 8, checkModel: 'haiku', codexCheckModel: '', checkEffort: 'low', checkTimeoutMs: 30000 },
   issues: { enabled: false, pollMinutes: 10, model: 'sonnet', notify: true, triageCap: 3,
     dailyTriageCap: 30, autoTriageOutsiders: true, authors: 'everyone', label: '' },
-  notifications: notifySettings.DEFAULTS,
+  notifications: notifySettings.sanitize(),
   projectNotify: {},    // project path → notification overrides; absent fields inherit
   projectIssues: {},      // project path → { enabled, enabledAt }; first enable time is an ISO string or null
   chatTabs: {},           // project → { open: [chat ids], active } for the chat tabs

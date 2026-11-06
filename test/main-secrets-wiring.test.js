@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const secrets = require('../main/secrets');
 const chat = require('../main/chat');
+const notifySettings = require('../main/notifysettings');
 
 const source = fs.readFileSync(path.join(__dirname, '../main/main.js'), 'utf8');
 
@@ -103,7 +104,7 @@ test('text removal skips local files and failed file removal still clears the va
 test('config changes remove a placed file only when no local scope remains or access narrows', () => {
   const handlers = {}, removed = [], placedSecrets = new Set(['KEY']);
   const old = { name: 'KEY', kind: 'file', ext: '.p8', terminals: true, agents: true };
-  const context = { cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
+  const context = { notifySettings, cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
     secrets, placedSecrets, secretFileStore: { remove: (name) => removed.push(name) },
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, usage: { ENV_VAR: {} },
     awake: { track() {}, sync() {}, dispose() {} }, config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
@@ -125,7 +126,7 @@ test('changing only a secret group does not sync HPC secrets', () => {
   const handlers = {};
   let syncs = 0;
   const old = { name: 'SHARED', hpc: true, group: 'Old' };
-  const context = { cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
+  const context = { notifySettings, cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
     secrets, placedSecrets: new Set(), secretFileStore: { remove() {} },
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, usage: { ENV_VAR: {} },
     awake: { sync() {} }, config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
@@ -142,7 +143,7 @@ test('changing only a secret group does not sync HPC secrets', () => {
 test('config cleanup clears placed state when file removal fails', () => {
   const handlers = {}, placedSecrets = new Set(['KEY']);
   const old = { name: 'KEY', kind: 'file', terminals: true, agents: false };
-  const context = { cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
+  const context = { notifySettings, cfg: { accounts: {}, secrets: [old], gitAccounts: [], projectAccounts: {} },
     secrets, placedSecrets, secretFileStore: { remove: () => { throw new Error('private content'); } },
     ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, usage: { ENV_VAR: {} },
     awake: { track() {}, sync() {}, dispose() {} }, config: { save: (next) => next }, applyProxy: () => {}, publishUsage: () => {},
@@ -168,12 +169,14 @@ test('agent secret metadata exposes file kind and quit hooks clean up files', ()
     app: { on: (name, fn) => { hooks[name] = fn; } }, secretFileStore: { cleanupAll: () => cleaned.push(true) },
     awake: { track() {}, sync() {}, dispose() {} }, forumHost: { disposeAll: () => {} }, clearCopied: () => {}, stopLogins: () => {}, tunnel: null,
     heartbeatTimer: null, clearInterval: () => {}, flushRendererLogs: () => {}, crashlog: { markClean: () => {} },
-    remoteService: { stop() {} }, closeOutbox: () => cleaned.push('outbox')
+    remoteService: { stop() {} }, closeOutbox: () => cleaned.push('outbox'),
+    notifyThrottle: { close: () => cleaned.push('notifications') }
   });
   hooks['before-quit']();
   hooks['will-quit']();
-  assert.equal(cleaned.length, 3);
+  assert.equal(cleaned.length, 4);
   assert.ok(cleaned.includes('outbox'), 'quit closes the outbox watchers');
+  assert.ok(cleaned.includes('notifications'), 'quit clears notification timers');
   assert.match(source, /app\.whenReady\(\)\.then\(\(\) => \{\s*secretFileStore = createStore\(app\.getPath\('userData'\)\);\s*try \{ secretFileStore\.sweepStale\(\); \} catch \{\}/);
 });
 

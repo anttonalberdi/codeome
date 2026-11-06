@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld('codeome', {
   logError: (error) => ipcRenderer.send('log:renderer', error),
   pathForFile: (f) => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
   config: { get: invoke('config:get'), set: invoke('config:set') },
+  notify: {
+    show: (payload) => ipcRenderer.invoke('notify:show', payload),
+    test: (project) => ipcRenderer.invoke('notify:test', { project }),
+    onOpen: on('notify:open')
+  },
   policy: { defaults: invoke('policy:defaults') },
   secret: { set: (key, value) => ipcRenderer.invoke('secret:set', { key, value }), has: invoke('secret:has') },
   secrets: {

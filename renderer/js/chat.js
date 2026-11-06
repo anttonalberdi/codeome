@@ -11,6 +11,10 @@
   const Presence = App.chatPresence;
   const Xmsg = App.chatXmsg;
   App.views.chat = C;
+  codeome.notify?.onOpen?.((payload) => {
+    const id = payload?.chatId;
+    if (typeof id === 'string' && Object.hasOwn(C.byId, id)) C.reveal(C.byId[id]);
+  });
   const dom = new WeakMap(); // item → element
   const newChatAttempts = new Set(); // origin id + request id; also guards duplicate events during async setup
   let logEl, ta, attEl, sugEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl, noticeEl;
@@ -465,7 +469,7 @@
     clearSuggest(chat);
     App.emit('chat');
     if (!chat.running && !(await start(chat))) return { ok: false, error: chat.startError || 'Could not start the chat.' };
-    chat.busy = true; chat.busySince = Date.now(); paintState();
+    chat.stopping = false; chat.busy = true; chat.busySince = Date.now(); paintState();
     schedulePresence(chat);
     const r = await codeome.chat.send(chat.id, withFiles(text, files));
     if (r.error) { note(chat, r.error, 'error'); chat.busy = false; paintState(); }
@@ -501,8 +505,9 @@
   C.stop = async () => {
     const chat = cur();
     if (!chat || !chat.running) return;
+    chat.stopping = true;
     const r = await codeome.chat.control(chat.id, { subtype: 'interrupt' });
-    if (r.error) App.err(r.error);
+    if (r.error) { chat.stopping = false; App.err(r.error); }
     expire(chat);
   };
 
@@ -606,7 +611,7 @@
 
   function handle(chat, m) {
     switch (m.type) {
-      case 'outgoing': upsertOutbox(chat, m); break;
+      case 'outgoing': upsertOutbox(chat, m, true); break;
       case 'receipt': {
         const it = chat.items.find((x) => x.t === 'outbox' && x.id === m.id);
         if (it && Xmsg.receipt(it, m)) { update(chat, it); save(chat); scheduleTabs(); schedulePresence(chat); }
@@ -621,7 +626,7 @@
         }
         break;
       }
-      case 'inbox': upsertIncoming(chat, m); break;
+      case 'inbox': upsertIncoming(chat, m, true); break;
       case 'collision':
         if (!tabsOf(chat.project).includes(chat)) break;
         chat.collisions = Collisions.add(chat.collisions, m);
@@ -646,6 +651,9 @@
         break;
       }
       case 'result': {
+        const liveTurn = chat.busy;
+        const stopped = chat.stopping;
+        chat.stopping = false;
         chat.busy = false; chat.busySince = 0; chat.stream = {};
         for (const it of chat.items) if (it.t === 'text' && it.live) { it.live = false; update(chat, it); }
         const failed = (m.subtype && m.subtype !== 'success') || (m.is_error && m.result);
@@ -656,6 +664,7 @@
         chat.unread = !seen(chat);
         paintState(); App.emit('sessions'); save(chat);
         attention(chat, failed ? 'The agent stopped with an error.' : 'The agent finished.');
+        if (liveTurn && !stopped) notifyOS(chat, failed ? 'error' : 'finished');
         if (!failed) suggestTitle(chat);
         break;
       }
@@ -986,7 +995,10 @@
       : { t: 'perm', requestId: m.request_id, tool: r.tool_name, title: r.title || null, reason: r.decision_reason || null, input: slimInput(r.input || {}), suggestions: r.permission_suggestions || null };
     chat.requests[m.request_id] = { input: r.input || {}, item: it };
     push(chat, it);
-    if (notify) attention(chat, it.t === 'ask' ? 'The agent has a question.' : `The agent asks to use ${r.tool_name}.`);
+    if (notify) {
+      attention(chat, it.t === 'ask' ? 'The agent has a question.' : `The agent asks to use ${r.tool_name}.`);
+      notifyOS(chat, 'ask');
+    }
   }
 
   function reconcilePending(chat, records) {
@@ -1033,7 +1045,7 @@
     }
   }
 
-  function upsertOutbox(chat, row) {
+  function upsertOutbox(chat, row, live = false) {
     if (!row || typeof row.id !== 'string' || !['message', 'handoff', 'newchat'].includes(row.kind)) return;
     const prior = chat.items.find((it) => it.t === 'outbox' && it.id === row.id);
     if (prior) {
@@ -1041,22 +1053,29 @@
       Object.assign(prior, { kind: row.kind, from: row.from, to: row.to, recipients: row.recipients, title: row.title,
         engine: row.engine, text: row.text, brief: row.brief, textHash: row.textHash, ts: row.ts });
       update(chat, prior);
-    } else push(chat, { t: 'outbox', id: row.id, kind: row.kind, from: row.from, to: row.to, recipients: row.recipients,
-      title: row.title, engine: row.engine, text: row.text, brief: row.brief, textHash: row.textHash,
-      ts: row.ts, status: 'pending' });
+    } else {
+      push(chat, { t: 'outbox', id: row.id, kind: row.kind, from: row.from, to: row.to, recipients: row.recipients,
+        title: row.title, engine: row.engine, text: row.text, brief: row.brief, textHash: row.textHash,
+        ts: row.ts, status: 'pending' });
+      if (live && (!row.status || row.status === 'pending')) notifyOS(chat, 'approval');
+    }
     save(chat); scheduleTabs(); schedulePresence(chat);
   }
 
-  function upsertIncoming(chat, row) {
+  function upsertIncoming(chat, row, live = false) {
     if (!row || typeof row.id !== 'string') return;
     const prior = chat.items.find((it) => it.t === 'xmsg' && it.id === row.id);
     if (prior) {
       Object.assign(prior, { status: row.status, awaiting: !!row.awaiting, from: row.from,
         text: row.text, brief: row.brief, by_user: row.by_user, ts: row.ts });
       update(chat, prior);
-    } else push(chat, { t: 'xmsg', id: row.id, kind: row.kind, status: row.status,
-      awaiting: !!row.awaiting, from: row.from, text: row.text, brief: row.brief,
-      by_user: row.by_user, ts: row.ts });
+    } else {
+      push(chat, { t: 'xmsg', id: row.id, kind: row.kind, status: row.status,
+        awaiting: !!row.awaiting, from: row.from, text: row.text, brief: row.brief,
+        by_user: row.by_user, ts: row.ts });
+      if (live && row.kind !== 'conflict' && !['dismissed', 'expired'].includes(row.status) &&
+          (row.status !== 'awaiting_accept' || row.awaiting)) notifyOS(chat, 'incoming');
+    }
     save(chat);
   }
 
@@ -1113,6 +1132,13 @@
     if (seen(chat)) return;
     const where = App.basename(chat.project) + (tabsOf(chat.project).length > 1 ? ' · ' + (chat.title || 'New chat').slice(0, 40) : '');
     App.toast(`${where}: ${text}`, { action: { label: 'Show', run: () => C.reveal(chat) } });
+  }
+
+  function notifyOS(chat, kind) {
+    if (!codeome.notify?.show || typeof NotifySettings === 'undefined') return;
+    const settings = NotifySettings.effective(App.cfg, chat.project);
+    if (!settings.enabled || !settings.events[kind === 'error' ? 'finished' : kind]) return;
+    codeome.notify.show({ chatId: chat.id, kind }).catch(() => {});
   }
 
   C.reveal = async (chat) => {

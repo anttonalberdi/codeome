@@ -5,6 +5,8 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const config = require('./config');
+const notifySettings = require('./notifysettings');
+const { createNotifyThrottle } = require('./notifythrottle');
 const github = require('./github');
 const { pollProject, commentOnIssue } = require('./githubissues');
 const { buildStartWorkPrompt } = require('./issueprompt');
@@ -88,6 +90,7 @@ try { pty = require('node-pty'); } catch (e) { ptyError = String(e.message || e)
 let win = null;
 const ptys = new Map();
 const chats = new Map(); // chat id → chat.Session
+const notifyThrottle = createNotifyThrottle({ notify: (chatId, payload, merged) => showChatNotification(chatId, payload.kind, merged) });
 const transfers = new Map();
 let cfg = null;
 let issueStore = null;
@@ -419,7 +422,9 @@ ipcMain.handle('config:set', (_e, c) => {
   const secretsChanged = syncShape(c.secrets) !== syncShape(cfg.secrets);
   const oldSecrets = cfg.secrets || [];
   cfg = config.save({ ...c, gitAccounts: cfg.gitAccounts, projectAccounts: cfg.projectAccounts,
-    projectIssues: cfg.projectIssues, remoteDevices: cfg.remoteDevices });
+    projectIssues: cfg.projectIssues, remoteDevices: cfg.remoteDevices,
+    notifications: notifySettings.sanitize(c.notifications),
+    projectNotify: notifySettings.sanitizeProject(c.projectNotify) });
   if (typeof remote !== 'undefined' && remote?.events) {
     pruneRemoteTabs();
     remote.events.emit('config-changed');
@@ -1168,6 +1173,64 @@ function notifyNewIssues(project, { added } = {}) {
     notification.show();
   } catch { /* OS notifications are optional. */ }
 }
+function validNotifySender(event) {
+  return !!win && !win.isDestroyed() && event?.sender === win.webContents &&
+    event.senderFrame === win.webContents.mainFrame;
+}
+const activeChatNotifications = new Set();
+let lastTest = -Infinity;
+function notifyAllowed(settings, kind) {
+  const eventKind = kind === 'error' ? 'finished' : kind;
+  return settings.enabled && settings.events[eventKind] && !notifySettings.isQuiet(settings.quietHours, new Date()) &&
+    (!settings.onlyUnfocused || (win && !win.isDestroyed() && !win.isFocused())) && Notification.isSupported();
+}
+function showChatNotification(chatId, kind, merged = false) {
+  const session = chats.get(chatId);
+  if (!session || typeof session.cwd !== 'string') return false;
+  const settings = notifySettings.effective(cfg, session.cwd);
+  if (!notifyAllowed(settings, kind)) return false;
+  let notification;
+  try {
+    notification = new Notification({ title: 'Codeome',
+      body: notifySettings.body(session.cwd, kind, merged), silent: !settings.sound });
+    notification.on('click', () => {
+      activeChatNotifications.delete(notification);
+      try {
+        if (!win || win.isDestroyed()) return;
+        win.show();
+        win.focus();
+        send('notify:open', { chatId });
+      } catch { /* OS notifications are optional. */ }
+    });
+    notification.on('close', () => activeChatNotifications.delete(notification));
+    if (activeChatNotifications.size >= 50) activeChatNotifications.delete(activeChatNotifications.values().next().value);
+    activeChatNotifications.add(notification);
+    notification.show();
+    return true;
+  } catch { if (notification) activeChatNotifications.delete(notification); return false; }
+}
+ipcMain.handle('notify:show', (event, payload) => {
+  if (!validNotifySender(event) || !payload || typeof payload !== 'object' || Array.isArray(payload) ||
+      typeof payload.chatId !== 'string' || payload.chatId.length > 128 ||
+      !/^[A-Za-z0-9_-]+$/.test(payload.chatId) || !chats.has(payload.chatId) ||
+      !['finished', 'error', 'ask', 'approval', 'incoming'].includes(payload.kind)) return { ok: false };
+  const settings = notifySettings.effective(cfg, chats.get(payload.chatId).cwd);
+  if (!notifyAllowed(settings, payload.kind)) return { ok: false };
+  notifyThrottle.push(payload.chatId, settings.minSeconds, { kind: payload.kind });
+  return { ok: true };
+});
+ipcMain.handle('notify:test', (event, _payload) => {
+  if (!validNotifySender(event)) return { ok: false, supported: false };
+  const supported = Notification.isSupported();
+  if (!supported) return { ok: false, supported };
+  const now = Date.now();
+  if (now - lastTest < 2000) return { ok: false, supported, throttled: true };
+  try {
+    new Notification({ title: 'Codeome', body: 'test notification' }).show();
+    lastTest = now;
+    return { ok: true, supported };
+  } catch { return { ok: false, supported }; }
+});
 ipcMain.handle('issues:list', wrap(({ project }) => {
   project = issueRoot(project);
   return { items: issueStore.list(project).map((item) => ({ ...item,
@@ -1530,7 +1593,7 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
     remote.attach(s, id, { project, engine, role: persona, seed: resume });
     // Codex limits are read from its app-server by the usage poll, so only Claude's are recorded here.
     s.on('turn', (t) => { if (scratch.isScratch(project)) return; try { stats.record({ at: Date.now(), session: id, project, account: acct.info.name, engine, ...t }); } catch (e) { console.error('chat stats', e); } });
-    s.on('exit', (r) => { try { touched.clear(project, id); } catch {} chats.delete(id); send('chat:exit', { id, ...r }); });
+    s.on('exit', (r) => { try { touched.clear(project, id); } catch {} notifyThrottle.forget(id); chats.delete(id); send('chat:exit', { id, ...r }); });
     s.start();
     chats.set(id, s);
     if (shouldRecord({ forum: false, scratch: scratch.isScratch(project), hasCodeomeDir: fs.existsSync(path.join(project, '.codeome')) })) {
@@ -1656,7 +1719,7 @@ ipcMain.handle('chat:suggest-title', (_e, { messages, account }) => {
   const a = cfg.accounts.claude.list.find((x) => x.name === account);
   return suggestTitle.suggestTitle({ messages, dir: a && a.dir, bin: claudeCmd().trim().split(/\s+/)[0] });
 });
-ipcMain.handle('chat:stop', (_e, id) => { const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
+ipcMain.handle('chat:stop', (_e, id) => { notifyThrottle.forget(id); const s = chats.get(id); if (s) s.stop(); return { ok: true }; });
 ipcMain.handle('chat:save', (_e, { project, chat: c }) => { try { const result = chat.saveChat(project, c); if (result.ok) remote.events.emit('chat-saved', project); return result; } catch (e) { return { error: e.message }; } });
 ipcMain.handle('chat:list', (_e, project) => chat.listChats(project));
 ipcMain.handle('chat:personas', () => chat.listPersonas());
@@ -1906,6 +1969,7 @@ app.whenReady().then(() => {
 });
 app.on('before-quit', () => {
   quitting = true;
+  notifyThrottle.close();
   try { closeOutbox(); } catch {}
   if (typeof issuePoller !== 'undefined' && issuePoller) issuePoller.stop();
   remoteService.stop();

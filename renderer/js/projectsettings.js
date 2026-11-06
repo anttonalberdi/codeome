@@ -10,6 +10,16 @@
     ['codexEffort', 'Codex effort'], ['mode', 'Default permission mode'], ['engine', 'Default engine']
   ];
   const TAB_NAME_OPTIONS = [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }];
+  const NOTIFY_ROWS = [
+    ['enabled', 'Show macOS notifications'],
+    ['events.finished', 'Agent finished or stopped with an error'],
+    ['events.ask', 'Agent needs your input (permission or question)'],
+    ['events.approval', 'Approval needed for a message between chats'],
+    ['events.incoming', 'New message from another chat'],
+    ['onlyUnfocused', 'Only when Codeome is not the front window'],
+    ['sound', 'Play a sound'],
+    ['quietHours.enabled', 'Quiet hours']
+  ];
   const MODEL_RE = /^(?!-)[\w.:/[\]-]{1,80}$/;
 
   P.init = () => {
@@ -48,15 +58,25 @@
     if (busy || !path) return;
     App.cfg.projectPolicy = App.cfg.projectPolicy || {};
     App.cfg.projectChat = App.cfg.projectChat || {};
+    App.cfg.projectNotify = App.cfg.projectNotify || {};
     const previousPolicy = App.cfg.projectPolicy[path];
     const previousChat = App.cfg.projectChat[path];
+    const previousNotify = App.cfg.projectNotify[path];
     if (scope === null) {
       delete App.cfg.projectPolicy[path];
       delete App.cfg.projectChat[path];
+      delete App.cfg.projectNotify[path];
     } else {
-      const collection = scope === 'policy' ? App.cfg.projectPolicy : App.cfg.projectChat;
+      const collection = scope === 'policy' ? App.cfg.projectPolicy : scope === 'notify' ? App.cfg.projectNotify : App.cfg.projectChat;
       const next = { ...(collection[path] || {}) };
-      if (value === null || (scope === 'chat' && value === '')) delete next[key];
+      const parts = key.split('.');
+      if (parts.length === 2 && scope === 'notify') {
+        const nested = { ...(next[parts[0]] || {}) };
+        if (value === null) delete nested[parts[1]];
+        else nested[parts[1]] = value;
+        if (Object.keys(nested).length) next[parts[0]] = nested;
+        else delete next[parts[0]];
+      } else if (value === null || (scope === 'chat' && value === '')) delete next[key];
       else next[key] = value;
       if (Object.keys(next).length) collection[path] = next;
       else delete collection[path];
@@ -70,6 +90,8 @@
       else delete App.cfg.projectPolicy[path];
       if (previousChat) App.cfg.projectChat[path] = previousChat;
       else delete App.cfg.projectChat[path];
+      if (previousNotify) App.cfg.projectNotify[path] = previousNotify;
+      else delete App.cfg.projectNotify[path];
       saveError = error.message || String(error);
     } finally { busy = false; P.refresh(); }
   }
@@ -122,6 +144,104 @@
       h('div.ps-label', h('span', label), overridden ? h('span.ps-tag.ps-overridden', 'overridden') : null),
       chatSelect(key, label, options, overridden ? project[key] : '', path),
       inheritance(label, appLabel, overridden, () => save(path, 'chat', key, null)));
+  }
+
+  function notifyValue(source, key) {
+    const [outer, inner] = key.split('.');
+    return inner ? source?.[outer]?.[inner] : source?.[outer];
+  }
+
+  function notifyInheritance(label, appValue, overridden, path, key) {
+    return h('div.ps-inheritance', h('span', `App default: ${appValue}`),
+      overridden ? ' ' : null, overridden ? h('span.ps-tag.ps-overridden', 'overridden') : null,
+      overridden ? ' ' : null,
+      overridden ? h('button.ps-reset', { type: 'button', disabled: busy,
+        'aria-label': `Use app default for ${label}`, onclick: () => save(path, 'notify', key, null) }, 'Reset') : null);
+  }
+
+  function notifyToggleRow(key, label, path, base, project) {
+    const value = notifyValue(project, key);
+    const overridden = typeof value === 'boolean';
+    const choices = [{ value: '', label: 'Use app default' }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }];
+    const labelId = 'ps-notify-' + key.replace('.', '-');
+    const select = h('select', { 'aria-labelledby': labelId, disabled: busy,
+      onchange: (event) => save(path, 'notify', key, event.target.value === '' ? null : event.target.value === 'on') },
+    choices.map((choice) => h('option', { value: choice.value,
+      selected: choice.value === (overridden ? value ? 'on' : 'off' : '') }, choice.label)));
+    return h('div.ps-row', { 'data-notify-key': key },
+      h('div.ps-label', h('span', { id: labelId }, label)), select,
+      notifyInheritance(label, notifyValue(base, key) ? 'On' : 'Off', overridden, path, key));
+  }
+
+  function notifyNumberRow(path, base, project) {
+    const label = 'At most one notification per chat every (seconds)';
+    const overridden = Number.isInteger(project.minSeconds);
+    const error = h('span.ps-field-error', { role: 'alert' });
+    const input = h('input', { type: 'number', min: '5', max: '600', step: '1', disabled: busy,
+      value: String(overridden ? project.minSeconds : base.minSeconds), 'aria-label': label,
+      onchange: (event) => {
+        const raw = Number(event.target.value);
+        if (event.target.value === '' || !Number.isFinite(raw)) {
+          error.textContent = 'Enter a whole number from 5 to 600.';
+          event.target.value = String(overridden ? project.minSeconds : base.minSeconds);
+          return;
+        }
+        const clean = App.notifySettings.sanitize({ ...base, minSeconds: Math.round(raw) }).minSeconds;
+        event.target.value = String(clean);
+        return save(path, 'notify', 'minSeconds', clean);
+      } });
+    return h('div.ps-row', { 'data-notify-key': 'minSeconds' }, h('div.ps-label', h('span', label)),
+      h('div.ps-chat-control', input, error), notifyInheritance(label, `${base.minSeconds} seconds`, overridden, path, 'minSeconds'));
+  }
+
+  function notifyTimeRow(key, label, path, base, project, quietEnabled) {
+    const value = notifyValue(project, key);
+    const inherited = notifyValue(base, key);
+    const overridden = typeof value === 'string';
+    const error = h('span.ps-field-error', { role: 'alert' });
+    const input = h('input', { type: 'text', inputmode: 'numeric', maxlength: 5, autocomplete: 'off', spellcheck: 'false',
+      value: overridden ? value : inherited, 'aria-label': label, disabled: busy || !quietEnabled,
+      onchange: (event) => {
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(event.target.value)) {
+          event.target.value = overridden ? value : inherited;
+          event.target.setAttribute('aria-invalid', 'true');
+          error.textContent = 'Enter a time as HH:MM (00:00–23:59).';
+          return;
+        }
+        event.target.setAttribute('aria-invalid', 'false');
+        error.textContent = '';
+        return save(path, 'notify', key, event.target.value);
+      } });
+    return h('div.ps-row', { 'data-notify-key': key }, h('div.ps-label', h('span', label)),
+      h('div.ps-chat-control', input, error), notifyInheritance(label, inherited, overridden, path, key));
+  }
+
+  function notifySettings(path) {
+    if (!App.notifySettings) return h('section.ps-card', h('h3.ps-card-title', 'Notifications'),
+      h('p.ps-help', 'Notification settings are unavailable: reload Codeome'));
+    const base = App.notifySettings.sanitize(App.cfg.notifications);
+    const project = (App.cfg.projectNotify || {})[path] || {};
+    const quietEnabled = App.notifySettings.effective(App.cfg, path).quietHours.enabled;
+    const result = h('span.hint', { role: 'status', 'aria-live': 'polite' });
+    const test = h('button.btn.small', { type: 'button', disabled: busy, onclick: async () => {
+      result.textContent = 'Sending…';
+      try {
+        const response = await codeome.notify.test(path);
+        result.textContent = response?.ok ? 'Sent' : response?.throttled ? 'Please wait a moment' : response?.supported === false
+          ? 'Notifications are not supported here'
+          : 'Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.';
+      } catch {
+        result.textContent = 'Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.';
+      }
+    } }, 'Send test notification');
+    return h('section.ps-card', h('h3.ps-card-title', 'Notifications'),
+      h('div.ps-list', h('p.ps-help', 'macOS notifications show only the project folder name and the kind of event, never chat text. New GitHub issues have their own switch in Git & GitHub (“Notify for new issues”). Phone push (ntfy) is separate.'),
+        NOTIFY_ROWS.slice(0, 6).map(([key, label]) => notifyToggleRow(key, label, path, base, project)),
+        notifyNumberRow(path, base, project),
+        NOTIFY_ROWS.slice(6).map(([key, label]) => notifyToggleRow(key, label, path, base, project)),
+        notifyTimeRow('quietHours.start', 'From', path, base, project, quietEnabled),
+        notifyTimeRow('quietHours.end', 'To', path, base, project, quietEnabled),
+        h('div.ps-row', test, result)));
   }
 
   async function saveHpc(path, paths) {
@@ -201,7 +321,7 @@
       return;
     }
     const options = App.agentDefaultOptions(codexModels);
-    const hasOverrides = !!Object.keys((App.cfg.projectPolicy || {})[path] || {}).length || !!Object.keys((App.cfg.projectChat || {})[path] || {}).length;
+    const hasOverrides = !!Object.keys((App.cfg.projectPolicy || {})[path] || {}).length || !!Object.keys((App.cfg.projectChat || {})[path] || {}).length || !!Object.keys((App.cfg.projectNotify || {})[path] || {}).length;
     root.replaceChildren(heading,
       h('div.ps-intro',
         h('div.ps-project', App.isIdeas(path) ? 'Ideas' : App.basename(path)),
@@ -214,6 +334,7 @@
           h('button.btn.small', { type: 'button', onclick: loadDefaults }, 'Retry')) : null,
         h('div.ps-list', CHAT_ROWS.map(([key, label]) => chatRow(key, label, options[key], path)),
           chatRow('tabNames', 'Suggest tab names', TAB_NAME_OPTIONS, path))),
+      notifySettings(path),
       App.isIdeas(path) ? null : issueSettings(path),
       App.isIdeas(path) ? null : hpcFolders(path),
       h('section.ps-card', h('h3.ps-card-title', 'Connected projects'),

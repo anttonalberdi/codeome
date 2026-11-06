@@ -7,7 +7,10 @@ let data = '{}';
 const originalLoad = Module._load;
 Module._load = function (name, parent, ...args) {
   if (name === 'electron') return { app: { getPath: () => '/unused' }, safeStorage: {} };
-  if (name === 'fs' && parent && parent.filename === configPath) return { readFileSync: () => data };
+  if (name === 'fs' && parent && parent.filename === configPath) return {
+    readFileSync: () => data, writeFileSync: (_file, value) => { data = value; },
+    mkdirSync: () => {}, chmodSync: () => {}
+  };
   return originalLoad.call(this, name, parent, ...args);
 };
 let config;
@@ -80,4 +83,21 @@ test('loading issue settings leaves existing config values untouched', () => {
   assert.deepEqual(cfg.projectLinks, { '/projects/alpha': ['/projects/beta'] });
   assert.deepEqual(cfg.issues, { ...config.DEFAULTS.issues, enabled: true, notify: false,
     authors: 'collaborators', model: 'haiku', label: 'bug' });
+});
+
+test('notification settings load and save discard invalid and prototype fields', () => {
+  const saved = load(JSON.parse('{"notifications":{"minSeconds":1,"quietHours":{"start":"25:99"},"events":{"ask":false,"unknown":false,"__proto__":false}},"projectNotify":{"/work/a":{"enabled":false,"minSeconds":9999,"events":{"incoming":false,"unknown":true}},"__proto__":{"enabled":false}}}'));
+  assert.equal(saved.notifications.minSeconds, 5);
+  assert.equal(saved.notifications.quietHours.start, '22:00');
+  assert.deepEqual(saved.notifications.events, { finished: true, ask: false, approval: true, incoming: true });
+  assert.deepEqual(saved.projectNotify, { '/work/a': { enabled: false, minSeconds: 600, events: { incoming: false } } });
+  saved.notifications.minSeconds = 9999;
+  saved.notifications.events.unknown = false;
+  saved.projectNotify['/work/a'].minSeconds = 1;
+  saved.projectNotify['/work/a'].extra = true;
+  config.save(saved);
+  const roundTrip = config.load();
+  assert.equal(roundTrip.notifications.minSeconds, 600);
+  assert.equal(Object.hasOwn(roundTrip.notifications.events, 'unknown'), false);
+  assert.deepEqual(roundTrip.projectNotify['/work/a'], { enabled: false, minSeconds: 5, events: { incoming: false } });
 });

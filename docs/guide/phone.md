@@ -106,7 +106,7 @@ Codeome can tell your phone when a decision is waiting, through [ntfy](https://n
 2. Click **Reveal topic** and subscribe to the URL it shows in the ntfy app on the phone. The default server is `https://ntfy.sh`, and the topic is a random secret that Codeome generates and keeps with Codeome's other stored secrets. Anyone who knows the topic can read your notifications, so do not share it. **Hide topic** hides it again; **Regenerate topic** makes a new one (the phone must resubscribe); **Send test notification** checks the setup.
 3. The notification says "`<project>` needs a decision", or "N decisions are waiting", and opens the companion's address when tapped. It carries the project's folder name and nothing else from the chat. A public server such as ntfy.sh sees that text.
 
-Notifications for one chat are sent at most every 30 seconds, and a burst is merged into one. *Notify only when away from the phone* (on by default) skips them while a paired phone has been connected in the last two minutes.
+Notifications for one chat are sent at most every 30 seconds, and a burst is merged into one. These are separate from the Mac's own [notifications](/guide/agent-chat#notifications), which have their own switches and quiet hours. *Notify only when away from the phone* (on by default) skips them while a paired phone has been connected in the last two minutes.
 
 To use your own ntfy server, set **Server URL**. Addresses that are local or private (`localhost`, `.local`, `10.x`, `192.168.x`, `172.16-31.x`, `100.100.100.200`, link-local, and the IPv6 equivalents) are refused until you tick *Allow private or self-hosted server*. The URL must be http or https with no user name, query or fragment.
 

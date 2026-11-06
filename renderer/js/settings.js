@@ -37,7 +37,7 @@
   const ENGINE_NAME = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
   const MODEL_RE = /^(?!-)[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
-    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['policy', 'Agent policy'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'], ['figures', 'Figures'],
+    ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['policy', 'Agent policy'], ['notifications', 'Notifications'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'], ['figures', 'Figures'],
     ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['phone', 'Phone companion'], ['appearance', 'Appearance'], ['mac', 'This Mac']
   ];
   const ALIAS = { github: 'git', zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
@@ -136,9 +136,9 @@
     return h('input', { type: opts.type || 'text', value: get() ?? '', placeholder: opts.placeholder || '', spellcheck: 'false', autocomplete: 'off', 'aria-label': opts.label || '',
       onchange: (e) => { set(e.target.value); commit(opts.apply); } });
   }
-  function check(label, get, set, apply, title) {
-    const i = h('input', { type: 'checkbox', checked: !!get(), onchange: (e) => { set(e.target.checked); commit(apply); } });
-    return h('label.check', title ? { title } : {}, i, label);
+  function check(label, get, set, apply, title, visible = true) {
+    const i = h('input', { type: 'checkbox', checked: !!get(), ...(visible ? {} : { 'aria-label': label }), onchange: (e) => { set(e.target.checked); commit(apply); } });
+    return h('label.check', title ? { title } : {}, i, visible ? label : null);
   }
   function select(options, value, onchange, label) {
     const has = options.some((o) => o.value === value);
@@ -184,7 +184,7 @@
   // Only the chosen section is built; the live parts (setup checklist, team) exist only while it shows.
   const BUILD = {
     hpc: hpcSection, storage: storageSection, transfer: transferSection, agents: agentsSection, policy: policySection, accounts: accountsSection, r: rSection,
-    projects: projectsSection, python: pythonSection, figures: figuresSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, phone: phoneSection, appearance: appearanceSection, mac: macSection
+    projects: projectsSection, python: pythonSection, figures: figuresSection, git: gitSection, publishing: publishingSection, secrets: secretsSection, phone: phoneSection, appearance: appearanceSection, notifications: notificationsSection, mac: macSection
   };
   let showSeq = 0;
   let phoneController = null;
@@ -1797,6 +1797,80 @@
       stop: () => { active = false; unsubscribe?.(); unsubscribe = null; clearPair(); topicResult.hidden = true; topicResult.replaceChildren(); }
     };
     return result;
+  }
+
+  function notificationsSection() {
+    if (!App.notifySettings) return section('notifications', 'Notifications', 'Notification settings are unavailable: reload Codeome');
+    const defaults = App.notifySettings.DEFAULTS;
+    App.cfg.notifications = App.notifySettings.sanitize(App.cfg.notifications);
+    const cfg = () => App.cfg.notifications;
+    const update = (part) => { App.cfg.notifications = App.notifySettings.sanitize({ ...cfg(), ...part }); };
+    const events = [
+      ['finished', 'Agent finished or stopped with an error'],
+      ['ask', 'Agent needs your input (permission or question)'],
+      ['approval', 'Approval needed for a message between chats'],
+      ['incoming', 'New message from another chat']
+    ];
+    const quietInputs = [];
+    const time = (key, label) => {
+      const error = h('span.ps-field-error', { role: 'alert' });
+      const input = h('input', { type: 'text', inputmode: 'numeric', value: cfg().quietHours[key], placeholder: defaults.quietHours[key],
+        'aria-label': label, maxlength: 5, autocomplete: 'off', spellcheck: 'false', disabled: !cfg().quietHours.enabled,
+        onchange: (event) => {
+          const value = event.target.value;
+          if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+            event.target.value = cfg().quietHours[key];
+            error.textContent = 'Enter a time as HH:MM (00:00–23:59).';
+            event.target.setAttribute('aria-invalid', 'true');
+            return;
+          }
+          error.textContent = '';
+          event.target.setAttribute('aria-invalid', 'false');
+          update({ quietHours: { ...cfg().quietHours, [key]: value } });
+          commit();
+        } });
+      quietInputs.push(input);
+      return h('div', input, error);
+    };
+    const intervalError = h('span.ps-field-error', { role: 'alert' });
+    const interval = h('input', { type: 'number', min: '5', max: '600', step: '1', value: String(cfg().minSeconds),
+      'aria-label': 'At most one notification per chat every (seconds)',
+      onchange: (event) => {
+        const raw = Number(event.target.value);
+        if (event.target.value === '' || !Number.isFinite(raw)) {
+          intervalError.textContent = 'Enter a whole number from 5 to 600.';
+          event.target.value = String(cfg().minSeconds);
+          return;
+        }
+        intervalError.textContent = '';
+        const value = Math.round(raw);
+        update({ minSeconds: value });
+        event.target.value = String(cfg().minSeconds);
+        commit();
+      } });
+    const result = h('span.hint', { role: 'status', 'aria-live': 'polite' });
+    const test = h('button.btn.small', { type: 'button', onclick: async () => {
+      result.textContent = 'Sending…';
+      try {
+        const response = await codeome.notify.test();
+        result.textContent = response?.ok ? 'Sent' : response?.throttled ? 'Please wait a moment' : response?.supported === false
+          ? 'Notifications are not supported here'
+          : 'Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.';
+      } catch {
+        result.textContent = 'Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.';
+      }
+    } }, 'Send test notification');
+    return section('notifications', 'Notifications',
+      'macOS notifications show only the project folder name and the kind of event, never chat text. New GitHub issues have their own switch in Git & GitHub (“Notify for new issues”). Phone push (ntfy) is separate.',
+      card('Agent chats',
+        row('Show macOS notifications', check('Show macOS notifications', () => cfg().enabled, (value) => update({ enabled: value }), null, null, false)),
+        ...events.map(([key, label]) => row(label, check(label, () => cfg().events[key], (value) => update({ events: { ...cfg().events, [key]: value } }), null, null, false))),
+        row('Only when Codeome is not the front window', check('Only when Codeome is not the front window', () => cfg().onlyUnfocused, (value) => update({ onlyUnfocused: value }), null, null, false)),
+        row('At most one notification per chat every (seconds)', h('div', interval, intervalError)),
+        row('Play a sound', check('Play a sound', () => cfg().sound, (value) => update({ sound: value }), null, null, false)),
+        row('Quiet hours', check('Quiet hours', () => cfg().quietHours.enabled, (value) => { update({ quietHours: { ...cfg().quietHours, enabled: value } }); for (const input of quietInputs) input.disabled = !value; }, null, null, false)),
+        row('From', time('start', 'From')), row('To', time('end', 'To')),
+        h('div.sp-foot.row', test, result)));
   }
 
   function appearanceSection(c) {

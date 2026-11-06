@@ -72,6 +72,16 @@ The recipient chat gets the text framed as an untrusted message from another age
 
 Limits: 6 requests a minute, 5 pending per chat, 3 broadcasts and 3 new chats an hour. This needs the project's agent kit at 0.9.4 (the banner offers the update). It guards this channel only; agents can still influence each other through shared files. See [the agent kit](/reference/agent-kit#messaging-other-chats).
 
+## Notifications
+
+Codeome can raise a macOS notification when a chat needs you while you are elsewhere. There are four events, each with its own switch: *Agent finished or stopped with an error*, *Agent needs your input (permission or question)*, *Approval needed for a message between chats* and *New message from another chat*. A Stop you press yourself does not notify, and neither does restoring a chat or reloading old cards. Receipts and Codeome's own conflict notices do not notify either.
+
+The text is only the project folder name and the kind of event, for example "my-project: approval needed", never chat text. The first notification for a chat is immediate; a burst within the interval is merged into one "<folder>: new activity". Clicking a notification brings Codeome to the front and opens that chat.
+
+By default notifications are on for all four events, only when Codeome is not the front window, at most one per chat every 30 seconds (5 to 600), with sound, and with quiet hours off. Quiet hours default to 22:00 to 08:00, may cross midnight, and suppress notifications entirely inside the window. Set these defaults in Settings → Notifications; the Notifications card in [Project settings](/guide/project-settings#notifications) overrides each of them per project. *Send test notification* checks the setup and ignores quiet hours.
+
+These are separate from the issue-inbox switch (Settings → Git & GitHub, *Notify for new issues*) and from [phone push](/guide/phone#ntfy-notifications). Allow Codeome under System Settings → Notifications; macOS Focus modes silence them. When Codeome runs from source (`npm start`) notifications appear under the name "Electron", so check the look on the packaged app. The test button says when notifications are unsupported.
+
 ## Saved conversations
 
 Conversations are saved (in `~/.codeome/chats/`) and keep running while you work in another tab or project. Open tabs come back when you reopen the project. Closing a tab stops its session, and the ⋯ menu reopens the conversation later. The ⋯ menu can also move the current chat into a Claude Code terminal session.
