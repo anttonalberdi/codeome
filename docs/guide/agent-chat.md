@@ -64,6 +64,14 @@ To change how Claude reacts, set `CODEOME_COLLISIONS` in the environment Codeome
 
 This is awareness, not locking: the check and the edit are not one step, and edits made through Bash (`sed`, formatters, `git checkout`) are not seen. The approval prompt needs the project's agent kit at 0.9.2, and codes and notes in it need 0.9.3; the banner offers the update.
 
+### Messages between chats
+
+An agent can ask to message another live chat by its code, broadcast to all of them, open a new chat, or hand over a task with a written brief. Nothing is sent until you approve it: the request appears as an *Awaiting your approval* card in the sender's chat with Approve, Edit and Decline (a broadcast lists the recipients to tick; a new chat or handoff shows what will be started). Approval is bound to exactly what the card shows, and cards expire after 1 hour.
+
+The recipient chat gets the text framed as an untrusted message from another agent, plus an *incoming message* card with an untrusted badge, receipts (delivered, read) and a Reply button; a reply you write needs no approval. A handoff adds a card with *Start task* and *Dismiss*, and the agent sees nothing until you click Start. A new chat opens in the same project with the default permission settings, not the sender's. When two chats edit the same file, Codeome itself tells both with a *Codeome notice* card.
+
+Limits: 6 requests a minute, 5 pending per chat, 3 broadcasts and 3 new chats an hour. This needs the project's agent kit at 0.9.4 (the banner offers the update). It guards this channel only; agents can still influence each other through shared files. See [the agent kit](/reference/agent-kit#messaging-other-chats).
+
 ## Saved conversations
 
 Conversations are saved (in `~/.codeome/chats/`) and keep running while you work in another tab or project. Open tabs come back when you reopen the project. Closing a tab stops its session, and the ⋯ menu reopens the conversation later. The ⋯ menu can also move the current chat into a Claude Code terminal session.

@@ -131,6 +131,38 @@ codeome-agent note "<text>"
 
 `note` sets a one-sentence note about what this chat is doing, up to 200 characters, so other chats can see it in `sessions`, `touched` and the collision warning. Empty text clears it. A note older than 24 hours is ignored. It needs `CODEOME_CHAT_ID` and an active chat record, and the prompt asks agents to keep it current. The phone page does not show codes, and Codeome writes no model-generated summaries of chats.
 
+## Messaging other chats
+
+From kit 0.9.4 an agent can ask to message another live chat, start a new chat or hand over a task. Nothing is sent until the user approves it in the app.
+
+```
+codeome-agent send --to CODE|all [--reply-to ID] "text"
+codeome-agent send --new [--engine claude|codex] [--title T] "prompt"
+codeome-agent send --handoff (--to CODE | --new) --title T --brief FILE|-
+codeome-agent inbox [--sent] [--json]
+```
+
+- `--to CODE|all`: the target, one live chat by its 4-letter code or every other live chat. Exactly one of `--to` and `--new` is required.
+- `--new`: ask for a new chat in the same project. `--engine claude|codex` picks the engine and `--title T` the tab name (up to 80 characters); both need `--new` (`--title` is also required with `--handoff`).
+- `--reply-to ID`: answer an inbox message. Without it a message starts a new thread. Reply chains stop after 3 hops.
+- `--handoff`: hand over a task instead of a message. It needs `--title` and `--brief FILE|-` (a file, or `-` for stdin), goes to one chat or a new one (not `--to all`) and takes no text argument. The brief has the sections Goal, Context, Constraints, Acceptance check and Out of scope, each once. Text before the first heading, duplicate headings and other headings are rejected.
+- `text`: the message, up to 2000 characters (4000 for `--new`; the brief is up to 8000). `-` reads it from stdin.
+- `inbox` lists the id, kind, status and age of the messages sent to this chat, never their text or sender (message text reaches an agent only through the message Codeome injects after approval); `inbox --sent` lists this chat's own requests with their status (pending, approved, declined, expired, undeliverable, delivered, read). `--json` prints objects. Both are read-only: there is no acknowledge, and nothing is drained or acted on.
+
+`send` returns "pending user approval" at once and only writes a request file in `.codeome/outbox/`. It refuses if the Codeome app cannot show approval cards (it checks `.codeome/inbox-support.json`, written by the app); update Codeome and the project's kit. Limits: 6 requests a minute, 5 pending per sender, broadcast 3 an hour, new chat 3 an hour.
+
+### Approval and delivery
+
+- The request shows as an *Awaiting your approval* card in the sender's chat with Approve, Edit and Decline. A broadcast shows a checklist of recipients; a new chat or handoff shows what will be started. Approval happens only in the app and is bound to a hash of what the card shows (kind, target, engine, title, text or brief): if the request file changes after it was shown, approval is refused. Cards expire after 1 hour. The sending agent is told when a request is declined, expires or cannot be delivered.
+- On approval Codeome itself injects the text into the recipient chat (Claude or Codex), framed as an untrusted message from another agent, and shows an *incoming message* card there with an untrusted badge, receipts (delivered, read) and a Reply button. A reply you write there needs no approval.
+- A handoff shows a second card on the receiving chat with *Start task* and *Dismiss*; the agent sees nothing until you click Start.
+- `--new` opens a new chat in the same project with the default permission settings, not the sender's, and reports its code back to the card.
+- When two chats edit the same file, Codeome (not the agents) tells both chats with a *Codeome notice* card and an injected line.
+
+### Security model
+
+Codeome acts only on what the user approved in the app. Files in `.codeome/inbox/` and `.codeome/outbox/` are records, never instructions: nothing reads them as commands. Agents run as the same OS user, so they could write those files, but that has no effect beyond a record. Residual risk: agents also influence each other through shared files, the repo, notes and job output. The approval gate covers only this messaging channel and is not a sandbox. `.codeome/inbox/`, `.codeome/outbox/` and `.codeome/inbox-support.json` are git-ignored.
+
 ## Tools
 
 Tools Codeome uses if present: `git`, `gh`, `rsync`, `ssh`, `sftp`, `quarto`, `R`, `Rscript`, `python3`, `tmux` (on the HPC), `claude`, `codex`. Settings shows which ones it found.
