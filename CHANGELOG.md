@@ -14,7 +14,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ### Changed
 - **Layout per project**: each project now remembers its own sidebar width, whether the editor/terminal side or the sidebar is folded away, and the terminal panel's height and fold. Switching projects restores that project's layout, and it survives a restart. A project you haven't arranged yet keeps the layout on screen.
-- **Agent kit 0.9.4**: adds `send` and `inbox`; projects must update the kit to get them, and `send` refuses if the app cannot show approval cards. Limits are 6 requests a minute, 5 pending, 3 broadcasts and 3 new chats an hour. `.codeome/inbox/`, `.codeome/outbox/` and `.codeome/inbox-support.json` are git-ignored. This guards the messaging channel only; agents can still influence each other through shared files.
+- **Agent kit 0.9.4**: adds `send`, `inbox` and `estimate`; projects must update the kit to get them, and `send` refuses if the app cannot show approval cards. `watch` now keys its history by parser and label (for example `vitest:tests-unit`), the chat rules ask agents to run `estimate` before long runs and to name their stages, and specialist personas now show progress through cards and watches. Limits are 6 requests a minute, 5 pending, 3 broadcasts and 3 new chats an hour. `.codeome/inbox/`, `.codeome/outbox/` and `.codeome/inbox-support.json` are git-ignored. This guards the messaging channel only; agents can still influence each other through shared files.
 
 ## 1.5.0
 
