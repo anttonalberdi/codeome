@@ -2,6 +2,11 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## Unreleased
+
+### Changed
+- **Renaming a chat tab**: the rename box now opens empty, with the current name shown as greyed placeholder text, so you can type a new name without deleting the old one first. Confirming an empty name leaves the title unchanged.
+
 ## 1.6.0
 
 ### Added

@@ -252,8 +252,8 @@
   };
 
   async function renameTab(chat) {
-    const v = await App.prompt('Rename chat', 'Name', chat.title || '');
-    if (v == null) return;
+    const v = await App.prompt('Rename chat', 'Name', '', { placeholder: chat.title || '' });
+    if (!v) return;
     chat.title = v.slice(0, 80);
     save(chat, true); paintTabs(); App.emit('chat');
   }
@@ -1847,7 +1847,7 @@
     if (chat === cur()) paintSuggest();
   }
   async function typeTitle(chat) {
-    const v = await App.prompt('Rename chat', 'Name', chat.title || '');
+    const v = await App.prompt('Rename chat', 'Name', '', { placeholder: chat.title || '' });
     if (v != null && v.trim()) applyTitle(chat, v.trim());
   }
   function dismissTitle(chat) { chat.titleSuggest = null; if (chat === cur()) paintSuggest(); }
