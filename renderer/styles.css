@@ -120,6 +120,7 @@ svg { width: 18px; height: 18px; display: block; }
 .proj-collapsed .pg-body { margin-left: 0; }
 .pg-head.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
 .pg-head.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+#projects.file-drop { box-shadow: inset 0 0 0 2px var(--accent); }
 .pg-head.drop-in { box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
 .pg-chev { display: grid; flex: none; }
 .pg-chev svg { width: 12px; height: 12px; }

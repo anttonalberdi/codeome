@@ -4,6 +4,9 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 ## Unreleased
 
+### Added
+- **Drop a folder to open a project**: drag a folder from Finder onto the Projects column to open it as a project; several folders at once open together. Dropping something that is not a folder shows a short hint.
+
 ### Changed
 - **Renaming a chat tab**: the rename box now opens empty, with the current name shown as greyed placeholder text, so you can type a new name without deleting the old one first. Confirming an empty name leaves the title unchanged.
 
