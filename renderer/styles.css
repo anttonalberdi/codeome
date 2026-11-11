@@ -531,6 +531,13 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 .tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
 .tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .tab.active { background: var(--surface); color: var(--text); border-color: var(--line); height: 28px; }
+.tab.selected { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
+.tab.group.open { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
+.tab.group .ccode { flex: none; font: 9px var(--mono); letter-spacing: -.2px; color: var(--muted); }
+.tab.group .badge { font-variant-numeric: tabular-nums; }
+.tab:focus-visible, .tab .x:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.subtabs { min-height: 29px; padding-top: 2px; background: var(--surface); }
+.subtabs[hidden] { display: none; }
 .tab .badge { font-size: 10px; padding: 0 5px; border-radius: 4px; background: var(--line); color: var(--muted); }
 .tab .badge.hpc { background: var(--accent-soft); color: var(--accent); }
 .tab .badge.r { background: color-mix(in srgb, var(--run) 18%, transparent); color: var(--run); }
@@ -540,7 +547,7 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 .monaco-editor .rmd-chunk { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .monaco-editor .rmd-fence { background: color-mix(in srgb, var(--accent) 11%, transparent); }
 .tab .x { width: 18px; height: 18px; border: 0; background: transparent; border-radius: 4px; color: var(--muted); cursor: pointer; display: none; flex: none; place-items: center; font-size: 14px; line-height: 1; }
-.tab:hover .x, .tab.active .x, .tab.dirty .x { display: grid; }
+.tab:hover .x, .tab.active .x, .tab.group.open .x, .tab.dirty .x { display: grid; }
 .tab .x:hover { background: var(--line-strong); color: var(--text); }
 .tab.dirty .x::before { content: "●"; font-size: 10px; }
 .tab.dirty .x span { display: none; }
@@ -867,7 +874,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .chat-notice span { flex: 1; min-width: 160px; }
 .chat-notice.collision { border-left-color: var(--pend); }
 .ctab .ccode { flex: none; width: 4ch; font: 9px var(--mono); letter-spacing: -.2px; color: var(--muted); }
-.ctab:not(.active):not(.show-code) .ccode { display: none; }
+.ctab:not(.active):not(.show-code):not(.group) .ccode { display: none; }
 .ctab .ceng { flex: none; font-size: 10px; padding: 0 5px; border-radius: 8px; background: var(--sel); color: var(--text); }
 .ctab .ceng.persona { flex: 0 1 auto; min-width: 0; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stats-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 20px; background: var(--surface); }
@@ -912,12 +919,17 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .chat-tabbar { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); background: var(--surface-2); flex: none; min-height: 31px; }
 .chat-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 4px 4px 0; gap: 2px; }
 .chat-tabs::-webkit-scrollbar { display: none; }
+.chat-subtabs { flex: none; min-height: 31px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.chat-subtabs[hidden] { display: none; }
 .ctab { display: flex; align-items: center; gap: 5px; flex: 1 1 0; min-width: 40px; max-width: 160px; padding: 0 2px 0 8px; height: 27px; border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0; cursor: pointer; color: var(--muted); font-size: 12px; white-space: nowrap; position: relative; user-select: none; overflow: hidden; }
 .ctab.active { flex: 1.8 1 0; min-width: 92px; max-width: 180px; }
 .ctab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
 .ctab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .ctab:hover { color: var(--text); background: var(--line); }
 .ctab.active { background: var(--accent-soft); color: var(--text); border-color: var(--accent); margin-bottom: -1px; height: 28px; }
+.ctab.selected, .ctab.group.open { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
+.ctab.group .cgroup-count { flex: none; padding: 0 4px; border-radius: 7px; background: var(--sel); color: var(--text); font-size: 10px; font-variant-numeric: tabular-nums; }
+.ctab:focus-visible, .ctab .cx:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ctab .ct { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .ctab .cdot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: transparent; border: 1.5px solid var(--line-strong); }
 .ctab .spinner.cdot { width: 9px; height: 9px; border: 1.5px solid var(--line-strong); border-top-color: var(--run); background: transparent; }
@@ -931,7 +943,7 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .ctab .ccollisions { font-size: 10px; font-weight: 600; line-height: 14px; min-width: 15px; padding: 0 4px; border-radius: 7px; text-align: center; background: color-mix(in srgb, var(--pend) 18%, transparent); color: var(--pend); font-variant-numeric: tabular-nums; }
 .ctab .cattention { font-size: 10px; font-weight: 600; line-height: 14px; padding: 0 4px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); }
 .ctab .cx { width: 18px; height: 18px; border: 0; background: transparent; border-radius: 4px; color: var(--muted); cursor: pointer; display: none; place-items: center; font-size: 14px; line-height: 1; flex: none; }
-.ctab:hover .cx, .ctab.active .cx, .ctab:focus-visible .cx { display: grid; }
+.ctab:hover .cx, .ctab.active .cx, .ctab.group.open .cx, .ctab:focus-visible .cx, .ctab .cx:focus-visible { display: grid; }
 .ctab .cx:hover { background: var(--line-strong); color: var(--text); }
 .chat-tab-new { flex: none; width: 30px; border: 0; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
 .chat-tab-new:hover { color: var(--text); background: var(--line); }

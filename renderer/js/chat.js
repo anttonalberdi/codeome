@@ -5,9 +5,14 @@
 // running while another tab or project is shown.
 (function () {
   const h = App.h;
-  const C = { byProject: {}, byId: {} }; // byProject[dir] = { tabs: [chat], active: chat }
+  const C = { byProject: {}, byId: {}, groups: {}, groupLast: {}, openGroup: {}, selected: [], anchor: null }; // byProject[dir] = { tabs: [chat], active: chat }
   const Collisions = App.chatCollisions;
   const ChatCode = App.chatCode;
+  const Groups = App.tabGroups || {
+    groupOf: () => null,
+    removeTab: () => ({ groups: [] }),
+    layout: (ids) => ids.map((id) => ({ type: 'tab', id }))
+  };
   const Presence = App.chatPresence;
   const Xmsg = App.chatXmsg;
   App.views.chat = C;
@@ -17,7 +22,7 @@
   });
   const dom = new WeakMap(); // item → element
   const newChatAttempts = new Set(); // origin id + request id; also guards duplicate events during async setup
-  let logEl, ta, attEl, sugEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, sumEl, noticeEl;
+  let logEl, ta, attEl, sugEl, modeSel, acctEl, ctxEl, sendBtn, stopBtn, stateEl, tabsEl, subtabsEl, sumEl, noticeEl;
 
   const MODES = [
     { value: 'default', label: 'Ask before changes' },
@@ -74,7 +79,10 @@
   // ---------- conversations ----------
   function blank(project, opts = {}) {
     const defaults = resolveDefaults(App.cfg, project, store.get('codeome.chat.mode', 'default'), opts);
-    const chat = { id: uuid(), project, code: ChatCode.generate(tabsOf(project).map((c) => c.code)), title: '', engine: defaults.engine, role: '', account: opts.account || 'auto', accountName: null, mode: defaults.mode,
+    const taken = [...Object.values(C.byId).filter((c) => c.project === project).map((c) => c.code),
+      ...tabsOf(project).map((c) => c.code), ...(C.groups[project] || []).map((g) => g.code),
+      ...(App.views.editor?.groups?.[project] || []).map((g) => g.code)];
+    const chat = { id: uuid(), project, code: ChatCode.generate(taken), title: '', engine: defaults.engine, role: '', account: opts.account || 'auto', accountName: null, mode: defaults.mode,
       enginePicked: Object.hasOwn(ENGINE, opts.engine), modePicked: MODES.some((m) => m.value === opts.mode),
       started: false, items: [], createdAt: Date.now() };
     return live(chat);
@@ -216,13 +224,20 @@
     C.activate(c);
   };
 
-  C.activate = (chat) => {
+  C.activate = (chat, { preserveSelection = false, preserveAnchor = false } = {}) => {
     const t = C.byProject[chat.project];
     if (!t) return;
+    if (!preserveSelection) C.selected = [];
+    if (!preserveAnchor) C.anchor = null;
     refreshBlank(chat);
     const old = t.active;
     if (old && ta && chat.project === App.project && old !== chat) old.draft = ta.value;
     t.active = chat;
+    const group = Groups.groupOf(C.groups[chat.project] || [], chat.id);
+    if (group) {
+      C.openGroup[chat.project] = group.code;
+      (C.groupLast[chat.project] ||= {})[group.code] = chat.id;
+    } else delete C.openGroup[chat.project];
     chat.attention = false;
     schedulePresence(chat);
     if (chat.project !== App.project) return persistTabs(chat.project);
@@ -233,22 +248,32 @@
   };
 
   // Close a tab; the conversation stays in Recent chats.
-  C.closeTab = async (chat) => {
+  C.closeTab = async (chat, { confirmed = false, deferRender = false } = {}) => {
     const t = C.byProject[chat.project];
-    if (!t) return;
-    if (chat.busy && !(await App.confirm('Close this chat?', 'The agent is still working in it. It will be stopped; specialist jobs it started keep running. You can reopen the conversation from Recent chats.', 'Close chat', true))) return;
+    if (!t || !t.tabs.includes(chat)) return true;
+    if (!confirmed && chat.busy && !(await App.confirm('Close this chat?', 'The agent is still working in it. It will be stopped; specialist jobs it started keep running. You can reopen the conversation from Recent chats.', 'Close chat', true))) return false;
     if (chat.running) { chat.stopping = true; codeome.chat.stop(chat.id); }
     const i = t.tabs.indexOf(chat);
-    if (i < 0) return;
     t.tabs.splice(i, 1);
+    C.groups[chat.project] = Groups.removeTab(C.groups[chat.project] || [], chat.id).groups;
+    C.selected = C.selected.filter((id) => id !== chat.id);
+    if (C.anchor === chat.id) C.anchor = null;
+    for (const code of Object.keys(C.groupLast[chat.project] || {})) {
+      if (C.groupLast[chat.project][code] === chat.id || !C.groups[chat.project].some((group) => group.code === code)) delete C.groupLast[chat.project][code];
+    }
+    if (!C.groups[chat.project].some((group) => group.code === C.openGroup[chat.project])) delete C.openGroup[chat.project];
     presenceScheduler?.cancel(chat);
     clearTimeout(chat.collisionTimer);
     chat.collisions = [];
     chat.collisionTimer = null;
     await save(chat, true);
     if (!t.tabs.length) t.tabs.push(blank(chat.project));
-    if (t.active === chat) { t.active = null; C.activate(t.tabs[Math.min(i, t.tabs.length - 1)]); }
-    else { paintTabs(); persistTabs(chat.project); App.emit('chat-state'); }
+    if (!deferRender) {
+      if (t.active === chat) { t.active = null; C.activate(t.tabs[Math.min(i, t.tabs.length - 1)]); }
+      else { paintTabs(); persistTabs(chat.project); App.emit('chat-state'); }
+      pushGroups(chat.project);
+    }
+    return true;
   };
 
   async function renameTab(chat) {
@@ -260,9 +285,13 @@
 
   C.cycle = (step) => {
     const t = C.byProject[App.project];
-    if (!t || t.tabs.length < 2) return;
-    const i = t.tabs.indexOf(t.active);
-    C.activate(t.tabs[(i + step + t.tabs.length) % t.tabs.length]);
+    if (!t) return;
+    const order = selectionOrder();
+    if (order.length < 2) return;
+    const i = order.indexOf(t.active?.id);
+    if (i < 0) return;
+    const next = t.tabs.find((chat) => chat.id === order[(i + step + order.length) % order.length]);
+    if (next) C.activate(next);
   };
 
   C.history = async () => {
@@ -442,6 +471,10 @@
   function focus() { setTimeout(() => { if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }, 0); }
 
   C.closeProject = (project) => {
+    const pending = pendingGroups.get(project);
+    clearTimeout(groupTimers.get(project));
+    groupTimers.delete(project); sentGroups.delete(project); failedGroups.delete(project);
+    latestGroups.delete(project); pendingGroups.delete(project);
     for (const c of tabsOf(project)) {
       presenceScheduler?.cancel(c);
       clearTimeout(c.collisionTimer);
@@ -450,6 +483,13 @@
       if (c.running) { c.stopping = true; codeome.chat.stop(c.id); }
     }
     delete C.byProject[project];
+    delete C.groups[project];
+    delete C.groupLast[project];
+    delete C.openGroup[project];
+    C.selected = []; C.anchor = null;
+    if (project && typeof window !== 'undefined' && window.codeome?.editor?.groups) {
+      Promise.resolve(pending).then(() => window.codeome.editor.groups({ project, kind: 'chats', groups: [] })).catch(() => {});
+    }
     pushTabs(project, [], true);
   };
 
@@ -1706,14 +1746,17 @@
     stopBtn = h('button.btn.small', { onclick: () => C.stop(), hidden: true }, 'Stop');
     sendBtn = h('button.btn.small.primary', { onclick: submit }, 'Send');
     tabsEl = h('div.chat-tabs', { role: 'tablist', 'aria-label': 'Chats' });
+    tabsEl.setAttribute('aria-multiselectable', 'true');
+    subtabsEl = h('div.chat-tabs.chat-subtabs', { role: 'tablist', 'aria-label': 'Chat group members', 'aria-multiselectable': 'true', hidden: true });
     sumEl = h('div.chat-sum', { 'aria-live': 'polite' });
     noticeEl = h('div.chat-notice', { role: 'status', hidden: true });
     host.append(h('div.chat-tabbar', tabsEl, h('button.chat-tab-new', { title: 'New chat (each tab is its own agent session)', 'aria-label': 'New chat', onclick: () => C.newChat(), html: App.icons.plus })),
-      sumEl, logEl, noticeEl, h('div.chat-compose', sugEl, attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, h('span.chat-go', stopBtn, sendBtn))));
+      subtabsEl, sumEl, logEl, noticeEl, h('div.chat-compose', sugEl, attEl, h('div.chat-row', attachBtn, ta, quickBtn), h('div.row.chat-bar', modeSel, acctEl, ctxEl, stateEl, h('span.chat-go', stopBtn, sendBtn))));
     enableDrop(host.querySelector('.chat-compose'));
     enablePaste(host.querySelector('.chat-compose'));
     const restoring = {};
     App.listen('project', async (p) => {
+      C.selected = []; C.anchor = null;
       if (p && !C.byProject[p]) {
         const r = await (restoring[p] = restoring[p] || restore(p));
         delete restoring[p];
@@ -2106,19 +2149,232 @@
     if (immediate) send(); else tabTimers.set(project, setTimeout(send, 300));
   }
 
-  let dragTab = null;
-  function paintTabs() {
-    if (!tabsEl) return;
+  const groupsFor = (project = App.project) => C.groups[project] || [];
+  const openFor = (project = App.project) => groupsFor(project).find((group) => group.code === C.openGroup[project]);
+  const selectionOrder = () => {
     const t = C.byProject[App.project];
-    const focused = tabsEl.contains(document.activeElement);
-    tabsEl.innerHTML = '';
-    sumEl.innerHTML = '';
+    if (!t) return [];
+    const main = Groups.layout(t.tabs.map((c) => c.id), groupsFor()).filter((item) => item.type === 'tab').map((item) => item.id);
+    const open = openFor();
+    return open ? [...main, ...t.tabs.filter((c) => open.ids.includes(c.id)).map((c) => c.id)] : main;
+  };
+  const changeGroups = (project, groups) => {
+    C.groups[project] = groups;
+    C.selected = []; C.anchor = null;
+    for (const code of Object.keys(C.groupLast[project] || {})) if (!groups.some((group) => group.code === code)) delete C.groupLast[project][code];
+    const active = C.byProject[project]?.active;
+    const activeGroup = active && Groups.groupOf(groups, active.id);
+    if (activeGroup) {
+      C.openGroup[project] = activeGroup.code;
+      (C.groupLast[project] ||= {})[activeGroup.code] = active.id;
+    } else delete C.openGroup[project];
+    pushGroups(project);
+    paintTabs();
+  };
+  const askGroupName = async (title, value, ok) => {
+    let invalid = false;
+    while (true) {
+      const r = await App.modal({ title, ok, fields: [{ key: 'name', label: 'Group name', value, hint: invalid ? 'Enter a group name.' : null }] });
+      if (r === null) return null;
+      const name = r.name.trim().slice(0, 200);
+      if (name) return name;
+      value = r.name.slice(0, 200); invalid = true;
+    }
+  };
+  const groupSelected = async (project) => {
+    const t = C.byProject[project];
     if (!t) return;
+    const ids = t.tabs.filter((c) => C.selected.includes(c.id)).map((c) => c.id);
+    if (ids.length < 2) return;
+    const name = await askGroupName(`Group ${ids.length} chats`, 'Group', 'Create group');
+    if (name === null) return;
+    const loaded = Object.values(C.byId).filter((chat) => chat.project === project);
+    const persisted = await codeome.chat.list(project).catch(() => []);
+    if (C.byProject[project] !== t || App.project !== project) return;
+    const taken = [...t.tabs, ...loaded, ...(Array.isArray(persisted) ? persisted : [])].map((chat) => chat.code).filter(Boolean);
+    taken.push(...(App.views.editor?.groups?.[project] || []).map((group) => group.code));
+    const present = ids.filter((id) => t.tabs.some((chat) => chat.id === id));
+    if (present.length < 2) return;
+    const result = Groups.createGroup(groupsFor(project), present, taken, name);
+    changeGroups(project, result.groups);
+  };
+  const closeGroup = async (group) => {
+    const project = App.project;
+    const t = C.byProject[project];
+    if (!t) return false;
+    const members = group.ids.map((id) => t.tabs.find((chat) => chat.id === id)).filter(Boolean);
+    const working = members.filter((chat) => tabState(chat)[0] === 'working');
+    const busy = members.filter((chat) => chat.busy);
+    if (busy.length) {
+      const message = working.length ? `${working.length} chats are still working. Close the group anyway?` : `${busy.length} chats still need your attention. Close the group anyway?`;
+      if (!(await App.confirm('Close group?', message, 'Close group', true))) return false;
+    }
+    const ids = new Set(members.map((chat) => chat.id));
+    const active = t.active;
+    const fallback = t.tabs.find((chat) => !ids.has(chat.id));
+    for (const chat of members) await C.closeTab(chat, { confirmed: true, deferRender: true });
+    if (active && ids.has(active.id)) { t.active = null; C.activate(fallback || t.tabs[0]); }
+    else { paintTabs(); persistTabs(project); App.emit('chat-state'); }
+    pushGroups(project);
+    return true;
+  };
+
+  const groupTimers = new Map(), sentGroups = new Map(), failedGroups = new Map(), pendingGroups = new Map(), latestGroups = new Map();
+  function pushGroups(project) {
+    if (!project || typeof window === 'undefined' || !window.codeome?.editor?.groups) return;
+    const byId = new Map(tabsOf(project).map((chat) => [chat.id, chat]));
+    const groups = groupsFor(project).map((group) => ({
+      code: group.code, name: group.name.slice(0, 200),
+      chats: group.ids.map((id) => byId.get(id)).filter((chat) => chat && ChatCode.isCode(chat.code))
+        .map((chat) => ({ code: chat.code, title: (chat.title || 'New chat').slice(0, 200) }))
+    })).filter((group) => group.chats.length >= 2);
+    const serial = JSON.stringify(groups);
+    const previous = latestGroups.get(project);
+    latestGroups.set(project, serial);
+    if (pendingGroups.has(project)) return;
+    if (sentGroups.get(project) === serial || failedGroups.get(project) === serial) { clearTimeout(groupTimers.get(project)); groupTimers.delete(project); return; }
+    if (previous === serial && groupTimers.has(project)) return;
+    clearTimeout(groupTimers.get(project));
+    groupTimers.set(project, setTimeout(() => {
+      groupTimers.delete(project);
+      if (latestGroups.get(project) !== serial) return pushGroups(project);
+      const request = Promise.resolve().then(() => window.codeome.editor.groups({ project, kind: 'chats', groups })).then((result) => {
+        if (pendingGroups.get(project) !== request) return;
+        if (result?.ok === true) { sentGroups.set(project, serial); failedGroups.delete(project); }
+        else failedGroups.set(project, serial);
+      }).catch(() => {
+        if (pendingGroups.get(project) === request) failedGroups.set(project, serial);
+      }).finally(() => {
+        if (pendingGroups.get(project) !== request) return;
+        pendingGroups.delete(project);
+        if (latestGroups.get(project) !== serial) pushGroups(project);
+      });
+      pendingGroups.set(project, request);
+    }, 300));
+  }
+
+  let dragTab = null;
+  let dragRow = null;
+  const clearDrop = () => { tabsEl?.querySelectorAll('.drop-before,.drop-after').forEach((el) => el.classList.remove('drop-before', 'drop-after')); subtabsEl?.querySelectorAll('.drop-before,.drop-after').forEach((el) => el.classList.remove('drop-before', 'drop-after')); };
+  function selectChat(e, chat) {
+    const t = C.byProject[chat.project];
+    if (!t) return;
+    e.currentTarget.focus();
+    if (e.shiftKey) {
+      const anchor = C.anchor || t.active?.id;
+      C.selected = Groups.rangeSelect(selectionOrder(), anchor, chat.id);
+      if (!C.anchor) C.anchor = anchor || chat.id;
+      C.activate(chat, { preserveSelection: true, preserveAnchor: true });
+    } else if (e.metaKey || e.ctrlKey) {
+      C.selected = C.selected.length ? Groups.toggleSelect(C.selected, chat.id) : [...new Set([t.active?.id, chat.id].filter(Boolean))];
+      C.anchor = chat.id;
+      paintTabs();
+    } else {
+      C.anchor = chat.id;
+      C.activate(chat, { preserveAnchor: true });
+    }
+  }
+  function renderChatTab(c, t, row) {
+    const [st, label] = tabState(c);
+    const jobs = runningJobs(c);
+    const collisions = Collisions.recent(c.collisions);
+    const active = c === t.active;
+    const title = c.title || 'New chat';
+    const selected = C.selected.includes(c.id);
+    const tip = [c.code, title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ')
+      + (collisions.length ? '\n' + collisions.map((collision) => Collisions.line(collision, c.project)).join('\n') : '');
+    const el = h('div.ctab.' + st + (active ? '.active' : '') + (selected ? '.selected' : '') + (t.tabs.length <= 5 ? '.show-code' : ''), {
+      role: 'tab', 'aria-selected': String(selected || (!C.selected.length && active)), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip, 'data-chat-id': c.id,
+      draggable: 'true',
+      ondragstart: (e) => { dragTab = c; dragRow = row; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', title); },
+      ondragend: () => { dragTab = null; dragRow = null; clearDrop(); },
+      ondragover: (e) => {
+        if (!dragTab || dragTab === c || dragRow !== row || !t.tabs.includes(dragTab)) return;
+        e.preventDefault();
+        const r = el.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+        el.classList.toggle('drop-after', after); el.classList.toggle('drop-before', !after);
+      },
+      ondragleave: () => el.classList.remove('drop-before', 'drop-after'),
+      ondrop: (e) => {
+        if (dragRow !== row) return;
+        e.preventDefault();
+        const from = dragTab; dragTab = null; dragRow = null;
+        if (!from || from === c || !t.tabs.includes(from)) return;
+        const after = el.classList.contains('drop-after');
+        t.tabs.splice(t.tabs.indexOf(from), 1);
+        t.tabs.splice(t.tabs.indexOf(c) + (after ? 1 : 0), 0, from);
+        paintTabs(); persistTabs(c.project);
+      },
+      onclick: (e) => selectChat(e, c),
+      onauxclick: (e) => { if (e.button === 1) C.closeTab(c); },
+      oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, tabMenu(c)); },
+      onkeydown: (e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectChat(e, c); }
+        else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); C.cycle(e.key === 'ArrowRight' ? 1 : -1); setTimeout(() => [...tabsEl.querySelectorAll('.ctab.active'), ...subtabsEl.querySelectorAll('.ctab.active')][0]?.focus()); }
+        else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); C.closeTab(c); }
+      }
+    },
+    st === 'working' ? h('span.spinner.cdot') : h('i.cdot'),
+    c.code ? h('span.ccode', c.code) : null,
+    engineOf(c) === 'codex' ? h('span.ceng', 'Codex') : null,
+    c.role ? h('span.ceng.persona', { title: personaName(c.role) }, personaName(c.role)) : null,
+    h('span.ct', title),
+    c.attention ? h('span.cattention', { 'aria-label': 'New chat started' }, 'New') : null,
+    jobs.length ? h('span.cjobs', { title: `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` }, String(jobs.length)) : null,
+    collisions.length ? h('span.ccollisions', { 'aria-hidden': 'true' }, String(collisions.length)) : null,
+    h('button.cx', { title: 'Close chat', 'aria-label': 'Close ' + title, tabindex: '-1', onclick: (e) => { e.stopPropagation(); C.closeTab(c); } }, '×'));
+    return el;
+  }
+
+  function renderChatGroup(group, t) {
+    const project = App.project;
+    const open = C.openGroup[project] === group.code;
+    const members = t.tabs.filter((chat) => group.ids.includes(chat.id));
+    const states = members.map((chat) => tabState(chat)[0]);
+    const st = ['working', 'waiting', 'error', 'done', 'error-seen', 'idle'].find((state) => states.includes(state)) || 'off';
+    const activateGroup = () => {
+      const last = members.find((chat) => chat.id === C.groupLast[project]?.[group.code]);
+      const chat = last || members[0];
+      if (chat) C.activate(chat);
+    };
+    return h('div.ctab.group.' + st + (open ? '.open' : ''), {
+      role: 'tab', 'aria-selected': 'false', 'aria-expanded': String(open), tabindex: '0', 'data-group-code': group.code,
+      title: `${group.name} · ${members.length} chats · ${group.code}`,
+      onclick: (e) => { e.currentTarget.focus(); activateGroup(); },
+      onkeydown: (e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activateGroup(); }
+        else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); closeGroup(group); }
+      },
+      onauxclick: (e) => { if (e.button === 1) closeGroup(group); },
+      oncontextmenu: (e) => {
+        e.preventDefault();
+        App.menu(e.clientX, e.clientY, [
+          { label: 'Rename', run: async () => { const name = await askGroupName('Rename group', group.name, 'Rename'); if (name !== null && C.byProject[project]) changeGroups(project, Groups.renameGroup(groupsFor(project), group.code, name)); } },
+          { label: 'Ungroup', run: () => changeGroups(project, Groups.ungroup(groupsFor(project), group.code)) },
+          { label: 'Copy code', run: () => navigator.clipboard.writeText(group.code) },
+          '-',
+          { label: 'Close group', run: () => closeGroup(group) }
+        ]);
+      }
+    }, st === 'working' ? h('span.spinner.cdot') : h('i.cdot'), h('span.ct', group.name), h('span.cgroup-count', String(members.length)), h('span.ccode', group.code),
+    h('button.cx', { title: 'Close group', 'aria-label': 'Close group ' + group.name, tabindex: '-1', onclick: (e) => { e.stopPropagation(); closeGroup(group); } }, '×'));
+  }
+
+  function paintTabs() {
+    if (!tabsEl || !subtabsEl) return;
+    const t = C.byProject[App.project];
+    const focused = tabsEl.contains(document.activeElement) || subtabsEl.contains(document.activeElement);
+    const focusId = focused && document.activeElement.closest('.ctab')?.getAttribute('data-chat-id');
+    const focusCode = focused && document.activeElement.closest('.ctab')?.getAttribute('data-group-code');
+    tabsEl.innerHTML = ''; subtabsEl.innerHTML = '';
+    sumEl.innerHTML = '';
+    if (!t) { subtabsEl.hidden = true; return; }
     const summary = [];
     for (const c of t.tabs) {
       const [st, label] = tabState(c);
       const jobs = runningJobs(c);
-      const collisions = Collisions.recent(c.collisions);
       const active = c === t.active;
       const title = c.title || 'New chat';
       const state = st === 'done' ? 'ready' : st;
@@ -2126,52 +2382,22 @@
       if (!activity || activity.state !== state) { activity = { state, at: Date.now() }; tabActivity.set(c, activity); }
       summary.push({ id: c.id, title, state, label, jobs: jobs.length, engine: engineOf(c), role: c.role || '', active,
         updatedAt: Math.max(Number.isFinite(c.updatedAt) ? c.updatedAt : 0, activity.at) });
-      const tip = [c.code, title, label, ctxPct(c) != null ? `context ${Math.round(ctxPct(c))}% full` : null, jobs.length ? `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` : null, engineOf(c) === 'codex' ? 'Codex' : null, c.role ? personaName(c.role) : null, c.accountName && App.cfg.accounts[engineOf(c)].list.length > 1 ? 'on ' + c.accountName : null].filter(Boolean).join(' · ')
-        + (collisions.length ? '\n' + collisions.map((collision) => Collisions.line(collision, c.project)).join('\n') : '');
-      const el = h('div.ctab.' + st + (active ? '.active' : '') + (t.tabs.length <= 5 ? '.show-code' : ''), {
-        role: 'tab', 'aria-selected': String(active), tabindex: active ? '0' : '-1', title: tip, 'aria-label': tip,
-        draggable: 'true',
-        ondragstart: (e) => { dragTab = c; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', title); },
-        ondragend: () => { dragTab = null; tabsEl.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); },
-        ondragover: (e) => {
-          if (!dragTab || dragTab === c || !t.tabs.includes(dragTab)) return;
-          e.preventDefault();
-          const r = el.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
-          el.classList.toggle('drop-after', after); el.classList.toggle('drop-before', !after);
-        },
-        ondragleave: () => el.classList.remove('drop-before', 'drop-after'),
-        ondrop: (e) => {
-          e.preventDefault();
-          const from = dragTab; dragTab = null;
-          if (!from || from === c || !t.tabs.includes(from)) return;
-          const after = el.classList.contains('drop-after');
-          t.tabs.splice(t.tabs.indexOf(from), 1);
-          t.tabs.splice(t.tabs.indexOf(c) + (after ? 1 : 0), 0, from);
-          paintTabs(); persistTabs(App.project);
-        },
-        onclick: () => C.activate(c),
-        onauxclick: (e) => { if (e.button === 1) C.closeTab(c); },
-        oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, tabMenu(c)); },
-        onkeydown: (e) => {
-          if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); C.cycle(e.key === 'ArrowRight' ? 1 : -1); setTimeout(() => tabsEl.querySelector('.ctab.active')?.focus()); }
-          else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); C.closeTab(c); }
-        }
-      },
-      st === 'working' ? h('span.spinner.cdot') : h('i.cdot'),
-      c.code ? h('span.ccode', c.code) : null,
-      engineOf(c) === 'codex' ? h('span.ceng', 'Codex') : null,
-      c.role ? h('span.ceng.persona', { title: personaName(c.role) }, personaName(c.role)) : null,
-      h('span.ct', title),
-      c.attention ? h('span.cattention', { 'aria-label': 'New chat started' }, 'New') : null,
-      jobs.length ? h('span.cjobs', { title: `${jobs.length} specialist${jobs.length > 1 ? 's' : ''} running` }, String(jobs.length)) : null,
-      collisions.length ? h('span.ccollisions', { 'aria-hidden': 'true' }, String(collisions.length)) : null,
-      h('button.cx', { title: 'Close chat', 'aria-label': 'Close ' + title, tabindex: '-1', onclick: (e) => { e.stopPropagation(); C.closeTab(c); } }, '×'));
-      tabsEl.append(el);
     }
-    const a = tabsEl.querySelector('.ctab.active');
+    const byId = new Map(t.tabs.map((chat) => [chat.id, chat]));
+    for (const item of Groups.layout(t.tabs.map((chat) => chat.id), groupsFor())) {
+      if (item.type === 'group') tabsEl.append(renderChatGroup(item.group, t));
+      else tabsEl.append(renderChatTab(byId.get(item.id), t, 'main'));
+    }
+    const open = openFor();
+    subtabsEl.hidden = !open;
+    if (open) for (const chat of t.tabs) if (open.ids.includes(chat.id)) subtabsEl.append(renderChatTab(chat, t, open.code));
+    const all = [...tabsEl.children, ...subtabsEl.children];
+    const next = all.find((tab) => (focusId && tab.getAttribute('data-chat-id') === focusId) || (focusCode && tab.getAttribute('data-group-code') === focusCode));
+    const a = next || all.find((tab) => tab.classList.contains('active'));
     if (a) { if (focused) a.focus(); a.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
     paintSummary(t);
     pushTabs(App.project, summary);
+    pushGroups(App.project);
   }
 
   // One line under the tabs: sessions, who is working, who needs you, specialists, unseen replies.
@@ -2192,7 +2418,13 @@
 
   function tabMenu(c) {
     const t = C.byProject[c.project];
+    const group = Groups.groupOf(groupsFor(c.project), c.id);
+    const selected = C.selected.includes(c.id);
     return [
+      C.selected.length >= 2 && selected ? { label: `Group ${C.selected.length} chats`, run: () => groupSelected(c.project) } : null,
+      !group && groupsFor(c.project).length ? { header: 'Add to group…' } : null,
+      !group ? groupsFor(c.project).map((g) => ({ label: `${g.name} (${g.code})`, run: () => changeGroups(c.project, Groups.addToGroup(groupsFor(c.project), g.code, [c.id])) })) : null,
+      group ? { label: 'Remove from group', run: () => changeGroups(c.project, Groups.removeFromGroup(groupsFor(c.project), [c.id])) } : null,
       c.code ? { label: `Copy code ${c.code}`, run: () => navigator.clipboard.writeText(c.code).then(() => App.toast(`Copied code ${c.code}.`)).catch(() => {}) } : null,
       { label: 'Rename…', run: () => renameTab(c) },
       { label: 'New chat', run: () => C.newChat() },
@@ -2203,6 +2435,6 @@
       '-',
       { label: 'Close chat', run: () => C.closeTab(c) },
       { label: 'Close other chats', disabled: t.tabs.length < 2, run: async () => { for (const x of t.tabs.slice()) if (x !== c) await C.closeTab(x); } }
-    ];
+    ].flat();
   }
 })();

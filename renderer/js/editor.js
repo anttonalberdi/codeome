@@ -3,7 +3,8 @@
 // current project's tabs are shown.
 (function () {
   const h = App.h;
-  const E = { tabs: [], active: null, editor: null, seq: 0, lastActive: {} };
+  const E = { tabs: [], active: null, editor: null, seq: 0, lastActive: {}, groups: {}, groupLast: {}, selected: [], anchor: null, openGroup: {} };
+  const Groups = App.tabGroups;
   App.views.editor = E;
 
   const LANG = {
@@ -137,12 +138,21 @@
     });
   };
 
-  E.activate = function (id) {
+  E.activate = function (id, { preserveSelection = false, preserveAnchor = false } = {}) {
     const prev = E.cur();
     if (prev && prev.kind === 'file' && E.editor) prev.viewState = E.editor.saveViewState();
+    if (!preserveSelection) E.selected = [];
+    if (!preserveAnchor) E.anchor = null;
     E.active = id;
     const t = E.cur();
-    if (t) E.lastActive[t.project] = id;
+    if (t) {
+      E.lastActive[t.project] = id;
+      const group = Groups.groupOf(E.groups[t.project] || [], id);
+      if (group) {
+        E.openGroup[t.project] = group.code;
+        (E.groupLast[t.project] ||= {})[group.code] = id;
+      } else delete E.openGroup[t.project];
+    } else delete E.openGroup[App.project];
     const monacoHost = document.getElementById('monaco-host');
     const alt = document.getElementById('alt-host');
     document.getElementById('welcome').hidden = !!t;
@@ -164,33 +174,57 @@
     App.emit('tab', t);
   };
 
-  // Resolves false when the user keeps the tab open.
-  E.close = async function (id) {
-    const t = E.tabs.find((x) => x.id === id); if (!t) return true;
-    const shared = t.kind === 'file' && E.tabs.some((x) => x !== t && x.model === t.model);
-    if (t.dirty && !shared) {
+  const confirmClose = async (t) => {
+    if (t.dirty) {
       const r = await App.modal({ title: `Save changes to ${t.title}?`, text: 'Your changes will be lost if you close without saving.', ok: 'Save', cancel: 'Cancel', fields: [] });
       if (r === null) { const disc = await App.confirm('Discard changes?', `Close ${t.title} without saving.`, 'Discard', true); if (!disc) return false; }
       else if (!(await E.save(t))) return false;
     }
+    return true;
+  };
+
+  // Resolves false when the user keeps the tab open.
+  E.close = async function (id, { confirmed = false, deferRender = false } = {}) {
+    const t = E.tabs.find((x) => x.id === id); if (!t) return true;
+    const shared = t.kind === 'file' && E.tabs.some((x) => x !== t && x.model === t.model);
+    if (!confirmed && t.dirty && !shared && !(await confirmClose(t))) return false;
     if (t.kind === 'file' && !shared) t.model.dispose();
     if (t.onClose) t.onClose(t);
     const siblings = E.tabs.filter((x) => x.project === t.project);
     const i = siblings.indexOf(t);
     E.tabs.splice(E.tabs.indexOf(t), 1);
+    E.groups[t.project] = Groups.removeTab(E.groups[t.project] || [], id).groups;
+    for (const code of Object.keys(E.groupLast[t.project] || {})) {
+      if (E.groupLast[t.project][code] === id || !E.groups[t.project].some((group) => group.code === code)) delete E.groupLast[t.project][code];
+    }
+    if (!E.groups[t.project].some((group) => group.code === E.openGroup[t.project])) delete E.openGroup[t.project];
+    E.selected = []; E.anchor = null;
+    if (!deferRender) pushGroups(t.project);
     if (E.lastActive[t.project] === id) delete E.lastActive[t.project];
-    if (E.active === id) { const n = siblings[i + 1] || siblings[i - 1]; E.active = null; E.activate(n ? n.id : null); } else renderTabs();
+    if (!deferRender) {
+      if (E.active === id) { const n = siblings[i + 1] || siblings[i - 1]; E.active = null; E.activate(n ? n.id : null); }
+      else renderTabs();
+    }
     return true;
   };
 
   // Close every tab of a project, asking about unsaved files. False if the user cancels.
   E.closeProject = async function (project) {
     for (const t of E.tabs.filter((x) => x.project === project)) if (!(await E.close(t.id))) return false;
+    const pending = pendingGroups.get(project);
+    clearTimeout(groupTimers.get(project));
+    groupTimers.delete(project); sentGroups.delete(project); failedGroups.delete(project);
+    latestGroups.delete(project); pendingGroups.delete(project);
+    delete E.groups[project]; delete E.groupLast[project]; delete E.openGroup[project];
+    if (project && window.codeome?.editor?.groups) {
+      Promise.resolve(pending).then(() => window.codeome.editor.groups({ project, groups: [] })).catch(() => {});
+    }
     return true;
   };
 
   // Show the project's own tabs, back on the one last used there.
   App.listen('project', (project) => {
+    E.selected = []; E.anchor = null;
     const last = E.tabs.find((t) => t.id === E.lastActive[project] && mine(t, project));
     const vis = E.tabs.filter((t) => mine(t, project));
     E.active = null;
@@ -434,52 +468,220 @@
 
   E.layout = () => { if (E.editor) E.editor.layout(); const t = E.cur(); if (t && t.layout) t.layout(); };
 
-  let dragId = null;
-  const clearDrop = () => document.querySelectorAll('#tabs .drop-before,#tabs .drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after'));
+  const groupsFor = (project = App.project) => E.groups[project] || [];
+  const openFor = (project = App.project) => groupsFor(project).find((group) => group.code === E.openGroup[project]);
+  const selectionOrder = () => {
+    const visible = E.visible();
+    const main = Groups.layout(visible.map((t) => t.id), groupsFor()).filter((item) => item.type === 'tab').map((item) => item.id);
+    const open = openFor();
+    return open ? [...main, ...visible.filter((t) => open.ids.includes(t.id)).map((t) => t.id)] : main;
+  };
+  const changeGroups = (project, groups) => {
+    E.groups[project] = groups;
+    for (const code of Object.keys(E.groupLast[project] || {})) if (!groups.some((group) => group.code === code)) delete E.groupLast[project][code];
+    const activeGroup = E.cur()?.project === project ? Groups.groupOf(groups, E.active) : null;
+    if (activeGroup) {
+      E.openGroup[project] = activeGroup.code;
+      (E.groupLast[project] ||= {})[activeGroup.code] = E.active;
+    } else delete E.openGroup[project];
+    pushGroups(project);
+    renderTabs();
+  };
+  const askGroupName = async (title, value, ok) => {
+    let invalid = false;
+    while (true) {
+      const r = await App.modal({ title, ok, fields: [{ key: 'name', label: 'Group name', value, hint: invalid ? 'Enter a group name.' : null }] });
+      if (r === null) return null;
+      const name = r.name.trim().slice(0, 200);
+      if (name) return name;
+      value = r.name.slice(0, 200); invalid = true;
+    }
+  };
+  const groupSelected = async (project) => {
+    const ids = E.visible().filter((t) => E.selected.includes(t.id)).map((t) => t.id);
+    if (ids.length < 2) return;
+    const name = await askGroupName(`Group ${ids.length} tabs`, 'Group', 'Create group');
+    if (name === null) return;
+    const chats = App.views.chat?.byProject?.[project]?.tabs || [];
+    const loaded = Object.values(App.views.chat?.byId || {}).filter((chat) => chat.project === project);
+    const persisted = await codeome.chat.list(project).catch(() => []);
+    const taken = [...chats, ...loaded, ...(Array.isArray(persisted) ? persisted : [])].map((chat) => chat.code).filter(Boolean);
+    taken.push(...(App.views.chat?.groups?.[project] || []).map((group) => group.code));
+    const result = Groups.createGroup(groupsFor(project), ids, taken, name);
+    E.selected = []; E.anchor = null;
+    changeGroups(project, result.groups);
+  };
+  const closeGroup = async (group) => {
+    const members = group.ids.map((id) => E.tabs.find((tab) => tab.id === id)).filter(Boolean);
+    const project = members[0]?.project || App.project;
+    const ids = new Set(members.map((tab) => tab.id));
+    const checkedModels = new Set();
+    for (const tab of members) {
+      if (!tab.dirty || tab.kind !== 'file' || checkedModels.has(tab.model)) continue;
+      checkedModels.add(tab.model);
+      if (E.tabs.some((other) => !ids.has(other.id) && other.model === tab.model)) continue;
+      if (!(await confirmClose(tab))) return false;
+    }
+    const active = E.cur();
+    if (active && ids.has(active.id) && active.kind === 'file' && E.editor) active.viewState = E.editor.saveViewState();
+    const fallback = E.tabs.find((tab) => tab.project === project && !ids.has(tab.id));
+    for (const tab of members) await E.close(tab.id, { confirmed: true, deferRender: true });
+    if (active && ids.has(active.id)) { E.active = null; E.activate(fallback ? fallback.id : null); }
+    else renderTabs();
+    return true;
+  };
+
+  const groupTimers = new Map(), sentGroups = new Map(), failedGroups = new Map(), pendingGroups = new Map(), latestGroups = new Map();
+  function pushGroups(project) {
+    if (!project || !window.codeome?.editor?.groups) return;
+    const groups = Groups.serialise(groupsFor(project), (id) => {
+      const t = E.tabs.find((tab) => tab.id === id && tab.project === project);
+      return t && t.kind === 'file' && t.path ? (t.remote ? 'hpc:' : '') + t.path : null;
+    }).map((group) => ({ ...group, name: group.name.slice(0, 200), files: group.files.filter(Boolean) }))
+      .filter((group) => group.files.length >= 2);
+    const serial = JSON.stringify(groups);
+    const previous = latestGroups.get(project);
+    latestGroups.set(project, serial);
+    if (pendingGroups.has(project)) return;
+    if (sentGroups.get(project) === serial || failedGroups.get(project) === serial) { clearTimeout(groupTimers.get(project)); groupTimers.delete(project); return; }
+    if (previous === serial && groupTimers.has(project)) return;
+    clearTimeout(groupTimers.get(project));
+    groupTimers.set(project, setTimeout(() => {
+      groupTimers.delete(project);
+      if (latestGroups.get(project) !== serial) return pushGroups(project);
+      const request = Promise.resolve().then(() => window.codeome.editor.groups({ project, groups })).then((result) => {
+        if (pendingGroups.get(project) !== request) return;
+        if (result?.ok === true) { sentGroups.set(project, serial); failedGroups.delete(project); }
+        else failedGroups.set(project, serial);
+      }).catch(() => {
+        if (pendingGroups.get(project) === request) failedGroups.set(project, serial);
+      }).finally(() => {
+        if (pendingGroups.get(project) !== request) return;
+        pendingGroups.delete(project);
+        if (latestGroups.get(project) !== serial) pushGroups(project);
+      });
+      pendingGroups.set(project, request);
+    }, 300));
+  }
+
+  let dragId = null, dragRow = null;
+  const clearDrop = () => document.querySelectorAll('#tabs .drop-before,#tabs .drop-after,#subtabs .drop-before,#subtabs .drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after'));
+  function selectTab(e, t) {
+    if (e.shiftKey) {
+      const anchor = E.anchor || E.active;
+      E.selected = Groups.rangeSelect(selectionOrder(), anchor, t.id);
+      if (!E.anchor) E.anchor = anchor || t.id;
+      E.activate(t.id, { preserveSelection: true, preserveAnchor: true });
+    } else if (e.metaKey || e.ctrlKey) {
+      E.selected = E.selected.length ? Groups.toggleSelect(E.selected, t.id) : [...new Set([E.active, t.id].filter(Boolean))];
+      E.anchor = t.id;
+      renderTabs();
+    } else {
+      E.anchor = t.id;
+      E.activate(t.id, { preserveAnchor: true });
+    }
+  }
+
+  function renderTab(t, row) {
+    const project = t.project;
+    const group = Groups.groupOf(groupsFor(project), t.id);
+    const selected = E.selected.includes(t.id);
+    const tabEl = h('div.tab' + (t.id === E.active ? '.active' : '') + (selected ? '.selected' : '') + (t.dirty ? '.dirty' : ''), {
+      role: 'tab', 'aria-selected': String(selected || (!E.selected.length && t.id === E.active)), tabindex: '0', 'data-tab-id': t.id,
+      draggable: 'true',
+      ondragstart: (e) => { dragId = t.id; dragRow = row; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); },
+      ondragend: () => { dragId = null; dragRow = null; clearDrop(); },
+      ondragover: (e) => {
+        if (!dragId || dragId === t.id || dragRow !== row) return;
+        e.preventDefault();
+        const r = tabEl.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+        tabEl.classList.toggle('drop-after', after); tabEl.classList.toggle('drop-before', !after);
+      },
+      ondragleave: () => tabEl.classList.remove('drop-before', 'drop-after'),
+      ondrop: (e) => {
+        if (dragRow !== row) return;
+        e.preventDefault();
+        const from = E.tabs.find((x) => x.id === dragId);
+        if (!from || from === t) return;
+        const after = tabEl.classList.contains('drop-after');
+        dragId = null; dragRow = null;
+        E.tabs.splice(E.tabs.indexOf(from), 1);
+        E.tabs.splice(E.tabs.indexOf(t) + (after ? 1 : 0), 0, from);
+        renderTabs();
+      },
+      onclick: (e) => selectTab(e, t),
+      onkeydown: (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); selectTab(e, t); } },
+      title: t.path ? (t.remote ? 'HPC: ' : t.storage ? App.views.files.title('storage') + ': ' : '') + t.path : t.title,
+      onauxclick: (e) => { if (e.button === 1) E.close(t.id); },
+      oncontextmenu: (e) => {
+        e.preventDefault();
+        App.menu(e.clientX, e.clientY, [
+          E.selected.length >= 2 && selected ? { label: `Group ${E.selected.length} tabs`, run: () => groupSelected(project) } : null,
+          !group && groupsFor(project).length ? { header: 'Add to group…' } : null,
+          !group ? groupsFor(project).map((g) => ({ label: `${g.name} (${g.code})`, run: () => changeGroups(project, Groups.addToGroup(groupsFor(project), g.code, [t.id])) })) : null,
+          group ? { label: 'Remove from group', run: () => changeGroups(project, Groups.removeFromGroup(groupsFor(project), [t.id])) } : null,
+          { label: 'Copy name', run: () => navigator.clipboard.writeText(t.path ? App.basename(t.path) : t.title) },
+          t.path ? { label: 'Copy path', run: () => navigator.clipboard.writeText(t.path) } : null,
+          t.kind === 'file' || t.reload ? { label: 'Refresh', run: () => E.refresh(t) } : null,
+          '-',
+          { label: 'Close', run: () => E.close(t.id) }
+        ].flat());
+      }
+    },
+    t.remote ? h('span.badge.hpc', 'HPC') : t.storage ? h('span.badge.store', App.views.files.title('storage')) : (t.badge ? h('span.badge', t.badge) : null),
+    h('span.t', t.title),
+    h('button.x', { title: 'Close', 'aria-label': 'Close ' + t.title, onclick: (e) => { e.stopPropagation(); E.close(t.id); } }, h('span', '×')));
+    return tabEl;
+  }
+
+  function renderGroup(group) {
+    const project = App.project;
+    const open = E.openGroup[project] === group.code;
+    const activateGroup = () => {
+      const id = group.ids.includes(E.groupLast[project]?.[group.code]) ? E.groupLast[project][group.code] : group.ids.find((member) => E.tabs.some((tab) => tab.id === member));
+      if (id) E.activate(id);
+    };
+    return h('div.tab.group' + (open ? '.open' : ''), {
+      role: 'tab', 'aria-selected': 'false', 'aria-expanded': String(open), tabindex: '0', 'data-group-code': group.code,
+      title: `${group.name} · ${group.ids.length} tabs · ${group.code}`,
+      onclick: activateGroup,
+      onkeydown: (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); activateGroup(); } },
+      onauxclick: (e) => { if (e.button === 1) closeGroup(group); },
+      oncontextmenu: (e) => {
+        e.preventDefault();
+        App.menu(e.clientX, e.clientY, [
+          { label: 'Rename', run: async () => { const name = await askGroupName('Rename group', group.name, 'Rename'); if (name !== null) changeGroups(project, Groups.renameGroup(groupsFor(project), group.code, name)); } },
+          { label: 'Ungroup', run: () => changeGroups(project, Groups.ungroup(groupsFor(project), group.code)) },
+          { label: 'Copy code', run: () => navigator.clipboard.writeText(group.code) },
+          '-',
+          { label: 'Close group', run: () => closeGroup(group) }
+        ]);
+      }
+    }, h('span.t', group.name), h('span.badge', String(group.ids.length)), h('span.ccode', group.code),
+    h('button.x', { title: 'Close group', 'aria-label': 'Close group ' + group.name, onclick: (e) => { e.stopPropagation(); closeGroup(group); } }, h('span', '×')));
+  }
 
   function renderTabs() {
-    const el = document.getElementById('tabs'); el.innerHTML = '';
+    const el = document.getElementById('tabs'), sub = document.getElementById('subtabs');
+    const focused = document.activeElement;
+    const focusId = focused && focused.getAttribute('data-tab-id');
+    const focusCode = focused && focused.getAttribute('data-group-code');
+    el.innerHTML = ''; sub.innerHTML = '';
     App.emit('sessions');
-    for (const t of E.visible()) {
-      const tabEl = h('div.tab' + (t.id === E.active ? '.active' : '') + (t.dirty ? '.dirty' : ''), {
-        draggable: 'true',
-        ondragstart: (e) => { dragId = t.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); },
-        ondragend: () => { dragId = null; clearDrop(); },
-        ondragover: (e) => {
-          if (!dragId || dragId === t.id) return;
-          e.preventDefault();
-          const r = tabEl.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
-          tabEl.classList.toggle('drop-after', after); tabEl.classList.toggle('drop-before', !after);
-        },
-        ondragleave: () => tabEl.classList.remove('drop-before', 'drop-after'),
-        ondrop: (e) => {
-          e.preventDefault();
-          const from = E.tabs.find((x) => x.id === dragId);
-          if (!from || from === t) return;
-          const after = tabEl.classList.contains('drop-after');
-          dragId = null;
-          E.tabs.splice(E.tabs.indexOf(from), 1);
-          E.tabs.splice(E.tabs.indexOf(t) + (after ? 1 : 0), 0, from);
-          renderTabs();
-        },
-        onclick: () => E.activate(t.id), title: t.path ? (t.remote ? 'HPC: ' : t.storage ? App.views.files.title('storage') + ': ' : '') + t.path : t.title,
-        onauxclick: (e) => { if (e.button === 1) E.close(t.id); },
-        oncontextmenu: (e) => {
-          e.preventDefault();
-          App.menu(e.clientX, e.clientY, [
-            { label: 'Copy name', run: () => navigator.clipboard.writeText(t.path ? App.basename(t.path) : t.title) },
-            t.path ? { label: 'Copy path', run: () => navigator.clipboard.writeText(t.path) } : null,
-            t.kind === 'file' || t.reload ? { label: 'Refresh', run: () => E.refresh(t) } : null,
-            '-',
-            { label: 'Close', run: () => E.close(t.id) }
-          ]);
-        }
-      },
-      t.remote ? h('span.badge.hpc', 'HPC') : t.storage ? h('span.badge.store', App.views.files.title('storage')) : (t.badge ? h('span.badge', t.badge) : null),
-      h('span.t', t.title),
-      h('button.x', { title: 'Close', onclick: (e) => { e.stopPropagation(); E.close(t.id); } }, h('span', '×')));
-      el.append(tabEl);
+    const visible = E.visible();
+    const byId = new Map(visible.map((t) => [t.id, t]));
+    for (const item of Groups.layout(visible.map((t) => t.id), groupsFor())) {
+      if (item.type === 'group') el.append(renderGroup(item.group));
+      else el.append(renderTab(byId.get(item.id), 'main'));
     }
+    const open = openFor();
+    sub.hidden = !open;
+    if (open) for (const t of visible) if (open.ids.includes(t.id)) sub.append(renderTab(t, open.code));
+    if (focusId || focusCode) {
+      const next = [...el.children, ...sub.children].find((tab) => (focusId && tab.getAttribute('data-tab-id') === focusId) || (focusCode && tab.getAttribute('data-group-code') === focusCode));
+      if (next) next.focus();
+    }
+    pushGroups(App.project);
   }
   E.renderTabs = renderTabs;
 })();

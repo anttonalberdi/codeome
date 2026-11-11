@@ -32,6 +32,7 @@ const chat = require('./chat');
 const touched = require('./touched');
 const ChatCode = require('../renderer/js/chat-code');
 const { applyPresence, shouldRecord } = require('./presence');
+const { applyGroups } = require('./groups');
 const inbox = require('./inbox');
 const { createInboxWire } = require('./inboxwire');
 const { createInboxIpc, createOutboxWatcher } = require('./inboxipc');
@@ -1604,6 +1605,11 @@ ipcMain.handle('chat:start', (_e, { id, project, account, resume, mode, meter, e
   } catch (e) { remote.detach(id); return { error: String(e.message || e) }; }
 });
 ipcMain.handle('chat:presence', (_e, payload) => applyPresence(chats, payload, { touched }));
+ipcMain.handle('editor:groups', (_e, payload) => applyGroups(payload, {
+  isKnownProject: (project) => [...knownRemoteProjects()].some((known) => {
+    try { return fs.realpathSync(known) === project; } catch { return false; }
+  })
+}));
 
 const inboxIpc = createInboxIpc({ chats, inboxWire, getWindow: () => win, loadChat: chat.loadChat });
 for (const [name, handler] of Object.entries(inboxIpc)) ipcMain.handle(`inbox:${name}`, handler);

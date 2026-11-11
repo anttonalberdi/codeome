@@ -57,7 +57,8 @@
   <div id="sidebar-resizer" class="resizer v"></div>
 
   <main id="main">
-    <div id="tabs" class="tabstrip"></div>
+    <div id="tabs" class="tabstrip" role="tablist" aria-label="Editor tabs" aria-multiselectable="true"></div>
+    <div id="subtabs" class="tabstrip subtabs" role="tablist" aria-label="Group members" aria-multiselectable="true" hidden></div>
     <div id="stage">
       <div id="monaco-host"></div>
       <div id="alt-host" hidden></div>
@@ -94,6 +95,8 @@
 <script src="js/stack.js"></script>
 <script src="js/find.js"></script>
 <script src="js/terminals.js"></script>
+<script src="js/chat-code.js"></script>
+<script src="js/tab-groups.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/rmd.js"></script>
 <script src="js/files.js"></script>
@@ -109,7 +112,6 @@
 <script src="js/md.js"></script>
 <script src="js/progress.js"></script>
 <script src="js/chat-collisions.js"></script>
-<script src="js/chat-code.js"></script>
 <script src="js/chat-presence.js"></script>
 <script src="js/chat-xmsg.js"></script>
 <script src="js/chat.js"></script>
