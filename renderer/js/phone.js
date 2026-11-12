@@ -34,7 +34,8 @@
     indicator.classList.toggle('connected', view.tone === 'connected');
     indicator.classList.toggle('error', view.tone === 'error');
     label.textContent = view.label;
-    indicator.title = view.title;
+    indicator.title = view.title ? `${view.label}. ${view.title}` : view.label;
+    indicator.setAttribute('aria-label', view.label);
   };
   indicator.addEventListener('click', () => window.App.views.settings.open('phone'));
   remote.onStatus(render);

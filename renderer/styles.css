@@ -1330,9 +1330,11 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .clone-progress progress { width: 100%; height: 8px; accent-color: var(--accent, #4f7cff); }
 
 /* Phone companion title bar indicator */
-#phone-indicator { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 2px 4px; border: 0; border-radius: 4px; background: none; color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; -webkit-app-region: no-drag; }
+#phone-indicator { position: relative; display: inline-flex; align-items: center; flex: none; padding: 2px 4px; border: 0; border-radius: 4px; background: none; color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; -webkit-app-region: no-drag; }
 #phone-indicator[hidden] { display: none; }
-#phone-indicator .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--line-strong); }
+#phone-indicator svg { width: 16px; height: 16px; flex: none; }
+#phone-indicator .phone-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#phone-indicator .dot { position: absolute; top: 1px; right: 0; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--line-strong); box-shadow: 0 0 0 1.5px var(--bg, #fff); }
 #phone-indicator.connected .dot { background: var(--accent); }
 #phone-indicator.error .dot { background: var(--pend); }
 #phone-indicator:hover { color: var(--text); }
