@@ -722,6 +722,13 @@ kbd { font-family: var(--ui); font-size: 11px; border: 1px solid var(--line-stro
 .msg.md hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
 .msg.md a { color: var(--accent); }
 .md-table { overflow-x: auto; }
+.data-doc { padding: 12px 16px 30px; }
+.data-table-note { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.data-table { border-collapse: collapse; font-size: 12px; font-family: var(--mono); user-select: text; }
+.data-table th, .data-table td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+.data-table th { background: var(--surface-2); font-weight: 600; position: sticky; top: 0; }
+.data-table tbody tr:nth-child(even) { background: var(--surface-2); }
+.data-table .rownum { color: var(--muted); text-align: right; background: var(--surface-2); }
 .md-doc-scroll { flex: 1; min-height: 0; overflow: auto; }
 .msg.md.md-doc { max-width: 820px; margin: 0 auto; padding: 18px 24px 40px; font-size: 14px; line-height: 1.6; user-select: text; }
 .msg.md.md-doc h3 { font-size: 24px; margin: 20px 0 8px; font-weight: 700; }

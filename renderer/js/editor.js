@@ -110,21 +110,54 @@
 
   // Markdown files can wrap at the window edge instead of scrolling sideways; the button sits beside A−/A+.
   const isMd = (t) => t && t.kind === 'file' && ['md', 'markdown'].includes(App.ext(t.path || ''));
+  const isTable = (t) => t && t.kind === 'file' && ['csv', 'tsv'].includes(App.ext(t.path || ''));
   E.applyWrap = () => {
     const t = E.cur(), md = isMd(t), on = localStorage.getItem('mdWrap') === '1';
     const btn = document.getElementById('md-wrap');
     if (btn) { btn.hidden = !md; btn.classList.toggle('active', on); btn.setAttribute('aria-pressed', String(on)); }
     const pv = document.getElementById('md-preview');
-    if (pv) pv.hidden = !md;
+    if (pv) { pv.hidden = !md && !isTable(t); pv.title = isTable(t) ? 'Show this table formatted' : 'Show this Markdown file formatted'; }
     if (E.editor) E.editor.updateOptions({ wordWrap: md && on ? 'on' : 'off' });
   };
 
   // Formatted view of the open Markdown file; it follows the editor text as you type.
+  // Delimited text (RFC 4180 quoting) → rows of cells.
+  const parseDelimited = (text, sep) => {
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c;
+      } else if (c === '"' && !cell) q = true;
+      else if (c === sep) { row.push(cell); cell = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += c;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  };
+  const MAX_ROWS = 5000;
+  const tableBody = (t) => {
+    const sep = App.ext(t.path) === 'tsv' ? '\t' : ',';
+    const rows = parseDelimited(t.model.getValue(), sep);
+    const [head = [], ...data] = rows;
+    const shown = data.slice(0, MAX_ROWS), width = Math.max(head.length, ...shown.map((r) => r.length));
+    const cols = Array.from({ length: width }, (_x, k) => k);
+    return h('div.data-table-wrap',
+      h('div.data-table-note', `${data.length.toLocaleString()} rows × ${width} columns` + (data.length > MAX_ROWS ? ` (first ${MAX_ROWS.toLocaleString()} shown)` : '')),
+      h('table.data-table',
+        h('thead', h('tr', h('th.rownum', '#'), ...cols.map((k) => h('th', head[k] ?? '')))),
+        h('tbody', ...shown.map((r, n) => h('tr', h('td.rownum', String(n + 1)), ...cols.map((k) => h('td', r[k] ?? '')))))));
+  };
+
   E.mdPreview = function () {
     const t = E.cur();
-    if (!isMd(t)) return;
-    const body = h('div.msg.md.md-doc');
-    const draw = () => { body.innerHTML = App.md(t.model.getValue()); };
+    if (!isMd(t) && !isTable(t)) return;
+    const table = isTable(t);
+    const body = table ? h('div.data-doc') : h('div.msg.md.md-doc');
+    const draw = () => { if (table) body.replaceChildren(tableBody(t)); else body.innerHTML = App.md(t.model.getValue()); };
     let sub = null;
     E.openCustom({
       key: 'mdview:' + t.id, title: t.title, badge: 'Formatted',
