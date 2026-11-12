@@ -82,3 +82,31 @@ assert len(calls) == 1
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'Cancelling test\n');
 });
+
+test('Windows Codex launch preserves quoted resume arguments through Bash', (t) => {
+  const { agent } = project(t);
+  const script = `import json, os, runpy, subprocess, sys, types
+f = runpy.run_path(sys.argv[1])
+g = f['codex_spawn_argv'].__globals__
+values = ['exec', 'resume', 'thread-id', '-c', 'sandbox_mode="workspace-write"',
+          '-o', 'C:\\\\Users\\\\name with spaces\\\\result.md', '', "apostrophe's", '$HOME', 'line\\nbreak']
+code = "import json, os, sys; print(json.dumps({'argv': sys.argv[1:], 'transport': [k for k in os.environ if k.startswith('_CODEOME_CODEX_ARG_')]}))"
+argv = [sys.executable, '-c', code] + values
+# Exercise the Windows-only branch on POSIX too; only the outer Windows argv
+# decoder remains for CI. The payload must stay out of that command line.
+g['os'] = types.SimpleNamespace(name='posix')
+assert f['codex_spawn_argv'](argv, {}) is argv
+g['os'] = types.SimpleNamespace(name='nt')
+env = dict(os.environ)
+launch = f['codex_spawn_argv'](argv, env)
+assert len(launch) == 4
+assert not any('sandbox_mode=' in item for item in launch)
+result = subprocess.run(launch, env=env, capture_output=True, encoding='utf-8', timeout=10)
+assert result.returncode == 0, result.stderr
+assert json.loads(result.stdout) == {'argv': values, 'transport': []}
+print('ok')
+`;
+  const result = spawnSync('python3', ['-B', '-c', script, agent], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'ok\n');
+});

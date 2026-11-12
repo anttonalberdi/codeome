@@ -67,7 +67,7 @@ test('Codex JSONL is saved, mirrored, and its thread id becomes the session', ()
   assert.match(r.stdout, /done — fake/);
 
   const resumed = run(p, bin, ['--resume', job.session]);
-  assert.strictEqual(resumed.status, 0, resumed.stderr);
+  assert.strictEqual(resumed.status, 0, resumed.stderr || resumed.stdout);
   const resumeArgv = JSON.parse(fs.readFileSync(path.join(p, 'argv.json'), 'utf8'));
   assert.deepStrictEqual(resumeArgv.slice(0, 3), ['exec', 'resume', job.session]);
   assert.ok(resumeArgv.includes('--json'));

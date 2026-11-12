@@ -1515,6 +1515,24 @@ def codex_event_line(event):
     return '[%s]%s' % (kind, ' ' + ' '.join(str(message).split()) if message else '')
 
 
+def codex_spawn_argv(argv, env):
+    if os.name != 'nt':
+        return argv
+    # Python's Windows command-line quoting and MSYS argv decoding disagree on
+    # embedded quotes (notably resume's sandbox_mode="..."). Carry argv through
+    # the environment so Bash receives each value without another decoding pass.
+    bash = shutil.which('bash')
+    if not bash:
+        raise OSError('Git for Windows bash is required to run Codex')
+    env.update(CHERE_INVOKING='1', MSYS_NO_PATHCONV='1')
+    names = ['_CODEOME_CODEX_ARG_%d' % i for i in range(len(argv))]
+    for i, (name, value) in enumerate(zip(names, argv)):
+        env[name] = value.replace('\\', '/') if i == 0 else value
+    operands = ' '.join('"${%s}"' % name for name in names)
+    command = 'args=(%s); unset %s; exec "${args[@]}"' % (operands, ' '.join(names))
+    return [bash, '-l', '-c', command]
+
+
 def cmd_codex(a):
     brief = read_text(a.brief_file) if a.brief_file else sys.stdin.read()
     if not brief.strip():
@@ -1588,13 +1606,7 @@ def cmd_codex(a):
     try:
         logf = open(log, 'w', encoding='utf-8', newline='\n', buffering=1)
         eventsf = open(events, 'w', encoding='utf-8', newline='\n', buffering=1)
-        if os.name == 'nt':
-            # npm CLI shims and shebang scripts need Git Bash, as in the desktop launcher.
-            bash = shutil.which('bash')
-            if not bash:
-                raise OSError('Git for Windows bash is required to run Codex')
-            env.update(CHERE_INVOKING='1', MSYS_NO_PATHCONV='1')
-            argv = [bash, '-l', '-c', 'exec "$0" "$@"', codex.replace('\\', '/')] + argv[1:]
+        argv = codex_spawn_argv(argv, env)
         child = subprocess.Popen(argv, cwd=workdir, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=logf,
                                  text=True, encoding='utf-8', errors='replace', start_new_session=True, env=env)
     except OSError as e:

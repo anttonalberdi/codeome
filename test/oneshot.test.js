@@ -16,7 +16,7 @@ const args = process.argv.slice(2);
 const prompt = args[0] === '-p' ? args[1] : args.at(-1);
 // The handler goes first: the record file is what the tests wait for before they send SIGTERM.
 process.on('SIGTERM', () => { fs.writeFileSync(process.env.FAKE_SIGNAL, 'SIGTERM'); if (prompt !== 'resist' && prompt !== 'pipe-resist') process.exit(0); });
-fs.writeFileSync(process.env.FAKE_RECORD || prompt, JSON.stringify({ args, cwd: process.cwd(), pid: process.pid,
+fs.writeFileSync(process.env.FAKE_RECORD || prompt, JSON.stringify({ args, cwd: process.platform === 'win32' ? fs.realpathSync.native(process.cwd()) : process.cwd(), pid: process.pid,
   claude: process.env.CLAUDE_CONFIG_DIR || null, codex: process.env.CODEX_HOME || null,
   envKeys: Object.keys(process.env).sort() }));
 if (prompt === 'pipe-resist' || prompt === 'pipe-exit') {

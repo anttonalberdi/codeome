@@ -181,9 +181,9 @@ test('remote tabs IPC accepts known projects, coalesces latest payload and prune
   assert.equal(timers.size, 0);
   assert.match(handlers['remote:tabs'](null, { project: '/forged', tabs: [] }).error, /Invalid/);
   assert.match(handlers['remote:tabs'](null, { project: path.resolve('/known'), tabs: [{ ...tab, jobs: NaN }] }).error, /Invalid/);
-  context.cfg = { openProjects: ['/other'], activeProject: '/other' };
-  handlers['remote:tabs'](null, { project: '/other', tabs: [] });
-  assert.deepEqual([...remote.tabs.keys()], ['/other']);
+  context.cfg = { openProjects: [path.resolve('/other')], activeProject: path.resolve('/other') };
+  handlers['remote:tabs'](null, { project: path.resolve('/other'), tabs: [] });
+  assert.deepEqual([...remote.tabs.keys()], [path.resolve('/other')]);
   context.clearRemoteTabs();
   tick();
   assert.equal(remote.tabs.size, 0);

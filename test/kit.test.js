@@ -217,7 +217,7 @@ test('codeome-agent runs a Codex job with the role prompt and records it', async
 
   // Follow-up resumes the same session; read-only roles get the read-only sandbox.
   const r2 = runAgent(p, ['codex', '--resume', '0199-test-session'], 'Also update the README.', { CODEOME_CODEX: codex });
-  assert.strictEqual(r2.status, 0, r2.stderr);
+  assert.strictEqual(r2.status, 0, r2.stderr || r2.stdout);
   const call2 = readJson(path.join(p, 'call.json'));
   assert.deepStrictEqual(call2.argv.slice(0, 3), ['exec', 'resume', '0199-test-session']);
   assert.match(call2.prompt, /Follow-up from the orchestrator/);
@@ -532,7 +532,8 @@ test('codeome-agent runs Codex jobs on an account with headroom and holds them a
   const r = runAgent(p, ['codex', '--role', 'implementer'], 'x', env);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stderr, /using Codex account "Work"/);
-  assert.strictEqual(readJson(path.join(p, 'call.json')).codexHome, path.join(os.homedir(), '.codex-work'));
+  const codexHome = readJson(path.join(p, 'call.json')).codexHome;
+  assert.strictEqual(process.platform === 'win32' ? path.normalize(codexHome) : codexHome, path.join(os.homedir(), '.codex-work'));
   const j = (await jobs.list(p))[0];
   assert.strictEqual(j.account, 'Work');
 
