@@ -1572,7 +1572,10 @@ def cmd_codex(a):
     def stop(signum, _frame):
         cancelled['v'] = True
         try:
-            os.killpg(child.pid, signal.SIGTERM)
+            if hasattr(os, 'killpg'):
+                os.killpg(child.pid, signal.SIGTERM)
+            else:
+                child.terminate()
         except OSError:
             pass
     signal.signal(signal.SIGTERM, stop)
@@ -1585,7 +1588,7 @@ def cmd_codex(a):
         control_read = os.open(control_path, os.O_RDONLY | os.O_NONBLOCK)
         control_write = os.open(control_path, os.O_WRONLY | os.O_NONBLOCK)
         job['pauseFifo'] = control_path
-    except OSError:
+    except (AttributeError, OSError):
         if control_read is not None:
             os.close(control_read)
         control_read = None

@@ -130,7 +130,7 @@ test('Serve setup stays disabled until the companion listens, and completed step
     check: () => make('check'), select: () => make('select'),
     stepRow: (_state, title, detail) => make('step', {}, title, detail),
     btn: (label, onclick) => make('button', { onclick }, label),
-    App: { cfg: { remote: { enabled: false, mode: 'serve', port: 0, ntfy: {} } } },
+    App: { uiText: (text) => text, cfg: { remote: { enabled: false, mode: 'serve', port: 0, ntfy: {} } } },
     codeome: { remote: { onStatus: (callback) => { notifyStatus = callback; return () => {}; },
       status: async () => status, tailscale: async () => tailscale } },
     clearInterval() {}, setInterval() {} };

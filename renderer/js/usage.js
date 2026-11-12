@@ -204,7 +204,7 @@
     let done;
     const ended = new Promise((r) => { done = r; });
     // A console tab ends with its command, so the sign-in is known to be over.
-    const t = await T.open({ kind: 'console', title: `Sign in · ${NAME[engine]} ${U.short(a.name)}`, command: cmd, cwd: App.env.home || '~', badge: 'Mac', global: true, onExit: (code) => done(code) });
+    const t = await T.open({ kind: 'console', title: `Sign in · ${NAME[engine]} ${U.short(a.name)}`, command: cmd, cwd: App.env.home || '~', badge: App.uiText('Mac'), global: true, onExit: (code) => done(code) });
     if (!t.alive) done(-1);
     const code = await ended;
     // A finished sign-in closes its tab; a failed one stays open to show why.

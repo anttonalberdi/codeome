@@ -96,12 +96,16 @@
     term.loadAddon(search);
     term.open(el);
     const find = termFind(el, term, search);
-    // Cmd+K clears, Cmd+C copies when there's a selection (xterm handles the rest).
+    // Keep shell Ctrl+K/C available; shifted shortcuts clear and copy on Windows/Linux.
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && e.metaKey && e.key === 'k') { term.clear(); return false; }
-      if (e.type === 'keydown' && e.metaKey && e.key === 'f') { find.open(); return false; }
-      if (e.type === 'keydown' && e.metaKey && e.key === 'c' && term.hasSelection()) { navigator.clipboard.writeText(term.getSelection()); return false; }
-      return true;
+      const action = App.terminalKeyAction(e, { hasSelection: term.hasSelection() });
+      if (!action) return true;
+      if (App.platform !== 'darwin') e.preventDefault();
+      if (action === 'clear') term.clear();
+      else if (action === 'find') find.open();
+      else if (action === 'copy') { const text = term.getSelection(); if (text) navigator.clipboard.writeText(text); }
+      else if (action === 'paste') navigator.clipboard.readText().then((text) => term.paste(text));
+      return false;
     });
     const t = { id, spec, term, fit, find, el, title: spec.title, alive: true, project: spec.project !== undefined ? spec.project : App.project };
     // R with plots.R sourced announces its plots in the output (see plots.js).
@@ -186,7 +190,7 @@
 
   T.send = function (text) {
     const t = T.current();
-    if (!t) { App.toast('Open a terminal first (⌘T).'); return false; }
+    if (!t) { App.toast(App.uiText('Open a terminal first (⌘T).')); return false; }
     // Bracketed paste for multi-line chunks so R/Python REPLs accept them whole.
     const multi = text.includes('\n');
     codeome.pty.write(t.id, multi ? '\x1b[200~' + text + '\x1b[201~\r' : text + '\r');
@@ -204,7 +208,7 @@
     const rt = T.rFor();
     for (const t of T.visible()) {
       el.append(h('div.tab' + (t.id === T.active ? '.active' : ''), {
-        onclick: () => T.activate(t.id), title: (t.spec.cwd || '') + (t === rt ? '\nReceives R code from the editor (⌘↩)' : ''),
+        onclick: () => T.activate(t.id), title: (t.spec.cwd || '') + (t === rt ? App.uiText('\nReceives R code from the editor (⌘↩)') : ''),
         onauxclick: (e) => { if (e.button === 1) T.close(t.id); },
         oncontextmenu: (e) => { e.preventDefault(); App.menu(e.clientX, e.clientY, tabMenu(t)); } },
         h('i.live' + (t.alive ? '' : '.dead')),
@@ -241,15 +245,15 @@
   });
 
   // ---------- launchers ----------
-  T.localShell = (cwd) => T.open({ kind: 'shell', title: App.basename(cwd || App.project || '~') || 'zsh', cwd: cwd || App.project || '~', badge: 'Mac' });
-  T.hpcShell = (cwd) => { if (!App.requireHpc()) return; return T.open({ kind: 'hpc-shell', title: App.basename(cwd || App.remoteDir || '~'), cwd: cwd || App.remoteDir || '~', badge: 'HPC' }); };
+  T.localShell = (cwd) => T.open({ kind: 'shell', title: App.basename(cwd || App.project || '~') || (App.platform === 'darwin' ? 'zsh' : 'bash'), cwd: cwd || App.project || '~', badge: App.uiText('Mac') });
+  T.hpcShell = (cwd) => { if (!App.requireHpc()) return; return T.open({ kind: 'hpc-shell', title: App.posix.basename(cwd || App.remoteDir || '~'), cwd: cwd || App.remoteDir || '~', badge: 'HPC' }); };
   T.agentHpc = (agent, cwd) => {
     if (!App.requireHpc()) return;
     const dir = cwd || App.remoteDir || '~';
-    const session = 'codeome-' + App.safeName(agent.name) + '-' + App.safeName(App.basename(dir) || 'home');
+    const session = 'codeome-' + App.safeName(agent.name) + '-' + App.safeName(App.posix.basename(dir) || 'home');
     return T.open({ kind: 'agent-hpc', title: agent.name, command: agent.cmd, cwd: dir, session, badge: 'HPC' });
   };
-  T.task = (title, command, cwd, extra = {}) => T.open({ kind: 'task', title, command, cwd: cwd || App.project || '~', badge: 'Mac', ...extra });
+  T.task = (title, command, cwd, extra = {}) => T.open({ kind: 'task', title, command, cwd: cwd || App.project || '~', badge: App.uiText('Mac'), ...extra });
   T.hpcTask = (title, command, cwd) => { if (!App.requireHpc()) return; return T.open({ kind: 'hpc-task', title, command, cwd: cwd || App.remoteDir || '~', badge: 'HPC' }); };
 
   // ---------- R console ----------
@@ -263,7 +267,7 @@
     if (remote && !App.requireHpc()) return null;
     const dir = cwd || (remote ? App.remoteDir || '~' : App.project || '~');
     const command = (remote ? App.cfg.r.remote : App.cfg.r.local) || 'R --no-save --quiet';
-    const t = await T.open({ kind: remote ? 'hpc-console' : 'console', lang: 'r', title: 'R · ' + (App.basename(dir) || '~'), command, cwd: dir, badge: remote ? 'HPC' : 'R' });
+    const t = await T.open({ kind: remote ? 'hpc-console' : 'console', lang: 'r', title: 'R · ' + ((remote ? App.posix : App).basename(dir) || '~'), command, cwd: dir, badge: remote ? 'HPC' : 'R' });
     if (t && t.alive) { T.rTarget[t.project] = t.id; renderTabs(); }
     // Plots go to the Plots view: plots.R is sourced before any code is sent.
     if (t && t.alive && App.cfg.plots.capture !== false) {
@@ -316,13 +320,13 @@
   T.newMenu = (anchor) => {
     // Agents on this Mac live in the Agent chat (⌘1); the CLIs on the HPC stay here.
     const items = [
-      { header: 'On this Mac' + (App.project ? ' · ' + App.basename(App.project) : '') },
-      { label: 'Terminal', key: '⌘T', run: () => T.localShell() },
+      { header: App.uiText('On this Mac') + (App.project ? ' · ' + App.basename(App.project) : '') },
+      { label: 'Terminal', key: App.uiText('⌘T'), run: () => T.localShell() },
       { label: 'R console', run: () => T.rConsole() },
-      { label: 'Agent chat', key: '⌘1', run: () => App.views.chat.ask('') },
+      { label: 'Agent chat', key: App.uiText('⌘1'), run: () => App.views.chat.ask('') },
       '-',
-      { header: 'On the HPC' + (App.remoteDir ? ' · ' + App.basename(App.remoteDir) : '') },
-      { label: 'Terminal', key: '⇧⌘T', run: () => T.hpcShell() },
+      { header: 'On the HPC' + (App.remoteDir ? ' · ' + App.posix.basename(App.remoteDir) : '') },
+      { label: 'Terminal', key: App.uiText('⇧⌘T'), run: () => T.hpcShell() },
       { label: 'R console', run: () => T.rConsole({ remote: true }) },
       ...App.cfg.agents.map((a) => ({ label: a.name + (App.cfg.hpc.useTmux ? ' (persistent)' : ''), run: () => T.agentHpc(a) }))
     ];

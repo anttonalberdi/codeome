@@ -1,4 +1,5 @@
 // Agent jobs recorded by codeome-agent in <project>/.codeome/jobs/<id>/.
+const platformTools = require('./platform');
 const fs = require('fs');
 const path = require('path');
 const { Buffer } = require('buffer');
@@ -229,8 +230,14 @@ function cancel(project, id) {
   const j = load(project, id);
   if (!j) return { error: 'Unknown job ' + id };
   if (j.engine !== 'codex') return { error: 'Claude subagents are stopped from their Claude Code session.' };
+  if (platformTools.isWin && (!Number.isInteger(j.pid) || j.pid <= 4)) return { error: 'Invalid job pid.' };
   if (!['running', 'pausing'].includes(j.status) || !alive(j.pid)) return { error: 'The job is no longer running.' };
-  try { process.kill(j.pid, 'SIGTERM'); return { ok: true }; } catch (e) { return { error: e.message }; }
+  try { platformTools.isWin ? platformTools.killTree({ pid: j.pid }).then((killed) => {
+    const current = load(project, id);
+    if (killed && current && ['running', 'pausing'].includes(current.status)) {
+      fs.writeFileSync(path.join(jobsDir(project), id, 'job.json'), JSON.stringify({ ...current, status: 'cancelled', endedAt: new Date().toISOString() }, null, 2) + '\n');
+    }
+  }).catch(() => {}) : process.kill(j.pid, 'SIGTERM'); return { ok: true }; } catch (e) { return { error: e.message }; }
 }
 
 function runnerError(project) {
@@ -247,8 +254,10 @@ function pause(project, id) {
   if (j.status !== 'running' || !alive(j.pid)) return Promise.resolve({ error: 'The job is no longer running.' });
   const outdated = runnerError(project);
   if (outdated) return Promise.resolve({ error: outdated });
-  return new Promise((resolve) => execFile('python3', [path.join(project, '.codeome', 'bin', 'codeome-agent'), 'pause', id],
-    { cwd: project, encoding: 'utf8', timeout: 5000 }, (e, _out, err) => resolve(e ? { error: err.trim().replace(/^codeome-agent: /, '') || e.message } : { ok: true })));
+  const python = platformTools.runtimePython();
+  if (!python) return Promise.resolve({ error: 'A working Python 3 is required.' });
+  return new Promise((resolve) => execFile(python.file, [...python.args, path.join(project, '.codeome', 'bin', 'codeome-agent'), 'pause', id],
+    { windowsHide: true, cwd: project, encoding: 'utf8', timeout: 5000 }, (e, _out, err) => resolve(e ? { error: err.trim().replace(/^codeome-agent: /, '') || e.message } : { ok: true })));
 }
 
 function resume(project, id) {
@@ -262,10 +271,14 @@ function resume(project, id) {
   if (outdated) return Promise.resolve({ error: outdated });
   const bin = path.join(project, '.codeome', 'bin', 'codeome-agent');
   if (!fs.existsSync(bin)) return Promise.resolve({ error: 'Install the agent kit before resuming this job.' });
+  const python = platformTools.runtimePython();
+  if (!python) return Promise.resolve({ error: 'A working Python 3 is required.' });
   resuming.add(key);
   return new Promise((resolve) => {
-    const child = spawn(process.env.SHELL || '/bin/zsh', ['-l', '-c', 'exec "$0" "$@"', 'python3', bin, 'codex', '--resume', j.session, '--title', j.title || j.role],
-      { cwd: project, detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
+    let shell;
+    try { shell = platformTools.requireLoginShell(); } catch (e) { resuming.delete(key); resolve({ error: e.message }); return; }
+    const child = spawn(shell, ['-l', '-c', 'exec "$0" "$@"', python.file, ...python.args, platformTools.toPosixForShell(bin), 'codex', '--resume', j.session, '--title', j.title || j.role],
+      { cwd: project, windowsHide: true, detached: !platformTools.isWin, stdio: ['pipe', 'ignore', 'ignore'] });
     let resolved = false, done = false;
     const answer = (result) => { if (!resolved) { resolved = true; resolve(result); } };
     const finish = (result) => { if (done) return; done = true; resuming.delete(key); clearInterval(poll); clearTimeout(timeout); answer(result); };

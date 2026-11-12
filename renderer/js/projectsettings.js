@@ -11,7 +11,7 @@
   ];
   const TAB_NAME_OPTIONS = [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }];
   const NOTIFY_ROWS = [
-    ['enabled', 'Show macOS notifications'],
+    ['enabled', App.uiText('Show macOS notifications')],
     ['events.finished', 'Agent finished or stopped with an error'],
     ['events.ask', 'Agent needs your input (permission or question)'],
     ['events.approval', 'Approval needed for a message between chats'],
@@ -229,13 +229,13 @@
         const response = await codeome.notify.test(path);
         result.textContent = response?.ok ? 'Sent' : response?.throttled ? 'Please wait a moment' : response?.supported === false
           ? 'Notifications are not supported here'
-          : 'Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.';
+          : App.uiText('Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.');
       } catch {
-        result.textContent = 'Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.';
+        result.textContent = App.uiText('Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.');
       }
     } }, 'Send test notification');
     return h('section.ps-card', h('h3.ps-card-title', 'Notifications'),
-      h('div.ps-list', h('p.ps-help', 'macOS notifications show only the project folder name and the kind of event, never chat text. New GitHub issues have their own switch in Git & GitHub (“Notify for new issues”). Phone push (ntfy) is separate.'),
+      h('div.ps-list', h('p.ps-help', App.uiText('macOS notifications show only the project folder name and the kind of event, never chat text. New GitHub issues have their own switch in Git & GitHub (“Notify for new issues”). Phone push (ntfy) is separate.')),
         NOTIFY_ROWS.slice(0, 6).map(([key, label]) => notifyToggleRow(key, label, path, base, project)),
         notifyNumberRow(path, base, project),
         NOTIFY_ROWS.slice(6).map(([key, label]) => notifyToggleRow(key, label, path, base, project)),

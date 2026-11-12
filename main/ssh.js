@@ -2,6 +2,8 @@
 // ProxyJump and VPN routing behave exactly as in iTerm2. One master connection
 // is opened in the background (login.js answers its prompts through dialogs) and
 // all other commands and terminals reuse it via ControlMaster.
+const { hpcSupported, HPC_UNSUPPORTED_MESSAGE } = require('./platform');
+const unsupported = () => ({ code: -1, stdout: '', stderr: HPC_UNSUPPORTED_MESSAGE, unsupported: true });
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -9,7 +11,7 @@ const { spawnSync } = require('child_process');
 const { run, q } = require('./util');
 
 const CONTROL_DIR = path.join(os.homedir(), '.ssh', 'codeome-cm');
-try { fs.mkdirSync(CONTROL_DIR, { recursive: true, mode: 0o700 }); } catch {}
+try { if (hpcSupported()) fs.mkdirSync(CONTROL_DIR, { recursive: true, mode: 0o700 }); } catch {}
 const CONTROL_PATH = path.join(CONTROL_DIR, '%C');
 
 function validHost(value) {
@@ -57,6 +59,7 @@ case "$PS1" in *'\e['*|*'\033['*|*'\[\e'*) ;; *) PS1='\[\e[1;32m\]\u@\h\[\e[0m\]
 const colorShell = (dir) => `${dir ? 'export CODEOME_CWD=' + dir + '; ' : ''}export COLORTERM=truecolor CLICOLOR=1; exec bash --rcfile <(echo ${Buffer.from(COLOR_RC).toString('base64')} | base64 -d) -i`;
 
 async function check(host) {
+  if (!hpcSupported()) return { connected: false, reason: HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   if (!host) return { connected: false, reason: 'No HPC host configured' };
   const r = await run('ssh', ['-o', `ControlPath=${CONTROL_PATH}`, '-O', 'check', host], { timeout: 5000 });
   return { connected: r.code === 0, reason: r.code === 0 ? '' : (r.stderr.trim() || 'Not connected') };
@@ -66,6 +69,7 @@ async function check(host) {
 // next login then logs in but silently skips multiplexing ("ControlSocket ...
 // already exists, disabling multiplexing"). Remove every socket nobody answers on.
 function clearStaleSockets() {
+  if (!hpcSupported()) return [];
   let names = [];
   try { names = fs.readdirSync(CONTROL_DIR); } catch { return []; }
   const removed = [];
@@ -81,6 +85,7 @@ function clearStaleSockets() {
 }
 
 async function disconnect(host) {
+  if (!hpcSupported()) return unsupported();
   return run('ssh', ['-o', `ControlPath=${CONTROL_PATH}`, '-O', 'exit', host], { timeout: 5000 });
 }
 
@@ -89,6 +94,7 @@ const execArgs = (host, cmd, extra = []) => [...muxOpts(host), '-o', 'BatchMode=
 
 // Run a remote command non-interactively over the master connection.
 async function exec(host, cmd, opts = {}) {
+  if (!hpcSupported()) return unsupported();
   if (!host) return { code: -1, stdout: '', stderr: 'No HPC host configured' };
   return run('ssh', execArgs(host, cmd), { timeout: opts.timeout || 60000, input: opts.input });
 }
@@ -133,6 +139,7 @@ function rsyncSshCommand() {
 
 // A fresh, non-interactive login (no shared connection) to test that the key works.
 function testLogin(host) {
+  if (!hpcSupported()) return Promise.resolve(unsupported());
   return run('ssh', ['-o', 'ControlPath=none', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=12', ...proxyOpts(host), host, 'true'], { timeout: 30000 });
 }
 

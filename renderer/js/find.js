@@ -106,7 +106,7 @@
       e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey); }
       else if (e.key === 'Escape') { e.preventDefault(); F.close(); }
-      else if (e.metaKey && e.key.toLowerCase() === 'g') { e.preventDefault(); step(e.shiftKey); }
+      else if (App.isMod(e) && e.key.toLowerCase() === 'g') { e.preventDefault(); step(e.shiftKey); }
     });
     document.body.append(bar);
   }
@@ -143,7 +143,7 @@
   };
 
   document.addEventListener('keydown', (e) => {
-    if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;
+    if (!App.isMod(e) || (App.platform === 'darwin' && e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;
     const from = last && last.isConnected ? last : document.activeElement;
     const el = from && from.nodeType === 1 ? from : null;
     // Monaco and xterm have their own find bars.

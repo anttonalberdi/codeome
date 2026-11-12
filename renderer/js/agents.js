@@ -87,7 +87,7 @@
     const past = await C.history();
     const k = A.kit;
     App.menuAt(anchor, [
-      { label: 'New chat', key: '⇧⌘N', run: () => C.newChat() },
+      { label: 'New chat', key: App.uiText('⇧⌘N'), run: () => C.newChat() },
       past.length ? { header: 'Reopen a recent chat' } : null,
       ...past.map((c) => ({ label: (c.title || 'Untitled chat').slice(0, 48), key: App.fmtAgo(c.updatedAt), run: () => C.open(c.id) })),
       { label: 'Chat history…', run: () => C.openHistory(anchor) },
@@ -141,7 +141,7 @@
     b.classList.toggle('busy', n > 0 || s.working > 0);
     b.classList.toggle('needs', s.waiting > 0);
     b.classList.toggle('ready', !s.waiting && !s.working && !n && s.unread > 0);
-    b.title = 'Agent (⌘1)' + (s.waiting ? ` — ${s.waiting} waiting for you` : '') + (s.working ? ` — ${s.working} working` : '') + (n ? ` — ${n} job${n > 1 ? 's' : ''} running` : '') + (s.unread ? ` — ${s.unread} repl${s.unread > 1 ? 'ies' : 'y'} ready` : '');
+    b.title = App.uiText('Agent (⌘1)') + (s.waiting ? ` — ${s.waiting} waiting for you` : '') + (s.working ? ` — ${s.working} working` : '') + (n ? ` — ${n} job${n > 1 ? 's' : ''} running` : '') + (s.unread ? ` — ${s.unread} repl${s.unread > 1 ? 'ies' : 'y'} ready` : '');
   }
 
   // ---------- kit ----------
@@ -170,7 +170,7 @@
       h('div.row', h('h3.grow', 'Agent kit ' + k.version), k.outdated ? h('span.pill.warn', 'update ' + k.latest) : h('span.pill.ok', 'up to date')),
       h('div.sub', `${nRoles} roles · ${groups}`),
       k.modified.length ? h('div.sub', `${k.modified.length} file${k.modified.length > 1 ? 's' : ''} edited here — kept on update`) : null,
-      codexMissing ? h('div.sub', { style: { color: 'var(--pend)' } }, 'Codex not found on this Mac — Codex roles will fall back to Claude.') : null,
+      codexMissing ? h('div.sub', { style: { color: 'var(--pend)' } }, App.uiText('Codex not found on this Mac — Codex roles will fall back to Claude.')) : null,
       h('div.row', { style: { marginTop: '8px' } },
         h('button.btn.small', { onclick: () => A.install() }, k.outdated ? 'Update…' : 'Roles…'),
         h('button.btn.small.ghost', { onclick: () => App.views.editor.openFile(App.join(App.project, '.claude/skills/orchestrate/routing.md')) }, 'Routing'))));

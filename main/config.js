@@ -1,6 +1,7 @@
 // Settings stored as JSON in the app's user-data folder; tokens are encrypted
 // with the macOS Keychain via Electron's safeStorage.
 const fs = require('fs');
+const { isAbsoluteProject } = require('./platform');
 const path = require('path');
 const os = require('os');
 const { app, safeStorage } = require('electron');
@@ -168,7 +169,7 @@ function projectIssuesSettings(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const out = {};
   for (const [project, entry] of Object.entries(value)) {
-    if (!project.startsWith('/') || !entry || typeof entry !== 'object' || Array.isArray(entry) ||
+    if (!isAbsoluteProject(project) || !entry || typeof entry !== 'object' || Array.isArray(entry) ||
         typeof entry.enabled !== 'boolean' || (entry.enabledAt !== null && !validIssueTime(entry.enabledAt))) continue;
     out[project] = { enabled: entry.enabled, enabledAt: entry.enabledAt };
   }
@@ -179,8 +180,8 @@ function projectHpcSettings(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const out = {};
   for (const [project, entry] of Object.entries(value)) {
-    if (!project.startsWith('/') || !entry || !Array.isArray(entry.paths)) continue;
-    const paths = [...new Set(entry.paths.filter((p) => typeof p === 'string').map((p) => p.trim()).filter((p) => p.startsWith('/') || p.startsWith('~')).map((p) => p.replace(/\/+$/, '') || '/'))];
+    if (!isAbsoluteProject(project) || !entry || !Array.isArray(entry.paths)) continue;
+    const paths = [...new Set(entry.paths.filter((p) => typeof p === 'string').map((p) => p.trim()).filter((p) => isAbsoluteProject(p) || p.startsWith('~')).map((p) => p.replace(/\/+$/, '') || '/'))];
     if (paths.length) out[project] = { paths };
   }
   return out;

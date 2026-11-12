@@ -5,6 +5,7 @@
 // a one-time code, a new host's fingerprint).
 //
 // Phases: starting → prompt ⇄ waiting → up, and stopped or failed when it ends.
+const { hpcSupported, HPC_UNSUPPORTED_MESSAGE } = require('./platform');
 const { clean, lastLine, reasonOf } = require('./vpn');
 
 // What a prompt asks for: password | passphrase | hostkey | code (anything else, such
@@ -34,6 +35,11 @@ function reason(log) {
 // o: spawn() → { onData, onExit, write, kill }; verify() → Promise<bool> (the master
 // answers); password (may be empty); emit(state) on every change; onUp() once it is up.
 function start(o) {
+  if (!hpcSupported()) {
+    const state = () => ({ phase: 'failed', prompt: null, reason: HPC_UNSUPPORTED_MESSAGE, unsupported: true });
+    o.emit(state());
+    return { state, log: () => '', answer: () => false, stop() {}, ended: true };
+  }
   const st = { phase: 'starting', prompt: null, reason: '' };
   let buf = '', log = '', seq = 0, failed = false, sentPassword = false, stopping = false, timer = null, ended = false;
   const set = (patch) => { Object.assign(st, patch); o.emit({ ...st }); };

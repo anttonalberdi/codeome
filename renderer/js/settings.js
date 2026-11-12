@@ -38,7 +38,7 @@
   const MODEL_RE = /^(?!-)[\w.:/[\]-]{1,80}$/;
   const SECTIONS = [
     ['projects', 'Projects'], ['hpc', 'HPC'], ['storage', 'Storage'], ['transfer', 'Transfer'], ['agents', 'Agents'], ['policy', 'Agent policy'], ['notifications', 'Notifications'], ['accounts', 'Accounts & limits'], ['r', 'R'], ['python', 'Python'], ['figures', 'Figures'],
-    ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['phone', 'Phone companion'], ['appearance', 'Appearance'], ['mac', 'This Mac']
+    ['git', 'Git & GitHub'], ['publishing', 'Zenodo & PyPI'], ['secrets', 'Secrets'], ['phone', 'Phone companion'], ['appearance', 'Appearance'], ['mac', App.uiText('This Mac')]
   ];
   const ALIAS = { github: 'git', zenodo: 'publishing', pypi: 'publishing', erda: 'storage', tokens: 'secrets' };
 
@@ -235,19 +235,20 @@
     return h('div.row', input, save, clear, status);
   }
   function hpcSection(c) {
+    if (App.platform === 'win32') return section('hpc', 'HPC', App.setup.status?.error || App.hpcUnsupportedMessage);
     const tunnel = c.hpc.vpn.mode === 'tunnel';
     setupHost = h('div');
     serverList = h('datalist#sp-vpn-servers');
     const redraw = () => { sections.hpc.replaceWith(hpcSection(App.cfg)); renderSetup(); };
     const mode = select([
-      { value: 'system', label: 'Campus network, or a VPN for the whole Mac' },
+      { value: 'system', label: App.uiText('Campus network, or a VPN for the whole Mac') },
       { value: 'tunnel', label: "Codeome's own VPN tunnel" }
     ], c.hpc.vpn.mode, (v) => { vpn().mode = v; commit({ host: true, setup: true }); redraw(); }, 'How Codeome reaches the HPC network');
     return section('hpc', 'HPC', 'How Codeome reaches your cluster. It uses your system ssh, so existing ssh logins, keys and jump hosts keep working.',
       card('Network',
         row('Reach the HPC through', mode, tunnel
-          ? "Only Codeome's connections to the HPC go through the VPN; the rest of the Mac stays on its own network. Uses OpenConnect, which speaks Cisco's protocol. Off campus, use it instead of Cisco Secure Client, not alongside it."
-          : "Codeome uses whatever network the Mac is on. Off campus, turn on Cisco Secure Client first, or choose Codeome's own VPN tunnel to sign in (username, password and MFA) from here."),
+          ? App.uiText("Only Codeome's connections to the HPC go through the VPN; the rest of the Mac stays on its own network. Uses OpenConnect, which speaks Cisco's protocol. Off campus, use it instead of Cisco Secure Client, not alongside it.")
+          : App.uiText("Codeome uses whatever network the Mac is on. Off campus, turn on Cisco Secure Client first, or choose Codeome's own VPN tunnel to sign in (username, password and MFA) from here.")),
         ...(tunnel ? [
           row('VPN server', h('div', h('input', { type: 'text', value: vpn().server, list: 'sp-vpn-servers', placeholder: 'vpn.example.org', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'VPN server',
             onchange: (e) => { vpn().server = e.target.value.trim(); commit({ setup: true }); } }), serverList),
@@ -255,9 +256,9 @@
           row('Username', text(() => vpn().user, (v) => { vpn().user = v.trim(); }, { placeholder: 'Asked for when the tunnel starts', label: 'VPN username' }),
             'Optional. Without it, Codeome asks when the tunnel starts.'),
           row('Password', savedPassword('vpn:password', 'VPN password', 'Asked for when the tunnel starts'),
-            'Optional. Kept in the macOS Keychain and used when the tunnel signs in; without it, Codeome asks. Then approve the sign-in on your MFA device.'),
+            App.uiText('Optional. Kept in the macOS Keychain and used when the tunnel signs in; without it, Codeome asks. Then approve the sign-in on your MFA device.')),
           row('Local port', text(() => vpn().port, (v) => { const n = Math.round(Number(v)); vpn().port = n > 1023 && n < 65536 ? n : 11080; }, { type: 'number', apply: { host: true, setup: true }, label: 'Local port' }),
-            'Where the tunnel listens on this Mac (127.0.0.1 only). Change it only if 11080 is taken.'),
+            App.uiText('Where the tunnel listens on this Mac (127.0.0.1 only). Change it only if 11080 is taken.')),
           row('Extra options', text(() => vpn().args, (v) => { vpn().args = v.trim(); }, { placeholder: 'None', label: 'Extra openconnect options' }),
             'Passed to openconnect, e.g. --authgroup=NAME. Leave empty unless signing in needs it.')
         ] : [
@@ -271,7 +272,7 @@
           h('button.btn.small', { onclick: async () => { if (await App.setup.loginWizard()) redraw(); } }, 'Set up…')),
           'New to this? Click Set up…: it asks for your cluster’s address and username. If ssh already knows your login, type its name, or user@host.'),
         row('Password', savedPassword('hpc:password', 'HPC password', 'Asked for when connecting'),
-          'Optional. Kept in the macOS Keychain and used when connecting; without it, Codeome asks. A one-time code, if the HPC wants one, is asked for too. An ssh key on the HPC needs no password.'),
+          App.uiText('Optional. Kept in the macOS Keychain and used when connecting; without it, Codeome asks. A one-time code, if the HPC wants one, is asked for too. An ssh key on the HPC needs no password.')),
         row('Start folder', text(() => App.cfg.hpc.remoteRoot, (v) => { App.cfg.hpc.remoteRoot = v.trim() || '~'; }, { placeholder: '~ or /projects/mygroup', label: 'Start folder' })),
         row('Agent projects', text(() => App.cfg.hpc.agentRoot, (v) => { App.cfg.hpc.agentRoot = v.trim().replace(/(.)\/+$/, '$1'); }, { placeholder: '/projects/mygroup/scratch/me/projects', label: 'Folder for agent projects on the HPC' }),
           'Where the agents put the projects they run on the HPC, each in its own folder named after the project. Empty: they follow your CLAUDE.md, or ask. Applies to chats started from now on.')),
@@ -298,6 +299,7 @@
     if (!setupHost) return;
     const st = App.setup.status;
     if (!st) { setupHost.replaceChildren(card('Setup', h('div.sp-empty', 'Checking…'))); return; }
+    if (st.unsupported) { setupHost.replaceChildren(h('div.hint', st.error)); return; }
     const c = App.cfg, U = App.setup, tunnel = U.tunnelOn();
     if (serverList) serverList.replaceChildren(...st.ciscoServers.map((s) => h('option', { value: s })));
     const rows = [];
@@ -305,7 +307,7 @@
     if (tunnel) {
       const missing = ['openconnect', 'ocproxy'].filter((t) => !st.tools[t]);
       rows.push(missing.length
-        ? stepRow('todo', 'OpenConnect and ocproxy', `Not installed${st.brew ? '' : '; Homebrew is installed first'}. They run the tunnel without admin rights or changes to the Mac's network.`,
+        ? stepRow('todo', 'OpenConnect and ocproxy', App.uiText(`Not installed${st.brew ? '' : '; Homebrew is installed first'}. They run the tunnel without admin rights or changes to the Mac's network.`),
           btn('Install…', async () => { if (await U.install(missing, "Codeome's VPN tunnel needs them.")) backHere(); }, true))
         : stepRow('ok', 'OpenConnect and ocproxy', 'Installed.'));
       const tunnelRow = !vpn().server ? stepRow('off', 'VPN tunnel', 'Enter the VPN server above.')
@@ -330,8 +332,8 @@
     }
 
     rows.push(st.key.exists
-      ? stepRow('ok', 'ssh key on this Mac', App.tildify(st.key.path) || st.key.path)
-      : stepRow('todo', 'ssh key on this Mac', `None yet. Creating one makes ${App.tildify(st.key.path) || st.key.path}; a passphrase is optional.`,
+      ? stepRow('ok', App.uiText('ssh key on this Mac'), App.tildify(st.key.path) || st.key.path)
+      : stepRow('todo', App.uiText('ssh key on this Mac'), `None yet. Creating one makes ${App.tildify(st.key.path) || st.key.path}; a passphrase is optional.`,
         btn('Create key', async () => { if (await U.createKey()) backHere(); }, true)));
 
     const t = U.loginTest;
@@ -343,7 +345,7 @@
     else if (!t) keyRow = stepRow(ready ? 'todo' : 'off', 'Key accepted by the HPC', 'Not tested. The test signs in once without a password.', ready ? test : null, ready ? copy : null);
     else if (t.result === 'busy') keyRow = stepRow('busy', 'Key accepted by the HPC', 'Testing…');
     else if (t.result === 'ok') keyRow = stepRow('ok', 'Key accepted by the HPC', 'Signs in without a password.', test);
-    else if (t.result === 'auth') keyRow = stepRow('warn', 'Key accepted by the HPC', "The HPC did not accept the key. Copy it there (you sign in with your password once). If the key has a passphrase, add it to the macOS keychain with: ssh-add --apple-use-keychain " + App.tildify(st.key.path), copy, test);
+    else if (t.result === 'auth') keyRow = stepRow('warn', 'Key accepted by the HPC', App.uiText("The HPC did not accept the key. Copy it there (you sign in with your password once). If the key has a passphrase, add it to the macOS keychain with: ssh-add --apple-use-keychain ") + App.tildify(st.key.path), copy, test);
     else if (t.result === 'hostkey') keyRow = stepRow('warn', 'Key accepted by the HPC', "The HPC's fingerprint is new or has changed. Connect once to check and accept it.", btn('Connect', () => App.connectHpc()), test);
     else if (t.result === 'network') keyRow = stepRow('warn', 'Key accepted by the HPC', (tunnel && !U.vpnUp ? `Could not reach ${c.hpc.host}: the VPN tunnel is not running.`
       : `Could not reach ${c.hpc.host}${tunnel ? ' through the tunnel' : '. Off campus, turn on the VPN first'}. ${t.detail || ''}`), tunnel && !U.vpnUp ? btn('Start VPN', () => U.startVpn({ returnTo: backHere })) : null, test);
@@ -361,6 +363,7 @@
   // The shared connection's step: connected, connecting (in the background, see login.js), failed, or not yet.
   function connectionRow({ target, host, connected, connect, disconnect, uses, asks }) {
     const lg = App.login.state[target];
+    if (lg.unsupported) return h('div.hint', lg.reason);
     if (connected) return stepRow('ok', 'Connected', uses, btn('Disconnect', () => disconnect()));
     if (App.login.busy(target)) return stepRow('busy', 'Connected', lg.phase === 'prompt' ? `${host} is asking for something.` : `Connecting to ${host}…`,
       btn('Cancel', () => App.login.stop(target)), btn(lg.phase === 'prompt' ? 'Continue…' : 'Show', () => connect()));
@@ -394,6 +397,7 @@
   }
 
   function storageSection(c) {
+    if (App.platform === 'win32') return section('storage', 'Storage', App.hpcUnsupportedMessage);
     const files = App.views.files;
     return section('storage', 'Storage', 'Long-term storage reached over SFTP, such as ERDA. It shows as the third section in Files. Servers that only allow SFTP (no shell) work.',
       card(null,
@@ -404,7 +408,7 @@
         row('Username', text(() => App.cfg.storage.user, (v) => { App.cfg.storage.user = v.trim(); }, { placeholder: 'e.g. you@example.org', apply: { storage: true }, label: 'Storage username' }),
           'For ERDA, the email address you sign in to erda.dk with. Empty: the one in the host or ~/.ssh/config.'),
         row('Password', savedPassword('storage:password', 'Storage password', 'Asked for when connecting'),
-          'Optional. Kept in the macOS Keychain and used when connecting; without it, Codeome asks. For ERDA, the SFTP password set on erda.dk, not your KU password. A key needs no password.'),
+          App.uiText('Optional. Kept in the macOS Keychain and used when connecting; without it, Codeome asks. For ERDA, the SFTP password set on erda.dk, not your KU password. A key needs no password.')),
         row('Start folder', text(() => App.cfg.storage.root, (v) => { App.cfg.storage.root = v.trim(); }, { placeholder: 'Login folder', label: 'Storage start folder' })),
         row('From the HPC', text(() => App.cfg.storage.hpcHost, (v) => { App.cfg.storage.hpcHost = v.trim(); }, { placeholder: 'Same as the login', label: 'Storage login from the HPC' }),
           'Copies between the HPC and the storage run sftp on the HPC, in a terminal there. Set this if the HPC knows the storage by another name.')),
@@ -445,14 +449,14 @@
   }
 
   function rSection(c) {
-    return section('r', 'R', 'The R console that ⌘↩ sends R code to, from R scripts and from chunks in R Markdown and Quarto documents.',
+    return section('r', 'R', App.uiText('The R console that ⌘↩ sends R code to, from R scripts and from chunks in R Markdown and Quarto documents.'),
       card(null,
-        row('On this Mac', text(() => App.cfg.r.local, (v) => { App.cfg.r.local = v.trim() || 'R --no-save --quiet'; }, { label: 'R command on this Mac' }),
+        row(App.uiText('On this Mac'), text(() => App.cfg.r.local, (v) => { App.cfg.r.local = v.trim() || 'R --no-save --quiet'; }, { label: App.uiText('R command on this Mac') }),
           'Starts in the project folder, so .Rprofile and renv load as in RStudio.'),
         row('On the HPC', text(() => App.cfg.r.remote, (v) => { App.cfg.r.remote = v.trim() || 'R --no-save --quiet'; }, { placeholder: 'module load R && R --no-save --quiet', label: 'R command on the HPC' }),
           'Runs in a login shell. Load modules or a conda environment here if R needs them.'),
         row('Plots', h('div.form',
-          check('Show plots from R consoles in Plots (⌘7)', () => App.cfg.plots.capture !== false, (v) => { App.cfg.plots.capture = v; }),
+          check(App.uiText('Show plots from R consoles in Plots (⌘7)'), () => App.cfg.plots.capture !== false, (v) => { App.cfg.plots.capture = v; }),
           check('Switch to Plots when a plot is drawn', () => App.cfg.plots.show !== false, (v) => { App.cfg.plots.show = v; })),
           'R consoles started from here draw off-screen, so plots open in Codeome instead of a separate window. For R started some other way, right-click its terminal tab → Show R plots in Codeome.')));
   }
@@ -507,7 +511,7 @@
     const chatCmd = (c.agents.find((a) => /^claude(\s|$)/.test(a.cmd)) || { cmd: 'claude' }).cmd;
     const chatOptions = App.agentDefaultOptions((codexCatalog && codexCatalog.models) || []);
     return section('agents', 'Agents', 'The agent chat, the specialists it hands work to, the skills they follow, and the command-line agents offered as terminal sessions. Some are set once for all projects; the rest belong to the open project.',
-      scopeHead('All projects', 'Kept on this Mac, outside any project.'),
+      scopeHead('All projects', App.uiText('Kept on this Mac, outside any project.')),
       card('Agent chat (orchestrator)',
         row('AI', h('span.pill.ok', 'Claude Code'), `Runs "${chatCmd}" — the first Claude command below.`),
         row('Claude model', modelSelect(chatOptions.model, (App.cfg.chat || {}).model || '',
@@ -533,15 +537,15 @@
         row('Tab names', check('Suggest a short name for a chat tab', () => (App.cfg.chat || {}).tabNames !== false,
           (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), tabNames: v }; }),
           'After five of your messages, a chat still titled with the first words of its first message offers two 1 to 3 word names, or you can type your own. A small Haiku call reads your messages (trimmed), once per chat. Projects can override this in Project settings.'),
-        row('Keep Mac awake', check('Prevent sleep while agents are working', () => (App.cfg.chat || {}).keepAwake !== false,
+        row(App.uiText('Keep Mac awake'), check('Prevent sleep while agents are working', () => (App.cfg.chat || {}).keepAwake !== false,
           (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), keepAwake: v }; }),
-          'Blocks idle system sleep from when you send a message until the agent finishes, including while it waits for your decision. The screen can still turn off. Closing the lid still sleeps the Mac unless it is in clamshell mode.'),
+          App.uiText('Blocks idle system sleep from when you send a message until the agent finishes, including while it waits for your decision. The screen can still turn off. Closing the lid still sleeps the Mac unless it is in clamshell mode.')),
         row('Suggest a new chat at', h('div.row', text(() => (App.cfg.chat || {}).contextWarnAt ?? 70, (v) => { App.cfg.chat = { ...(App.cfg.chat || {}), contextWarnAt: Math.min(95, Math.max(20, Number(v) || 70)) }; }, { type: 'number', label: 'Percent' }), h('span.hint', '% of the context window')),
           'Each chat shows how full its context window is. Past this mark the meter turns amber and the chat says so once.')),
       card('Commits',
         row('Claude co-author', check('Remove the Claude co-author trailer', () => !(App.cfg.claude && App.cfg.claude.noCoAuthor === false),
           (v) => { App.cfg.claude = { ...(App.cfg.claude || {}), noCoAuthor: v }; }),
-          'Claude Code sessions started by Codeome (chats and terminals on this Mac) add no "Co-Authored-By: Claude" trailer to commits and no "Generated with Claude Code" line to pull requests. Applies to sessions started from now on.')),
+          App.uiText('Claude Code sessions started by Codeome (chats and terminals on this Mac) add no "Co-Authored-By: Claude" trailer to commits and no "Generated with Claude Code" line to pull requests. Applies to sessions started from now on.'))),
       card('Forum',
         row('Auto-allow by default', forumNumber('Auto-allow by default', 'defaultBudget', 0, 20, 0),
           'How many raised hands are let through without asking, per message. 0 means you approve every turn.'),
@@ -902,7 +906,7 @@
         h('div.acct-grid',
           list.map((a) => accountCard(engine, label, a, list, a.name === active)),
           (U.found[engine] || []).filter((f) => !list.some((a) => App.tildify(a.dir) === f.dir || a.name.toLowerCase() === f.email.toLowerCase())).map((f) => h('button.acct-add', { onclick: () => U.addAccount(engine, f).then(findFolders) },
-            h('b', 'Add ' + f.email), h('span', 'Already signed in on this Mac'))),
+            h('b', 'Add ' + f.email), h('span', App.uiText('Already signed in on this Mac')))),
           h('button.acct-add', { onclick: () => U.addAccount(engine) }, h('b', `Add a ${label} account…`), h('span', 'Its email address, then one sign-in'))));
     }
     accountsHost.replaceChildren(...kids);
@@ -942,7 +946,7 @@
   }
 
   async function removeAccount(engine, label, a) {
-    if (!await App.confirm(`Remove ${label} account ${a.name}?`, `Codeome stops using it. Its sign-in stays on this Mac, so adding ${App.views.usage.isEmail(a.name) ? a.name : 'it'} again needs no new sign-in. Chats started on it can no longer continue there.`, 'Remove', true)) return;
+    if (!await App.confirm(`Remove ${label} account ${a.name}?`, App.uiText(`Codeome stops using it. Its sign-in stays on this Mac, so adding ${App.views.usage.isEmail(a.name) ? a.name : 'it'} again needs no new sign-in. Chats started on it can no longer continue there.`), 'Remove', true)) return;
     const accts = App.cfg.accounts[engine];
     accts.list = accts.list.filter((x) => x.name !== a.name);
     if (accts.active === a.name) accts.active = accts.list[0].name;
@@ -989,7 +993,7 @@
   function pythonSection(c) {
     return section('python', 'Python', null,
       card(null,
-        row('On this Mac', text(() => App.cfg.python.local, (v) => { App.cfg.python.local = v.trim() || 'python3'; }, { label: 'Python on this Mac' })),
+        row(App.uiText('On this Mac'), text(() => App.cfg.python.local, (v) => { App.cfg.python.local = v.trim() || 'python3'; }, { label: App.uiText('Python on this Mac') })),
         row('On the HPC', text(() => App.cfg.python.remote, (v) => { App.cfg.python.remote = v.trim() || 'python3'; }, { label: 'Python on the HPC' }))));
   }
 
@@ -1029,7 +1033,7 @@
         } }, 'Validate'),
         h('span.grow'),
         h('button.btn.small.ghost.danger', { onclick: async () => {
-          if (!await App.confirm(`Remove ${a.login || 'GitHub account'}?`, 'Its token is deleted from this Mac. Projects bound to it fall back to the default login.', 'Remove', true)) return;
+          if (!await App.confirm(`Remove ${a.login || 'GitHub account'}?`, App.uiText('Its token is deleted from this Mac. Projects bound to it fall back to the default login.'), 'Remove', true)) return;
           const r = await codeome.gitAccounts.remove(a.id);
           if (r.error) return App.err(r.error);
           await redrawGitSection(); flash('Account removed');
@@ -1060,7 +1064,7 @@
   }
 
   async function gitSection() {
-    const intro = 'GitHub accounts for your projects. A token is validated with GitHub, encrypted with the macOS Keychain and never shown again. Bind an account to a project in the Git view. Use a classic token with repo (and workflow to push workflow files), or a fine-grained token with Contents and Pull requests access. The issue inbox also needs Issues read access.';
+    const intro = App.uiText('GitHub accounts for your projects. A token is validated with GitHub, encrypted with the macOS Keychain and never shown again. Bind an account to a project in the Git view. Use a classic token with repo (and workflow to push workflow files), or a fine-grained token with Contents and Pull requests access. The issue inbox also needs Issues read access.');
     const r = await codeome.gitAccounts.list();
     const rows = r.error ? [] : r.data.accounts.map(gitAccountRow);
     const provider = select([{ value: 'github', label: 'GitHub' }], 'github', () => {}, 'Provider');
@@ -1088,7 +1092,7 @@
           if (result.error) return App.err(result.error);
           await redrawGitSection(); flash('Account imported');
           if (result.data.warnings?.includes('workflow')) App.toast('Pushing workflow files needs the workflow scope.');
-        } }, 'Import from gh'), h('span.hint', 'Use the token from the gh CLI sign-in on this Mac.'))));
+        } }, 'Import from gh'), h('span.hint', App.uiText('Use the token from the gh CLI sign-in on this Mac.')))));
     const issue = () => App.cfg.issues || {};
     const pollError = h('span.ps-field-error', { role: 'alert' });
     const poll = h('input', { type: 'number', min: '2', max: '1440', step: '1', value: String(issue().pollMinutes ?? 10), 'aria-label': 'Issue poll interval in minutes',
@@ -1159,7 +1163,7 @@
       ['pypi:testpypi', 'TestPyPI API token', null]
     ];
     const has = await Promise.all(keys.map(([k]) => codeome.secret.has(k)));
-    return section('publishing', 'Zenodo & PyPI', 'Tokens are encrypted with the macOS Keychain and never shown again.',
+    return section('publishing', 'Zenodo & PyPI', App.uiText('Tokens are encrypted with the macOS Keychain and never shown again.'),
       card(null, keys.map(([k, label, hint], i) => {
         const status = h('span.pill' + (has[i] ? '.ok' : ''), has[i] ? 'saved' : 'not set');
         const input = h('input', { type: 'password', placeholder: has[i] ? 'Saved — paste a new one to replace' : 'Paste token', autocomplete: 'off', 'aria-label': label });
@@ -1317,7 +1321,7 @@
     const rows = secrets.map((s, i) => h('div.sec-row', { id: `sec-row-${i}`, role: 'listitem' },
       h('div.ag-name',
         h('div.row', h('b.sec-name', s.name), s.kind === 'file' ? h('span.pill', 'file') : null,
-          has[i] ? null : h('span.pill.warn', { title: 'Its value is missing from the Keychain. Use Replace… to enter it again.' }, 'no value')),
+          has[i] ? null : h('span.pill.warn', { title: App.uiText('Its value is missing from the Keychain. Use Replace… to enter it again.') }, 'no value')),
         h('div.sec-meta',
           h('input.sec-note', { type: 'text', value: s.note || '', placeholder: 'Add a note: what it is for, when it expires', 'aria-label': `Note for ${s.name}`,
             onchange: (e) => { live(s).note = e.target.value.trim().slice(0, 200); commit(); } }),
@@ -1353,7 +1357,7 @@
           flash('Secret replaced'); redraw();
         } }, 'Replace…'),
         h('button.icon-btn.small', { title: 'Remove', 'aria-label': 'Remove ' + s.name, html: App.icons.trash, onclick: async () => {
-          if (!await App.confirm(`Remove ${s.name}?`, 'Its value is deleted from this Mac. Terminals and chats already running keep it until they close.', 'Remove', true)) return;
+          if (!await App.confirm(`Remove ${s.name}?`, App.uiText('Its value is deleted from this Mac. Terminals and chats already running keep it until they close.'), 'Remove', true)) return;
           await codeome.secrets.remove(s.name);
           App.cfg.secrets = list().filter((x) => x.name !== s.name);
           await App.saveConfig(); flash('Secret removed'); redraw();
@@ -1465,12 +1469,12 @@
     clearSearch.hidden = !secretQuery;
     renderRows();
 
-    return section('secrets', 'Secrets', 'Access tokens, API keys and passwords of your own, encrypted with the macOS Keychain. Content is never shown again. Text secrets can be copied; file secrets become private file paths in the environment.',
+    return section('secrets', 'Secrets', App.uiText('Access tokens, API keys and passwords of your own, encrypted with the macOS Keychain. Content is never shown again. Text secrets can be copied; file secrets become private file paths in the environment.'),
       card('Saved secrets',
         h('div.sec-search', search.el, clearSearch), rowList,
         h('div.sec-add', h('div.sec-add-identity', name, type, addGroup.el), h('div.sec-add-value', value, fileBox), add),
         h('div.sp-foot.row.wrap', sync, hpcStatus),
-        h('div.sp-foot.hint', 'The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. HPC: syncs selected secrets to a private file in the HPC home, where they are stored in plaintext (mode 0600). All three are off for a new secret. The project button limits where each enabled scope applies. Copy puts a text value on the clipboard for 30 seconds.')));
+        h('div.sp-foot.hint', App.uiText('The name is the environment variable. Terminals: set in terminals, tasks and the R console started on this Mac. Agents: set in the agent chat and agent sessions on this Mac, so the agent can read and use it. HPC: syncs selected secrets to a private file in the HPC home, where they are stored in plaintext (mode 0600). All three are off for a new secret. The project button limits where each enabled scope applies. Copy puts a text value on the clipboard for 30 seconds.'))));
   }
 
   // ---------- phone companion ----------
@@ -1573,7 +1577,7 @@
       if (!state.listening && pairing) clearPair();
       const parts = [state.listening ? 'Listening' : state.enabled ? 'Not listening' : 'Off'];
       if (state.url) parts.push(state.url);
-      if (state.error) parts.push(state.error === 'no-tailnet-address' ? 'No Tailscale tailnet address found on this Mac.' : `Error: ${state.error}`);
+      if (state.error) parts.push(state.error === 'no-tailnet-address' ? App.uiText('No Tailscale tailnet address found on this Mac.') : `Error: ${state.error}`);
       status.textContent = parts.join(' · ');
       const entries = Array.isArray(state.devices) ? state.devices : [];
       devices.replaceChildren(...(entries.length ? entries.map((device) => {
@@ -1666,7 +1670,7 @@
           return;
         }
         const confirmed = action === 'setup' ?
-          await App.confirm('Set up Tailscale Serve?', `Codeome will run this exact command:\n${fresh.command}\n\nIt only shares this Mac's phone page on your tailnet, never the public internet.`, 'Set up') :
+          await App.confirm('Set up Tailscale Serve?', App.uiText(`Codeome will run this exact command:\n${fresh.command}\n\nIt only shares this Mac's phone page on your tailnet, never the public internet.`), 'Set up') :
           await App.confirm('Stop sharing the phone page?', `Codeome will remove the Serve mapping from HTTPS ${fresh.serve.httpsPort} to http://127.0.0.1:${companion.port}. If you created this exact mapping yourself, it will be removed too.`, 'Stop sharing', true);
         if (!confirmed) return;
         serveResult.textContent = action === 'setup' ? 'Setting up Tailscale Serve…' : 'Stopping Tailscale Serve…';
@@ -1683,7 +1687,7 @@
         } else if (result.warning) serveResult.replaceChildren(h('strong.phone-warning', `WARNING: ${result.warning}`));
         else serveResult.textContent = action === 'setup' ?
           `Serving at ${result.serve?.url || 'your Tailscale HTTPS address'}.` :
-          result.stopped ? 'Stopped sharing.' : 'This Mac’s phone page was not being shared.';
+          result.stopped ? 'Stopped sharing.' : App.uiText('This Mac’s phone page was not being shared.');
         await checkTailscale();
       } catch (error) { if (active) serveResult.textContent = `Tailscale Serve failed: ${sayError(error)}`; }
       finally { serveBusy = false; if (active) void checkTailscale(); }
@@ -1698,10 +1702,10 @@
         const ready = value.running && value.loggedIn;
         const serve = value.serve || { state: 'off', httpsPort: 443, others: [] };
         const serveMode = App.cfg.remote.mode === 'serve';
-        const steps = missing ? h('ol', h('li', 'Install Tailscale and sign in on this Mac.'),
+        const steps = missing ? h('ol', h('li', App.uiText('Install Tailscale and sign in on this Mac.')),
           h('li', 'Install the Tailscale app on your iPhone and sign in with the same account.'),
           h('li', 'Press Check Tailscale.')) : !ready ? h('ol',
-          h('li', 'Open Tailscale and sign in on this Mac.'), h('li', 'Press Check Tailscale.')) :
+          h('li', App.uiText('Open Tailscale and sign in on this Mac.')), h('li', 'Press Check Tailscale.')) :
           serveMode && serve.state === 'conflict' ? h('ol',
             h('li', 'Stop another mapping on HTTPS port 443 or 8443.'), h('li', 'Press Check Tailscale.')) :
           serveMode && serve.state !== 'active' ? h('ol',
@@ -1715,8 +1719,8 @@
           onclick: () => void serveAction('stop') }, 'Stop sharing');
         // replaceChildren turns a null into the text "null", so leave out the parts that do not apply.
         tailscaleResult.replaceChildren(...[
-          missing ? stepRow('todo', 'Tailscale', 'Not installed on this Mac.', btn('Install…', async () => {
-            if (await App.setup.install(['tailscale'], 'Tailscale connects your Mac and phone privately.')) checkTailscale();
+          missing ? stepRow('todo', 'Tailscale', App.uiText('Not installed on this Mac.'), btn('Install…', async () => {
+            if (await App.setup.install(['tailscale'], App.uiText('Tailscale connects your Mac and phone privately.'))) checkTailscale();
           })) : ready ? stepRow('ok', 'Tailscale', `Signed in · ${value.dnsName || 'no MagicDNS name yet'}`) :
             stepRow('todo', 'Tailscale', 'Tailscale is installed but not running or not signed in. Open Tailscale and sign in.'),
           App.cfg.remote.mode === 'tailnet' && missing ? h('strong.phone-warning', 'Tailnet mode needs Tailscale to provide an address.') : null,
@@ -1744,10 +1748,10 @@
           } }, 'Copy')) : null].filter(Boolean));
       } catch (error) { if (active) tailscaleResult.textContent = `Tailscale check failed: ${sayError(error)}`; }
     }
-    const result = section('phone', 'Phone companion', 'Use your paired phone to follow chats and approve agent actions. Codeome binds only to this Mac’s loopback or Tailscale tailnet address, never directly to the public internet. Keep Tailscale Funnel off.',
+    const result = section('phone', 'Phone companion', App.uiText('Use your paired phone to follow chats and approve agent actions. Codeome binds only to this Mac’s loopback or Tailscale tailnet address, never directly to the public internet. Keep Tailscale Funnel off.'),
       card('Connection',
         row('Enable', check('Enable phone companion', () => remote.enabled, (value) => { App.cfg.remote.enabled = value; if (!value) clearPair(); })),
-        row('Mode', select([{ value: 'serve', label: 'Tailscale Serve · HTTPS, installable PWA' }, { value: 'tailnet', label: 'Tailnet IP · plain HTTP' }], remote.mode || 'serve', (value) => { App.cfg.remote.mode = value; clearPair(); commit(); void checkTailscale(); }, 'Phone companion mode'), 'Serve binds to 127.0.0.1 and needs Tailscale Serve setup. Tailnet binds to this Mac’s tailnet IP.'),
+        row('Mode', select([{ value: 'serve', label: 'Tailscale Serve · HTTPS, installable PWA' }, { value: 'tailnet', label: 'Tailnet IP · plain HTTP' }], remote.mode || 'serve', (value) => { App.cfg.remote.mode = value; clearPair(); commit(); void checkTailscale(); }, 'Phone companion mode'), App.uiText('Serve binds to 127.0.0.1 and needs Tailscale Serve setup. Tailnet binds to this Mac’s tailnet IP.')),
         row('Port', h('div.phone-field', port, portError), 'Empty uses 47821.'),
         row('Status', status)),
       card('Tailscale Serve', h('div.sp-tools', h('button.btn.small', { onclick: checkTailscale }, 'Check Tailscale')),
@@ -1755,7 +1759,7 @@
       card('Pair a phone', h('div.sp-tools', pairButton), pairResult),
       card('Paired phones', devices),
       card('Phone approvals',
-        row('Require desktop for', h('div.phone-field', rulesInput, rulesError), 'JSON rules. Tool, role, outsideProject and pattern can require approval on this Mac. An invalid rule means desktop approval is required.'),
+        row('Require desktop for', h('div.phone-field', rulesInput, rulesError), App.uiText('JSON rules. Tool, role, outsideProject and pattern can require approval on this Mac. An invalid rule means desktop approval is required.')),
         row('Send from phone', select([
           { value: 'default', label: 'Default mode only' },
           { value: 'auto', label: 'Also auto mode' },
@@ -1855,15 +1859,15 @@
         const response = await codeome.notify.test();
         result.textContent = response?.ok ? 'Sent' : response?.throttled ? 'Please wait a moment' : response?.supported === false
           ? 'Notifications are not supported here'
-          : 'Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.';
+          : App.uiText('Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.');
       } catch {
-        result.textContent = 'Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.';
+        result.textContent = App.uiText('Check macOS System Settings > Notifications. In development builds, Codeome appears as Electron.');
       }
     } }, 'Send test notification');
     return section('notifications', 'Notifications',
-      'macOS notifications show only the project folder name and the kind of event, never chat text. New GitHub issues have their own switch in Git & GitHub (“Notify for new issues”). Phone push (ntfy) is separate.',
+      App.uiText('macOS notifications show only the project folder name and the kind of event, never chat text. New GitHub issues have their own switch in Git & GitHub (“Notify for new issues”). Phone push (ntfy) is separate.'),
       card('Agent chats',
-        row('Show macOS notifications', check('Show macOS notifications', () => cfg().enabled, (value) => update({ enabled: value }), null, null, false)),
+        row(App.uiText('Show macOS notifications'), check(App.uiText('Show macOS notifications'), () => cfg().enabled, (value) => update({ enabled: value }), null, null, false)),
         ...events.map(([key, label]) => row(label, check(label, () => cfg().events[key], (value) => update({ events: { ...cfg().events, [key]: value } }), null, null, false))),
         row('Only when Codeome is not the front window', check('Only when Codeome is not the front window', () => cfg().onlyUnfocused, (value) => update({ onlyUnfocused: value }), null, null, false)),
         row('At most one notification per chat every (seconds)', h('div', interval, intervalError)),
@@ -1876,12 +1880,15 @@
   function appearanceSection(c) {
     return section('appearance', 'Appearance', null,
       card(null,
-        row('Theme', select([{ value: 'auto', label: 'Match macOS' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }], c.editor.theme,
+        row('Theme', select([{ value: 'auto', label: App.uiText('Match macOS') }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }], c.editor.theme,
           (v) => { App.cfg.editor.theme = v; commit({ theme: true }); }, 'Theme')),
         row('Editor & terminal font size', text(() => App.cfg.editor.fontSize, (v) => { App.cfg.editor.fontSize = Math.min(24, Math.max(10, Number(v) || 13)); }, { type: 'number', apply: { font: true }, label: 'Font size' }))));
   }
 
   function macSection() {
+    if (App.platform === 'win32') return section('mac', 'This computer', 'Prerequisites for local tools.',
+      h('div.su-list', (App.env.prerequisites || []).map((t) => stepRow(t.ok ? 'ok' : 'todo', t.label, t.ok ? t.path : t.why,
+        t.ok ? null : btn('Download…', () => codeome.shell.open(t.url))))));
     const tools = Object.entries(App.env.tools || {});
     const installable = App.env.installable || [];
     const recipes = App.env.recipes || {};
@@ -1900,7 +1907,7 @@
       versions.replaceChildren(...rows);
     };
     App.setup.checkClis().then(showVersions);
-    return section('mac', 'This Mac', 'Command-line tools Codeome looked for on your login shell\'s PATH.',
+    return section('mac', App.uiText('This Mac'), 'Command-line tools Codeome looked for on your login shell\'s PATH.',
       card(null, versions, h('div.sp-foot.row', h('span.grow.hint', 'Codeome, Claude Code and Codex are looked up for new versions about once a week.'),
         btn('Check for updates', async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = 'Checking…'; showVersions(await App.setup.checkClis({ force: true })); b.disabled = false; b.textContent = 'Check for updates'; })),
         h('div.sp-tools', tools.length ? tools.map(([t, ok]) => h('span.pill' + (ok ? '.ok' : '.warn'), (ok ? '' : 'missing: ') + t)) : h('span.hint', 'Still checking…')),

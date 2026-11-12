@@ -11,6 +11,7 @@
 //            (codeome-statusline). Both land in ~/.codeome/usage/claude-<account>.json.
 // Codeome writes the combined picture to ~/.codeome/usage.json; codeome-agent reads it
 // to choose an account for each job and to hold jobs back near a limit.
+const platformTools = require('./platform');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -145,10 +146,10 @@ function queryCodex(dir, codexCmd = 'codex', timeoutMs = 20000) {
     const env = augmentedEnv();
     if (dir) env.CODEX_HOME = expandHome(dir); else delete env.CODEX_HOME;
     let child;
-    try { child = spawn(codexCmd, ['app-server'], { env, stdio: ['pipe', 'pipe', 'ignore'] }); } catch (e) { return resolve({ error: String(e.message || e) }); }
+    try { const launch = platformTools.cliSpawnSpec(codexCmd, ['app-server'], { login: false }); child = spawn(launch.file, launch.args, { windowsHide: true, env, stdio: ['pipe', 'pipe', 'ignore'] }); } catch (e) { return resolve({ error: String(e.message || e) }); }
     const out = {};
     let buf = '', done = false;
-    const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { child.kill(); } catch {} resolve(r); };
+    const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { platformTools.killTree(child); } catch {} resolve(r); };
     const timer = setTimeout(() => finish(out.limits ? out : { ...out, error: 'Codex did not answer in time' }), timeoutMs);
     child.on('error', (e) => finish({ error: String(e.message || e) }));
     child.on('close', () => finish(out.limits ? out : { ...out, error: out.error || 'Codex exited before answering' }));
@@ -190,11 +191,12 @@ function queryClaude(dir, claudeCmd = 'claude', timeoutMs = 20000) {
     let child;
     try {
       fs.mkdirSync(home(), { recursive: true });
-      child = spawn(claudeCmd, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '', '--strict-mcp-config'],
-        { env, cwd: home(), stdio: ['pipe', 'pipe', 'ignore'] });
+      const launch = platformTools.cliSpawnSpec(claudeCmd, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '', '--strict-mcp-config'], { login: false });
+      child = spawn(launch.file, launch.args,
+        { windowsHide: true, env, cwd: home(), stdio: ['pipe', 'pipe', 'ignore'] });
     } catch (e) { return resolve({ error: String(e.message || e) }); }
     let buf = '', done = false;
-    const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { child.kill(); } catch {} resolve(r); };
+    const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { platformTools.killTree(child); } catch {} resolve(r); };
     const timer = setTimeout(() => finish({ error: 'Claude Code did not answer in time' }), timeoutMs);
     child.on('error', (e) => finish({ error: String(e.message || e) }));
     child.on('close', () => finish({ error: 'Claude Code exited before answering' }));
@@ -221,7 +223,7 @@ function queryClaude(dir, claudeCmd = 'claude', timeoutMs = 20000) {
 async function claudeIdentity(dir, claudeCmd = 'claude') {
   const env = {};
   if (dir) env.CLAUDE_CONFIG_DIR = expandHome(dir);
-  const r = await run('/bin/sh', ['-c', `${dir ? '' : 'unset CLAUDE_CONFIG_DIR; '}${claudeCmd} auth status --json`], { env, timeout: 15000 });
+  const r = await run(platformTools.isWin ? platformTools.requireLoginShell() : '/bin/sh', [...(platformTools.isWin ? ['-l', '-c'] : ['-c']), `${dir ? '' : 'unset CLAUDE_CONFIG_DIR; '}${platformTools.isWin ? q(platformTools.toPosixForShell(claudeCmd)) : claudeCmd} auth status --json`], { env, timeout: 15000 });
   try { const s = JSON.parse(r.stdout); return s.loggedIn ? { email: s.email || null, plan: s.subscriptionType || null } : { email: null, plan: null, signedOut: true }; } catch { return null; }
 }
 
@@ -233,7 +235,7 @@ function launch(engine, dir, command, settingsFile) {
   const unset = [];
   if (dir) env[ENV_VAR[engine]] = expandHome(dir); else unset.push(ENV_VAR[engine]);
   let cmd = command;
-  if (engine === 'claude' && settingsFile) cmd = command.replace(/^(\S+)/, `$1 --settings ${q(settingsFile)}`);
+  if (engine === 'claude' && settingsFile) cmd = command.replace(/^(\S+)/, `$1 --settings ${q(platformTools.toPosixForShell(settingsFile))}`);
   return { env, unset, command: cmd };
 }
 
@@ -252,7 +254,9 @@ function installStatusline(scriptSource, noCoAuthor = true) {
 // The settings file passed to Claude with --settings: the status line and, when asked, no
 // Claude co-author trailer on commits and no "Generated with Claude Code" line on pull requests.
 function writeSettings({ bin, settings }, noCoAuthor) {
-  const o = { statusLine: { type: 'command', command: `python3 ${q(bin)}`, padding: 0 } };
+  const python = platformTools.runtimePython();
+  const command = python ? [platformTools.isWin ? q(platformTools.toPosixForShell(python.file)) : python.file, ...python.args].join(' ') : 'python3';
+  const o = { statusLine: { type: 'command', command: `${command} ${q(platformTools.toPosixForShell(bin))}`, padding: 0 } };
   if (noCoAuthor) { o.attribution = { commit: '', pr: '' }; o.includeCoAuthoredBy = false; }
   const want = JSON.stringify(o, null, 2) + '\n';
   let cur = null; try { cur = fs.readFileSync(settings, 'utf8'); } catch {}

@@ -32,7 +32,8 @@ function load(options = {}) {
   const timers = new Map();
   let next = 0, saves = 0;
   let testResult = { ok: true, supported: true };
-  const App = { h, views: {}, cfg: { notifications: NotifySettings.sanitize() }, notifySettings: NotifySettings,
+  const App = {
+    uiText: (text) => text, h, views: {}, cfg: { notifications: NotifySettings.sanitize() }, notifySettings: NotifySettings,
     listen() {}, saveConfig: async () => { saves++; } };
   if (options.noNotifySettings) delete App.notifySettings;
   const codeome = { notify: { test: async () => testResult } };

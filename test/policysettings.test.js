@@ -27,7 +27,8 @@ function load() {
   const app = element('div');
   const timers = new Map();
   let nextTimer = 0, saves = 0;
-  const App = { h, views: {}, cfg: { policyDefaults: {}, agents: [{ cmd: 'claude' }] },
+  const App = {
+    uiText: (text) => text, h, views: {}, cfg: { policyDefaults: {}, agents: [{ cmd: 'claude' }] },
     listen() {}, saveConfig: async () => { saves++; } };
   const document = { getElementById: () => app, addEventListener() {} };
   const context = { App, codeome: { policy: { defaults: async () => POLICY_DEFAULTS } }, document,

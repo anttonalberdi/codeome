@@ -40,6 +40,7 @@ test('resume timeout keeps its guard until the first wrapper exits or links', as
         } };
         if (name === './kit') return { status: () => ({ installed: true, outdated: false, missing: [], modified: [] }) };
         if (name === './jobview') return require('../main/jobview');
+        if (name === './platform') return require('../main/platform');
         return require(name);
       }
     });

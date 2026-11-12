@@ -62,7 +62,7 @@ const NotifySettings = (() => {
     let count = 0;
     for (const [project, entry] of Object.entries(value)) {
       if (count >= 500) break;
-      if (!project.startsWith('/') || project.length > 4096 || ['__proto__', 'constructor', 'prototype'].includes(project)) continue;
+      if (!(project.startsWith('/') || (typeof process !== 'undefined' && process.platform === 'win32' && /^(?:[a-z]:[\\/]|\\\\)/i.test(project))) || project.length > 4096 || ['__proto__', 'constructor', 'prototype'].includes(project)) continue;
       const clean = override(entry);
       if (Object.keys(clean).length) { out[project] = clean; count++; }
     }
@@ -92,7 +92,7 @@ const NotifySettings = (() => {
     ask: 'needs your input', approval: 'approval needed', incoming: 'new message' };
   const label = (kind) => Object.hasOwn(LABELS, kind) ? LABELS[kind] : '';
   function body(project, kind, merged = false) {
-    const parts = typeof project === 'string' ? project.replace(/\/+$/, '').split('/') : [];
+    const parts = typeof project === 'string' ? project.replace(/^(?:[a-z]:[\\/]|\\\\)/i.test(project) ? /[\\/]+$/ : /\/+$/, '').split(/^(?:[a-z]:[\\/]|\\\\)/i.test(project) ? /[\\/]/ : /\//) : [];
     const raw = (parts[parts.length - 1] || '').replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').replace(/\s+/gu, ' ').trim();
     const chars = Array.from(raw);
     const name = !raw || raw === '.' || raw === '..' ? 'Codeome project' : chars.length > 60 ? chars.slice(0, 59).join('') + '…' : raw;

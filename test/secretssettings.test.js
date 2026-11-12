@@ -44,6 +44,7 @@ function load({ connected = true, project = '/projects/alpha', syncResult, hasEr
   const timers = new Map();
   let hpcConnected = connected;
   const App = {
+    uiText: (text) => text,
     h, views: { projects: { list: [project] } }, project,
     cfg: { secrets: secrets || [{ name: 'API_TOKEN', note: '', terminals: false, agents: false, hpc: false }] },
     icons: { trash: '' }, basename: path.basename, tildify: (value) => value, isIdeas: () => false,

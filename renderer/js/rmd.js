@@ -89,7 +89,7 @@
   // in the project (if the file is in it) or the file's folder.
   R.whereFor = (t) => {
     const local = !t.remote && !t.storage;
-    const cwd = local && App.project && t.path.startsWith(App.project + '/') ? App.project : (t.storage ? undefined : App.dirname(t.path));
+    const cwd = local && App.project && (App.platform === 'win32' ? t.path.replace(/\\/g, '/').startsWith(App.project.replace(/\\/g, '/') + '/') : t.path.startsWith(App.project + '/')) ? App.project : (t.storage ? undefined : (t.remote ? App.posix : App).dirname(t.path));
     return { remote: !!t.remote, cwd };
   };
 
@@ -200,8 +200,8 @@
         const at = (line) => ({ startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 });
         const lenses = [];
         const knit = App.ext(model.uri.path) === 'qmd' ? 'Render' : 'Knit';
-        lenses.push({ range: at(1), command: { id: 'codeome.rmd.knit', title: `${knit} (⇧⌘K)`, arguments: [uri] } });
-        if (chunks.length) lenses.push({ range: at(1), command: { id: 'codeome.rmd.runAll', title: '▶ Run all chunks (⌥⌘R)', arguments: [uri] } });
+        lenses.push({ range: at(1), command: { id: 'codeome.rmd.knit', title: App.keyLabel(`${knit} (⇧⌘K)`), arguments: [uri] } });
+        if (chunks.length) lenses.push({ range: at(1), command: { id: 'codeome.rmd.runAll', title: App.keyLabel('▶ Run all chunks (⌥⌘R)'), arguments: [uri] } });
         chunks.forEach((c, i) => {
           lenses.push({ range: at(c.start), command: { id: 'codeome.rmd.runChunk', title: '▶ Run chunk' + (c.engine === 'r' ? '' : ` (${c.engine})`), arguments: [uri, c.start + 1] } });
           if (i) lenses.push({ range: at(c.start), command: { id: 'codeome.rmd.runAbove', title: 'Run chunks above', arguments: [uri, c.start] } });

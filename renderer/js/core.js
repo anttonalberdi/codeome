@@ -18,6 +18,36 @@ window.App = {
   on: {}, // simple event bus
 };
 
+// ---------- keyboard shortcuts ----------
+App.platform = window.codeome?.platform || 'darwin';
+App.hpcUnsupportedMessage = 'HPC connections are not yet supported on Windows.';
+// Shortcut hints use the same modifier names throughout menus, titles and text.
+App.keyLabel = (text, platform = App.platform) => platform === 'darwin' ? text : String(text)
+  .replace(/⇧?⌥?⌘|⌥⇧⌘/g, (keys) => 'Ctrl+' + (keys.includes('⇧') ? 'Shift+' : '') + (keys.includes('⌥') ? 'Alt+' : ''))
+  .replace(/↩/g, 'Enter');
+// Keep the original macOS copy verbatim; other desktops use neutral wording.
+App.uiText = (text, platform = App.platform) => platform === 'darwin' ? text : App.keyLabel(String(text), platform)
+  .replace(/macOS Keychain|macOS keychain|Keychain/g, 'system credential store')
+  .replace(/macOS System Settings/g, 'system settings').replace(/macOS/g, 'system')
+  .replace(/\bMac\b/g, 'computer').replace(/brew install gh/g, 'download from https://cli.github.com');
+App.isMod = (e, platform = App.platform) => !!(platform === 'darwin' ? e.metaKey : e.ctrlKey);
+App.terminalKeyAction = (e, { platform = App.platform, hasSelection = false } = {}) => {
+  if (e.type !== 'keydown' || !App.isMod(e, platform)) return null;
+  if (platform === 'darwin') {
+    if (e.key === 'k') return 'clear';
+    if (e.key === 'f') return 'find';
+    if (e.key === 'c' && hasSelection) return 'copy';
+    return null;
+  }
+  if (e.altKey) return null;
+  const key = e.key.toLowerCase();
+  if (key === 'k' && e.shiftKey) return 'clear';
+  if (key === 'f') return 'find';
+  if (key === 'c' && (e.shiftKey || hasSelection)) return 'copy';
+  if (key === 'v' && e.shiftKey) return 'paste';
+  return null;
+};
+
 App.isIdeas = (dir = App.project) => !!dir && dir === App.scratchDir;
 
 App.emit = (ev, data) => (App.on[ev] || []).forEach((f) => { try { f(data); } catch (e) { console.error(e); } });
@@ -114,8 +144,27 @@ App.fmtTokens = (n) => {
   return (n / 1e6).toFixed(n < 9995000 ? 2 : 1) + 'M';
 };
 App.fmtUsd = (n) => '$' + (n >= 100 ? Math.round(n).toLocaleString() : (n || 0).toFixed(2));
-App.basename = (p) => (p || '').replace(/\/+$/, '').split('/').pop() || p;
-App.dirname = (p) => { const s = (p || '').replace(/\/+$/, ''); const i = s.lastIndexOf('/'); return i <= 0 ? '/' : s.slice(0, i); };
+App.posix = {
+  basename: (p) => (p || '').replace(/\/+$/, '').split('/').pop() || p,
+  dirname: (p) => { const s = (p || '').replace(/\/+$/, ''); const i = s.lastIndexOf('/'); return i <= 0 ? '/' : s.slice(0, i); }
+};
+App.basename = (p) => {
+  if (App.platform !== 'win32' && !/^(?:[a-z]:[\\/]|\\\\)/i.test(p || '')) return App.posix.basename(p);
+  if (/^[a-z]:[\\/]$/i.test(p || '')) return p;
+  return (p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+};
+App.dirname = (p) => {
+  if (App.platform !== 'win32' && !/^(?:[a-z]:[\\/]|\\\\)/i.test(p || '')) return App.posix.dirname(p);
+  const s = (p || '').replace(/[\\/]+$/, '');
+  const drive = /^[a-z]:[\\/]/i.test(p || '');
+  if (drive && s.length === 2) return p.slice(0, 3);
+  const unc = /^\\\\[^\\/]+[\\/][^\\/]+/.exec(p || '');
+  if (unc && s.length <= unc[0].length) return unc[0];
+  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+  if (drive && i === 2) return p.slice(0, 3);
+  return i <= 0 ? '/' : s.slice(0, i);
+};
+App.isAbs = (p) => /^(?:\/|~|[a-z]:[\\/]|\\\\)/i.test(p || '');
 App.join = (a, b) => (a === '/' ? '' : (a || '').replace(/\/+$/, '')) + '/' + b;
 App.ext = (p) => { const m = App.basename(p).match(/\.([^.]+)$/); return m ? m[1].toLowerCase() : ''; };
 
@@ -181,7 +230,7 @@ App.modal = ({ title, text, fields = [], ok = 'OK', cancel = 'Cancel', danger = 
   const collect = () => { const o = {}; for (const [k, el] of Object.entries(inputs)) o[k] = el.type === 'checkbox' ? el.checked : el.value; return o; };
   const onKey = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); close(null); }
-    if (e.key === 'Enter' && (e.metaKey || e.target.tagName === 'INPUT')) { e.preventDefault(); close(fields.length ? collect() : true); }
+    if (e.key === 'Enter' && (App.isMod(e) || e.target.tagName === 'INPUT')) { e.preventDefault(); close(fields.length ? collect() : true); }
   };
   const groups = []; let cur = null;
   for (const f of fields) {
@@ -312,6 +361,7 @@ App.saveConfig = () => {
 // The HPC as the user named it (Settings → HPC, or the title of its files pane); its login until then.
 App.hpcName = () => ((App.cfg.ui.panes || {}).remote || {}).title || App.cfg.hpc.host;
 App.requireHpc = () => {
+  if (App.platform === 'win32') { App.toast(App.hpcUnsupportedMessage); return false; }
   if (!App.cfg.hpc.host) { App.toast('Set your HPC host in Settings first.', { action: { label: 'Open Settings', run: () => App.views.settings.open() } }); return false; }
   if (!App.hpcConnected) { App.toast('Not connected to the HPC.', { action: { label: 'Connect', run: () => App.connectHpc() } }); return false; }
   return true;
@@ -319,3 +369,7 @@ App.requireHpc = () => {
 // Quote a string for a POSIX shell.
 App.shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 App.safeName = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+
+if (App.platform !== 'darwin') {
+  for (const el of document.querySelectorAll('[title]')) el.title = App.uiText(el.title);
+}

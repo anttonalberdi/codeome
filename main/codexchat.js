@@ -21,6 +21,7 @@
 //
 // Codex keeps its own thread ids, so the chat's id is mapped to the thread's in
 // ~/.codeome/codex-threads/<id>.json, which is how a resumed chat finds its thread again.
+const platformTools = require('./platform');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -102,7 +103,8 @@ class CodexSession extends EventEmitter {
   }
 
   start() {
-    this.proc = spawn(this.shell, ['-l', '-c', this.prefix.length ? `exec ${this.prefix.join(' ')} "$0" "$@"` : 'exec "$0" "$@"', this.bin, ...this.args, 'app-server'], { cwd: this.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const launch = platformTools.cliSpawnSpec(this.bin, [...this.args, 'app-server'], { shell: this.shell, prefix: this.prefix });
+    this.proc = spawn(launch.file, launch.args, { cwd: this.cwd, env: this.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let buf = '';
     this.proc.stdout.on('data', (d) => {
       buf += d;
@@ -408,7 +410,7 @@ class CodexSession extends EventEmitter {
     }
   }
 
-  stop() { try { touched.clear(this.cwd, this.id); } catch {} if (this.proc && this.proc.exitCode === null) { try { this.proc.stdin.end(); } catch {} try { this.proc.kill('SIGTERM'); } catch {} } }
+  stop() { try { touched.clear(this.cwd, this.id); } catch {} if (this.proc && this.proc.exitCode === null) { try { this.proc.stdin.end(); } catch {} try { platformTools.killTree(this.proc); } catch {} } }
 }
 
 module.exports = { CodexSession, POLICIES, bare, rateLimits, savedThread };

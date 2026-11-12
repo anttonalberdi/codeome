@@ -25,17 +25,17 @@
     let r, value, save = false;
     if (pr.kind === 'password') {
       const fields = [{ key: 'v', label: 'Password', type: 'password' },
-        { key: 'save', type: 'check', label: pr.saved ? 'Replace the saved password once it works' : 'Save in the Keychain once it works', value: true }];
+        { key: 'save', type: 'check', label: pr.saved ? 'Replace the saved password once it works' : App.uiText('Save in the Keychain once it works'), value: true }];
       r = await App.signIn(owner(t), { title, text: pr.error || `Your password on ${name(t)}.`, ok: 'Connect', fields });
       value = r && r.v; save = !!(r && r.save);
     } else if (pr.kind === 'passphrase') {
       const key = App.tildify(pr.key) || pr.key;
       r = await App.signIn(owner(t), { title, text: pr.error || `The passphrase of your ssh key ${key}.`, ok: 'Connect',
-        fields: [{ key: 'v', label: 'Passphrase', type: 'password', hint: 'To stop being asked, add it to the macOS keychain: ssh-add --apple-use-keychain ' + key }] });
+        fields: [{ key: 'v', label: 'Passphrase', type: 'password', hint: App.uiText('To stop being asked, add it to the macOS keychain: ssh-add --apple-use-keychain ') + key }] });
       value = r && r.v;
     } else if (pr.kind === 'hostkey') {
       r = await App.signIn(owner(t), { title: `Trust ${name(t)}?`,
-        text: `This Mac has not connected to ${name(t)} before. Check that the fingerprint matches the one your HPC publishes, then trust it.`,
+        text: App.uiText(`This Mac has not connected to ${name(t)} before. Check that the fingerprint matches the one your HPC publishes, then trust it.`),
         body: h('pre.sp-code.vpn-log', pr.detail || ''), ok: 'Trust and connect' });
       value = 'yes';
     } else {
@@ -81,6 +81,7 @@
     if (!prev) return;
     L.state[t] = s;
     clearTimeout(timers[t]);
+    if (s.unsupported) { App.closeSignIn(owner(t)); App.emit('login', t); return; }
     if (s.phase === 'prompt' && (again || !prev.prompt || prev.prompt.id !== s.prompt.id)) ask(t, s.prompt);
     else if (s.phase === 'waiting' || s.phase === 'starting') {
       if (again) waiting(t);

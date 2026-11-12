@@ -33,6 +33,7 @@ function load(options = {}) {
   const listeners = {};
   const writes = [];
   const App = {
+    uiText: (text) => text,
     h, views: { projects: { linkPicker: () => h('div.link-pick') } }, cfg: { projectPolicy: {}, policyDefaults: {}, projectChat: {}, projectNotify: {}, notifications: NotifySettings.sanitize(), chat: {}, agents: [{ cmd: 'claude' }] }, project: '/projects/alpha', currentView: 'projectSettings', notifySettings: NotifySettings,
     basename: (value) => path.basename(value), isIdeas: (value) => value === '/projects/ideas',
     prompt: async () => null,

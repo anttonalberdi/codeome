@@ -1,6 +1,9 @@
 // Codeome — main process.
+const platformTools = require('./platform');
+const { localPtySpec, unsupportedHpcPtySpec } = require('./spawn-spec');
 const { app, powerSaveBlocker, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, clipboard, ClipboardItem, crashReporter, Notification } = require('electron');
 const path = require('path');
+const { windowOptions } = require('./window-options');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
@@ -149,19 +152,7 @@ const remoteService = createService({ createServer, createAuth, createLimiter, r
 remoteService.on('status-changed', (state) => send('remote:status', state));
 
 function createWindow() {
-  win = new BrowserWindow({
-    width: 1500, height: 940, minWidth: 720, minHeight: 600,
-    title: 'Codeome',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: { x: 14, y: 14 },
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1c1f' : '#f6f5f2',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
-  });
+  win = new BrowserWindow(windowOptions({ platform: process.platform, dark: nativeTheme.shouldUseDarkColors }));
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   // Links clicked in previews or panels open in the default browser.
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
@@ -216,7 +207,7 @@ function buildMenu() {
       { label: 'New Local Terminal', accelerator: 'CmdOrCtrl+T', click: cmd('new-terminal') },
       { label: 'New HPC Terminal', accelerator: 'CmdOrCtrl+Shift+T', click: cmd('new-hpc-terminal') },
       { label: 'R Console', click: cmd('r-console') },
-      { label: 'Preview Current File', accelerator: 'CmdOrCtrl+Shift+V', click: cmd('preview') }
+      { label: 'Preview Current File', accelerator: platformTools.isMac ? 'CmdOrCtrl+Shift+V' : 'Ctrl+Alt+V', click: cmd('preview') }
     ] },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
@@ -226,7 +217,7 @@ function buildMenu() {
 }
 
 // ---------- terminals ----------
-function loginShell() { return process.env.SHELL || '/bin/zsh'; }
+function loginShell() { return platformTools.requireLoginShell(); }
 
 // zsh sessions start from a small config that loads the user's own files, then colours the
 // stock prompt (env, user@host, folder, symbol) with the terminal's ANSI palette, so it
@@ -250,7 +241,7 @@ const ZSH_FILES = {
   ].join('\n')
 };
 function zshEnv() {
-  if (path.basename(loginShell()) !== 'zsh') return {};
+  if (platformTools.isWin || path.basename(loginShell()) !== 'zsh') return {};
   const dir = path.join(app.getPath('userData'), 'zsh');
   fs.mkdirSync(dir, { recursive: true });
   for (const [f, body] of Object.entries(ZSH_FILES)) if (!fs.existsSync(path.join(dir, f)) || fs.readFileSync(path.join(dir, f), 'utf8') !== body) fs.writeFileSync(path.join(dir, f), body);
@@ -262,15 +253,14 @@ function zshEnv() {
 const hpcSecrets = (spec) => (spec.project && !spec.global && !spec.noSecrets ? secretsSync.sourceCmd(spec.project) + '; ' : '');
 
 function ptySpec(spec) {
-  const sh = loginShell();
+  const unsupported = unsupportedHpcPtySpec(spec, { cwd: os.homedir() });
+  if (unsupported) return unsupported;
+  const local = ['shell', 'task', 'agent-local', 'console'].includes(spec.kind);
+  const sh = local || ['install', 'update', 'keygen', 'hpc-copy-key'].includes(spec.kind) ? loginShell() : null;
   const cwd = expandHome(spec.cwd) || os.homedir();
   const host = cfg.hpc.host;
   switch (spec.kind) {
-    case 'shell': return { file: sh, args: ['-l'], cwd };
-    case 'task': return { file: sh, args: ['-l', '-c', `${spec.command}; echo; echo "[process exited with $?]"; exec ${sh} -l`], cwd };
-    case 'agent-local': return { file: sh, args: ['-l', '-c', `${spec.command}; exec ${sh} -l`], cwd };
-    // A console (R) ends with its program, so a dead tab means a dead session.
-    case 'console': return { file: sh, args: ['-l', '-c', spec.command], cwd };
+    case 'shell': case 'task': case 'agent-local': case 'console': return localPtySpec(spec, { cwd });
     // The logins in a terminal, offered when the background one (login.js) fails.
     case 'hpc-login': ssh.clearStaleSockets(); return { file: 'ssh', args: ssh.masterArgs(host), cwd: os.homedir() };
     case 'storage-login': ssh.clearStaleSockets(); return { file: 'ssh', args: ssh.masterArgs(sto()), cwd: os.homedir() };
@@ -310,7 +300,7 @@ function ptySpec(spec) {
     }
     case 'keygen': {
       const p = keyTarget(spec.key);
-      return { file: sh, args: ['-l', '-c', finished(`ssh-keygen -t ed25519 -f ${q(p)} -C ${q(os.userInfo().username + '@codeome')}`)], cwd: os.homedir() };
+      return { file: sh, args: ['-l', '-c', finished(`${platformTools.isWin ? q(platformTools.toPosixForShell(platformTools.resolveExecutable('ssh-keygen', { env: augmentedEnv() }))) : 'ssh-keygen'} -t ed25519 -f ${q(platformTools.toPosixForShell(p))} -C ${q(os.userInfo().username + '@codeome')}`)], cwd: os.homedir() };
     }
     case 'hpc-copy-key': {
       const pub = fs.readFileSync(keyTarget(spec.key, true) + '.pub', 'utf8');
@@ -322,7 +312,7 @@ function ptySpec(spec) {
 }
 
 function whichSync(tool) {
-  try { return require('child_process').execFileSync(loginShell(), ['-l', '-c', `command -v ${q(tool)}`], { encoding: 'utf8', timeout: 8000 }).trim().split('\n').pop(); } catch { return ''; }
+  try { return platformTools.fromPosixForShell(require('child_process').execFileSync(loginShell(), ['-l', '-c', `command -v ${q(tool)}`], { encoding: 'utf8', timeout: 8000, windowsHide: true }).trim().split('\n').pop()); } catch { return ''; }
 }
 
 // A one-off command that ends by saying how it went, keeping its exit status.
@@ -636,7 +626,7 @@ ipcMain.handle('project:clone', async (_e, { url, parent } = {}) => {
   try { fs.mkdirSync(base, { recursive: true }); } catch (e) { return { error: String(e.message || e) }; }
   // git writes progress to stderr with carriage returns, e.g. "Receiving objects:  42% (21/50), 1.2 MiB | 800 KiB/s".
   const r = await new Promise((resolve) => {
-    const p = require('child_process').spawn('git', ['clone', '--progress', '--', url, dir], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+    const p = require('child_process').spawn(platformTools.resolveExecutable('git'), ['clone', '--progress', '--', url, dir], { windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
     let err = '', out = '';
     const timer = setTimeout(() => p.kill(), 600000);
     p.stdout.on('data', (d) => { out += d; });
@@ -799,6 +789,7 @@ function applyProxy() {
 ipcMain.handle('hpc:status', () => ssh.check(cfg.hpc.host));
 ipcMain.handle('hpc:disconnect', () => ssh.disconnect(cfg.hpc.host));
 ipcMain.handle('hpc:vpn', async () => {
+  if (!platformTools.hpcSupported()) return { error: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   const v = cfg.hpc.vpn;
   // While Codeome's own sign-in runs, the open port alone does not make it up (see setup.tunnelReady).
   if (v.mode === 'tunnel') return { known: true, tunnel: true, up: !(tunnel && !tunnel.ended && tunnelState.phase !== 'up') && await setup.portOpen(setup.portOf(v)) };
@@ -826,6 +817,7 @@ ipcMain.handle('remote:quota', async () => {
 // is saved only once the tunnel is up, so a wrong one is never kept.
 let tunnel = null, tunnelState = { phase: 'stopped' }, pendingPassword = '';
 ipcMain.handle('vpn:start', () => {
+  if (!platformTools.hpcSupported()) return { error: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   if (tunnel && !tunnel.ended) return { ok: true, state: tunnel.state() };
   if (!pty) return { error: 'Terminal backend failed to load: ' + ptyError };
   const v = cfg.hpc.vpn;
@@ -859,6 +851,7 @@ const logins = {};
 const loginHost = (target) => (target === 'storage' ? sto() : cfg.hpc.host);
 const loginSecret = (target) => target + ':password';
 ipcMain.handle('login:start', (_e, target) => {
+  if (!platformTools.hpcSupported()) return { error: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   if (target !== 'hpc' && target !== 'storage') return { error: 'Unknown connection ' + target };
   const cur = logins[target];
   if (cur && !cur.session.ended) return { ok: true, state: cur.session.state() };
@@ -885,13 +878,14 @@ ipcMain.handle('login:answer', (_e, { target, id, value, save }) => {
   return ok;
 });
 ipcMain.handle('login:stop', (_e, target) => { const l = logins[target]; if (l) l.session.stop(); return true; });
-ipcMain.handle('login:state', (_e, target) => (logins[target] ? { target, ...logins[target].state } : { target, phase: 'stopped' }));
+ipcMain.handle('login:state', (_e, target) => !platformTools.hpcSupported() ? { target, phase: 'failed', reason: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true } : (logins[target] ? { target, ...logins[target].state } : { target, phase: 'stopped' }));
 ipcMain.handle('login:log', (_e, target) => (logins[target] ? logins[target].session.log() : ''));
 const stopLogins = () => { for (const l of Object.values(logins)) l.session.stop(); };
 
-ipcMain.handle('setup:status', () => setup.status(cfg, loginShell()));
+ipcMain.handle('setup:status', () => platformTools.hpcSupported() ? setup.status(cfg, loginShell()) : { error: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true });
 ipcMain.handle('setup:testVpn', () => setup.testVpn(cfg));
 ipcMain.handle('setup:testLogin', async () => {
+  if (!platformTools.hpcSupported()) return { error: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   if (!cfg.hpc.host) return { result: 'nohost' };
   const r = await ssh.testLogin(cfg.hpc.host);
   return { result: setup.classifyLogin(r.code, r.stderr), detail: r.stderr.trim().split('\n').filter((l) => !/^Warning: Permanently added/.test(l)).slice(-2).join(' ') };
@@ -912,11 +906,12 @@ ipcMain.handle('storage:delete', (_e, { path: p, dir }) => sftp.remove(sto(), p,
 ipcMain.handle('storage:fetch', (_e, p) => sftp.fetch(sto(), p));
 // HPC ↔ storage copies run sftp on the HPC itself, in a terminal there.
 ipcMain.handle('storage:hpcCommand', (_e, { direction, src, destDir }) => {
+  if (!platformTools.hpcSupported()) return { error: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   try { return { command: sftp.hpcCommand(cfg.storage.hpcHost || sto(), direction, src, destDir) }; } catch (e) { return { error: e.message }; }
 });
 
 let rsyncIsGnu = false;
-run('rsync', ['--version'], { timeout: 5000 }).then((r) => { rsyncIsGnu = /rsync\s+version\s+3/.test(r.stdout) && !/openrsync/.test(r.stdout); });
+if (platformTools.hpcSupported()) run('rsync', ['--version'], { timeout: 5000 }).then((r) => { rsyncIsGnu = /rsync\s+version\s+3/.test(r.stdout) && !/openrsync/.test(r.stdout); });
 
 // Percent and rate from rsync's or sftp's progress output.
 function progressOf(s) {
@@ -934,12 +929,13 @@ function progressOf(s) {
 ipcMain.handle('transfer:start', (_e, t) => {
   const id = /^tx\w+$/.test(t.id || '') && !transfers.has(t.id) ? t.id : 'tx' + Date.now() + Math.random().toString(36).slice(2, 6);
   const done = (code, error) => { transfers.delete(id); send('transfer:done', { id, code, error: code ? error : '' }); };
+  if (!platformTools.hpcSupported() && (t.from !== 'local' || t.to !== 'local')) return { error: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   const pair = [t.from, t.to].sort().join('-');
   const dest = t.destDir.replace(/\/?$/, '/');
   // A child process whose output carries the progress; its last lines explain a failure.
   const spawnTx = (cmd, args) => {
     const { spawn } = require('child_process');
-    const child = spawn(cmd, args, { env: augmentedEnv() });
+    const child = spawn(platformTools.resolveExecutable(cmd, { env: augmentedEnv() }), args, { env: augmentedEnv() });
     transfers.set(id, { kill: (sig) => child.kill(sig) });
     let out = '', err = '';
     child.stdout.on('data', (d) => { out = (out + d).slice(-2000); const p = progressOf(String(d)); if (p) send('transfer:progress', { id, ...p }); });
@@ -1007,7 +1003,7 @@ ipcMain.handle('preview:render', async (_e, file) => {
   const dir = path.dirname(file);
   const stem = path.basename(file, ext);
   let r;
-  if (ext === '.qmd' || ext === '.ipynb' || ((ext === '.rmd' || ext === '.md') && (await run('which', ['quarto'])).code === 0 && ext !== '.rmd')) {
+  if (ext === '.qmd' || ext === '.ipynb' || ((ext === '.rmd' || ext === '.md') && !!whichSync('quarto') && ext !== '.rmd')) {
     r = await run('quarto', ['render', file, '--to', 'html'], { cwd: dir, timeout: 15 * 60000, onStderr: (s) => send('preview:log', s), onStdout: (s) => send('preview:log', s) });
   } else if (ext === '.rmd') {
     r = await run('Rscript', ['-e', `rmarkdown::render(${JSON.stringify(file)}, output_format = "html_document")`], { cwd: dir, timeout: 15 * 60000, onStderr: (s) => send('preview:log', s), onStdout: (s) => send('preview:log', s) });
@@ -1019,6 +1015,7 @@ ipcMain.handle('preview:render', async (_e, file) => {
 });
 
 ipcMain.handle('preview:fetchRemote', async (_e, remotePath) => {
+  if (!platformTools.hpcSupported()) return { error: platformTools.HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   const dest = path.join(cacheDir(), Date.now() + '-' + path.basename(remotePath));
   const r = await run('scp', ['-o', `ControlPath=${ssh.CONTROL_PATH}`, '-o', 'ControlMaster=no', `${cfg.hpc.host}:${remotePath}`, dest], { timeout: 10 * 60000 });
   if (r.code !== 0) return { error: r.stderr.trim() };
@@ -1401,7 +1398,7 @@ ipcMain.handle('gitacct:identity-set', wrap(async ({ root, name, email }) => {
 
 // ---------- Python packages ----------
 ipcMain.handle('pip:list', async (_e, { where, python, cwd }) => {
-  const cmd = `${python} -m pip list --format=json --disable-pip-version-check`;
+  const cmd = `${where !== 'hpc' && platformTools.isWin ? (/^py\s+-3$/.test(python) ? 'py -3' : q(platformTools.toPosixForShell(python))) : python} -m pip list --format=json --disable-pip-version-check`;
   const r = where === 'hpc' ? await ssh.exec(cfg.hpc.host, `bash -lc ${q(cmd)}`, { timeout: 60000 })
     : await run(loginShell(), ['-l', '-c', cmd], { cwd: expandHome(cwd), timeout: 60000 });
   try { return { packages: JSON.parse(r.stdout.trim().split('\n').pop()) }; } catch { return { error: (r.stderr || r.stdout || 'pip failed').trim() }; }
@@ -1907,12 +1904,15 @@ ipcMain.handle('tools:updates', async (_e, opts = {}) => {
 
 // ---------- environment detection ----------
 ipcMain.handle('env:detect', async () => {
+  const prerequisites = await setup.prerequisites();
+  const shell = platformTools.isWin ? platformTools.findBash() : loginShell();
   const tools = ['git', 'gh', 'quarto', 'R', 'Rscript', 'python3', 'rsync', 'ssh', 'sftp', 'tmux', 'claude', 'codex'].concat(cfg.agents.map((a) => a.cmd.split(' ')[0]));
   const out = {};
-  await Promise.all(tools.map(async (t) => { out[t] = (await run(loginShell(), ['-l', '-c', `command -v ${t}`], { timeout: 8000 })).code === 0; }));
-  const installable = Object.keys(out).filter((t) => !out[t] && setup.RECIPES[t]);
+  await Promise.all(tools.map(async (t) => { out[t] = shell ? (await run(shell, ['-l', '-c', `command -v ${t}`], { timeout: 8000 })).code === 0 : false; }));
+  if (platformTools.isWin) out.python3 = prerequisites.find((t) => t.id === 'python3').ok;
+  const installable = platformTools.isWin ? [] : Object.keys(out).filter((t) => !out[t] && setup.RECIPES[t]);
   const ink = await detectInkscape().catch(() => null);
-  return { tools: out, inkscape: ink, installable, recipes: setup.RECIPES, ptyOk: !!pty, ptyError, platform: process.platform, home: os.homedir(), tmp: path.join(os.tmpdir(), 'codeome') };
+  return { tools: out, inkscape: ink, prerequisites, installable, recipes: platformTools.isWin ? {} : setup.RECIPES, ptyOk: !!pty, ptyError, platform: process.platform, home: os.homedir(), tmp: path.join(os.tmpdir(), 'codeome') };
 });
 
 app.whenReady().then(() => {

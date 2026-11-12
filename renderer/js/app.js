@@ -39,6 +39,7 @@
   // The shared connection opens in the background (login.js); prompts come as dialogs.
   // direct: skip Codeome's VPN tunnel this once (on campus, or with Cisco Secure Client on).
   App.connectHpc = async ({ direct = false } = {}) => {
+    if (App.platform === 'win32') return App.views.settings.open('hpc');
     if (!App.cfg.hpc.host) return App.views.settings.open('hpc');
     if (App.hpcConnected) return;
     if (!direct && !App.login.busy('hpc') && App.setup.tunnelOn() && !App.setup.vpnUp) return App.setup.startVpn({ thenConnect: true });
@@ -66,12 +67,14 @@
   // Same pattern as the HPC: a background login opens a shared connection the file browser reuses.
   App.storageConnected = false;
   App.connectStorage = () => {
+    if (App.platform === 'win32') return App.views.settings.open('storage');
     if (!App.cfg.storage.host) return App.views.settings.open('storage');
     if (App.storageConnected) return;
     App.login.start('storage');
   };
   App.disconnectStorage = async () => { await codeome.storage.disconnect(); await App.pollHpc(); App.toast('Disconnected from ' + App.views.files.title('storage') + '.'); };
   App.requireStorage = () => {
+    if (App.platform === 'win32') { App.toast(App.hpcUnsupportedMessage); return false; }
     const name = App.views.files.title('storage');
     if (!App.cfg.storage.host) { App.toast(`Set up ${name} in Settings first.`, { action: { label: 'Open Settings', run: () => App.views.settings.open('storage') } }); return false; }
     if (!App.storageConnected) { App.toast(`Not connected to ${name}.`, { action: { label: 'Connect', run: () => App.connectStorage() } }); return false; }
@@ -81,6 +84,7 @@
   let vpn = { known: false }, jobs = null;
   App.pollHpc = async () => {
     const [st, v, so] = await Promise.all([codeome.hpc.status(), codeome.hpc.vpn(), App.cfg.storage.host ? codeome.storage.status() : { connected: false }]);
+    App.hpcUnsupportedMessage = st.unsupported ? (st.error || st.reason || App.hpcUnsupportedMessage) : App.hpcUnsupportedMessage;
     vpn = v;
     const tunnelUp = !!(v.tunnel && v.up);
     if (App.setup.vpnUp !== tunnelUp) { App.setup.vpnUp = tunnelUp; App.emit('vpn', tunnelUp); }
@@ -113,6 +117,13 @@
     v.title = vpn.tunnel
       ? (vpn.up ? "Codeome's VPN tunnel is running" : App.setup.vpnStarting() ? "Codeome's VPN tunnel is signing in" : "Codeome's VPN tunnel is not running")
       : (vpn.up ? 'VPN reachable' : 'VPN not reachable — the cluster may be unreachable');
+    if (App.platform === 'win32') {
+      document.getElementById('c-hpc-label').textContent = App.hpcUnsupportedMessage;
+      hp.title = App.hpcUnsupportedMessage;
+      hp.onclick = () => App.views.settings.open('hpc');
+      jb.innerHTML = '';
+      return;
+    }
     const connecting = App.login.busy('hpc');
     hp.className = 'c-seg ' + (connecting ? 'busy' : App.hpcConnected ? 'ok' : (App.cfg.hpc.host ? 'bad' : ''));
     document.getElementById('c-hpc-label').textContent = !App.cfg.hpc.host ? 'Set up HPC' : (connecting ? 'Connecting…' : (App.hpcConnected ? App.hpcName() : 'Connect ' + App.hpcName()));
@@ -125,13 +136,14 @@
   }
 
   function clusterMenu(el) {
+    if (App.platform === 'win32') return App.views.settings.open('hpc');
     if (!App.cfg.hpc.host) return App.views.settings.open('hpc');
     const tunnel = App.setup.tunnelOn() && (App.setup.vpnUp || App.setup.vpnStarting());
     if (!App.hpcConnected && !tunnel) return App.connectHpc();
     App.menuAt(el, [
       ...(App.hpcConnected ? [
-        { label: 'Slurm jobs', key: '⌘3', run: () => App.setView('slurm') },
-        { label: 'HPC terminal', key: '⇧⌘T', run: () => App.views.terminals.hpcShell() },
+        { label: 'Slurm jobs', key: App.uiText('⌘3'), run: () => App.setView('slurm') },
+        { label: 'HPC terminal', key: App.uiText('⇧⌘T'), run: () => App.views.terminals.hpcShell() },
         ...App.cfg.agents.map((a) => ({ label: a.name + ' on the HPC', run: () => App.views.terminals.agentHpc(a) })),
         '-',
         { label: 'Disconnect', run: () => App.disconnectHpc() }
@@ -319,7 +331,7 @@
       if (!env.ptyOk) App.err('Terminals need a one-time rebuild. In the Codeome folder run: npm run rebuild\n\n' + env.ptyError.split('\n')[0]);
       const missing = App.cfg.agents.filter((a) => env.tools[a.cmd.split(' ')[0]] === false).map((a) => a.name);
       const getable = ['claude', 'codex'].filter((t) => env.installable.includes(t));
-      if (missing.length) App.toast(`${missing.join(' and ')} not found on this Mac's PATH. Install it or adjust the command in Settings.`,
+      if (missing.length) App.toast(App.uiText(`${missing.join(' and ')} not found on this Mac's PATH. Install it or adjust the command in Settings.`),
         getable.length ? { action: { label: 'Install', run: () => App.setup.install(getable) } } : undefined);
       App.setup.check(env);
       // Newer agent CLIs are suggested about once a week (the lookup itself is rate-limited in main).

@@ -3,6 +3,8 @@
 // ocproxy, which serves it as a SOCKS5 proxy on 127.0.0.1. It changes none of the
 // Mac's routes or DNS and needs no admin rights; only ssh connections to the HPC
 // host go through it (see ssh.setProxy).
+const { hpcSupported, HPC_UNSUPPORTED_MESSAGE } = require('./platform');
+const platformTools = require('./platform');
 const net = require('net');
 const fs = require('fs');
 const os = require('os');
@@ -98,6 +100,7 @@ async function probe(host, port, socksPort = 0) {
 
 // The HPC setup's VPN test: ok | dns | refused | unreachable | other | notunnel | nohost.
 async function testVpn(cfg) {
+  if (!hpcSupported()) return { error: HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   const v = cfg.hpc.vpn || {};
   const tunnel = v.mode === 'tunnel';
   const target = await vpnTarget(cfg);
@@ -126,10 +129,10 @@ function tunnelReady(cfg, patience = 20000, d = { portOpen, vpnTarget, probe }) 
 // ---------- tools ----------
 // Where a command lives: on Codeome's PATH (which adds Homebrew's), else the login shell's.
 async function locate(tool, shell) {
-  const r = await run('/usr/bin/which', [tool], { timeout: 5000 });
+  const r = platformTools.isWin ? { code: -1 } : await run('/usr/bin/which', [tool], { timeout: 5000 });
   if (r.code === 0 && r.stdout.trim()) return r.stdout.trim();
-  const l = await run(shell, ['-l', '-c', `command -v ${q(tool)}`], { timeout: 8000 });
-  return l.code === 0 ? l.stdout.trim().split('\n').pop() : '';
+  const l = await run(platformTools.isWin ? platformTools.requireLoginShell() : shell || platformTools.requireLoginShell(), ['-l', '-c', `command -v ${q(tool)}`], { timeout: 8000 });
+  return l.code === 0 ? platformTools.fromPosixForShell(l.stdout.trim().split('\n').pop()) : '';
 }
 
 // How to install what Codeome looks for. Most come from Homebrew; git comes with Apple's command-line tools.
@@ -155,6 +158,7 @@ const BREW_INSTALL = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.c
 
 // One command that installs the given tools; null when none has a recipe.
 function installCommand(tools) {
+  if (platformTools.isWin) return null;
   const known = [...new Set(tools)].filter((t) => RECIPES[t]);
   if (!known.length) return null;
   const formulae = [...new Set(known.map((t) => RECIPES[t].formula).filter(Boolean))];
@@ -165,6 +169,19 @@ function installCommand(tools) {
   if (casks.length) parts.push('brew install --cask ' + casks.join(' '));
   parts.push(...other);
   return { command: parts.join(' && '), brew: formulae.length + casks.length > 0, labels: [...new Set(known.map((t) => RECIPES[t].label))] };
+}
+
+// Windows prerequisites are checks with download links, never shell installers.
+async function prerequisites({ platform = process.platform, findBash = platformTools.findBash, runCommand = run } = {}) {
+  if (platform !== 'win32') return [];
+  const bash = findBash();
+  const interpreter = bash ? await platformTools.findPython({ platform, probe: (file, args) =>
+    runCommand(bash, ['-l', '-c', [file, ...args].join(' ')], { timeout: 8000 }) }) : null;
+  const python = interpreter ? [interpreter.file, ...interpreter.args].join(' ') : '';
+  return [
+    { id: 'bash', label: 'Git for Windows', ok: !!bash, path: bash || '', url: 'https://git-scm.com/download/win', why: 'The bash shell for local terminals and tools' },
+    { id: 'python3', label: 'python3', ok: !!python, path: python, url: 'https://www.python.org/downloads/windows/', why: 'The codeome-agent helper (Python 3)' }
+  ];
 }
 
 // ---------- ssh login ----------
@@ -186,6 +203,7 @@ function parseSshG(text) {
 }
 
 async function resolveHost(host) {
+  if (!hpcSupported()) return { error: HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   const r = await run('ssh', ['-G', host], { timeout: 5000 });
   return r.code === 0 ? parseSshG(r.stdout) : { error: r.stderr.trim() || 'ssh could not read the settings for ' + host };
 }
@@ -259,6 +277,7 @@ function ciscoServers() {
 
 // Everything the HPC checklist in Settings shows.
 async function status(cfg, shell) {
+  if (!hpcSupported()) return { error: HPC_UNSUPPORTED_MESSAGE, unsupported: true, prerequisites: await prerequisites() };
   const v = cfg.hpc.vpn || {};
   const tunnel = v.mode === 'tunnel';
   const [brew, openconnect, ocproxy, up, login] = await Promise.all([
@@ -271,5 +290,5 @@ async function status(cfg, shell) {
     login, key, ciscoServers: ciscoServers(), home: os.homedir() };
 }
 
-module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, proxyCommand, portOpen, tunnelReady, hostPort, vpnTarget, classifyProbe, probe, testVpn, locate, RECIPES, BREW_INSTALL, installCommand,
+module.exports = { DEFAULT_PORT, portOf, splitArgs, tunnelArgs, tunnelCommand, proxyCommand, portOpen, tunnelReady, hostPort, vpnTarget, classifyProbe, probe, testVpn, locate, prerequisites, RECIPES, BREW_INSTALL, installCommand,
   parseSshG, hostBlock, addHost, resolveHost, findKey, classifyLogin, ciscoServers, status };

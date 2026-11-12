@@ -106,3 +106,19 @@ test('the browser loads the same settings file used by main', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(context.App.notifySettings.effective(fixture, '/work/x'))),
     settings.effective(fixture, '/work/x'));
 });
+
+test('Windows project notification keys accept drives and UNC while POSIX keys stay valid', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../main/notifysettings.js'), 'utf8');
+  for (const platform of ['win32', 'darwin']) {
+    const context = { module: { exports: {} }, process: { platform } };
+    vm.runInNewContext(source, context);
+    const settings = context.module.exports;
+    const input = { '/work/project': { enabled: false }, 'C:\\work\\project': { enabled: false }, '\\\\srv\\share': { enabled: false }, relative: { enabled: false } };
+    const clean = settings.sanitizeProject(input);
+    assert.equal(Object.hasOwn(clean, '/work/project'), true);
+    assert.equal(Object.hasOwn(clean, 'C:\\work\\project'), platform === 'win32');
+    assert.equal(Object.hasOwn(clean, '\\\\srv\\share'), platform === 'win32');
+    assert.equal(Object.hasOwn(clean, 'relative'), false);
+    assert.equal(settings.body('C:\\work\\project', 'finished'), 'project: agent finished');
+  }
+});

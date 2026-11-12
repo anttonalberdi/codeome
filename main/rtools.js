@@ -2,6 +2,7 @@
 // ~/.cache/codeome on this Mac and on the HPC: plots.R is sourced into R consoles,
 // render.R redraws a recorded plot at another size or format, packages.R lists
 // the R libraries.
+const { toPosixForShell } = require('./platform');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -73,7 +74,7 @@ async function render(o, { host, cacheDir, rcmd, shell }) {
   try { const first = fs.readFileSync(path.join(o.dir, 'session'), 'utf8').split('\n')[0]; if (first && fs.existsSync(first)) rscript = first; } catch {}
   let r = await run(rscript, ['--vanilla', path.join(LOCAL_DIR, 'render.R'), ...args, local], { timeout: 180000 });
   if ((r.code < 0 || r.code >= 126) && rcmd && shell) {
-    r = await run(shell, ['-l', '-c', `${rcmd} --vanilla -s -f ${q(path.join(LOCAL_DIR, 'render.R'))} --args ${[...args, local].map(q).join(' ')}`], { timeout: 180000 });
+    r = await run(shell, ['-l', '-c', `${rcmd} --vanilla -s -f ${q(toPosixForShell(path.join(LOCAL_DIR, 'render.R')))} --args ${[...args, local].map(toPosixForShell).map(q).join(' ')}`], { timeout: 180000 });
   }
   if (r.code !== 0) return { error: rError(r) };
   return { local };
@@ -116,7 +117,7 @@ async function listPackages({ where, rcmd, cwd, outdated, host, shell }) {
   if (where === 'hpc') {
     const dir = cwd && cwd !== '~' ? `cd ${q(cwd)} 2>/dev/null; ` : '';
     r = await ssh.exec(host, `bash -lc ${q(`${dir}${rcmd} -s -f "$HOME/.cache/codeome/packages.R"${extra}`)}`, { timeout: 180000 });
-  } else r = await run(shell, ['-l', '-c', `${rcmd} -s -f ${q(path.join(LOCAL_DIR, 'packages.R'))}${extra}`], { cwd, timeout: 180000 });
+  } else r = await run(shell, ['-l', '-c', `${rcmd} -s -f ${q(toPosixForShell(path.join(LOCAL_DIR, 'packages.R')))}${extra}`], { cwd, timeout: 180000 });
   const parsed = parsePackages(r.stdout);
   if (!parsed.libs.length) return { error: rError(r) || 'R printed no libraries.' };
   return parsed;

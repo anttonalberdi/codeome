@@ -23,7 +23,7 @@ const scratch = require('./scratch');
 
 const KIT = path.join(__dirname, '..', 'kit');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(KIT, 'manifest.json'), 'utf8'));
-const HOOK_CMD = 'python3 "$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent" hook';
+const HOOK_CMD = 'python3' + ' "$CLAUDE_PROJECT_DIR/.codeome/bin/codeome-agent" hook';
 const PERMISSION = 'Bash(.codeome/bin/codeome-agent *)';
 const IGNORE = ['.codeome/jobs/', '.codeome/worktrees/', '.codeome/plans/', '.codeome/context/', '.codeome/touched/', '.codeome/inbox/', '.codeome/outbox/', '.codeome/inbox-support.json'];
 const ENGINE_LABEL = { claude: 'Claude', codex: 'Codex', cross: 'the other engine' };
@@ -214,7 +214,8 @@ function install(project, opts = {}) {
   const r = { written: [], unchanged: [], skipped: [], removed: [], kept: [], groups };
   const record = {};
 
-  for (const [rel, content] of Object.entries(files)) {
+  for (const [rel, source] of Object.entries(files)) {
+    const content = rel.startsWith('.codeome/bin/') ? source.replace(/\r\n/g, '\n') : source;
     const abs = path.join(project, rel);
     const cur = read(abs);
     const known = prev.files[rel];

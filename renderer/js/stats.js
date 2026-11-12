@@ -21,7 +21,7 @@
           body.append(...(r.error ? [h('div.note.error', r.error)] : draw(r)));
         };
         el.append(h('div.toolbar.st-bar',
-          h('span.hint.grow', 'Token use of the agent chats · kept on this Mac only'),
+          h('span.hint.grow', App.uiText('Token use of the agent chats · kept on this Mac only')),
           h('select', { 'aria-label': 'Period', onchange: (e) => { days = Number(e.target.value); try { localStorage.setItem('codeome.stats.days', days); } catch {} reload(); } },
             RANGES.map(([v, label]) => h('option', { value: v, selected: v === days }, label))),
           h('button.btn.small', { onclick: () => reload() }, 'Refresh')), body);

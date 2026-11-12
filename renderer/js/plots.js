@@ -362,7 +362,7 @@
       v.msg.hidden = false; v.msg.innerHTML = '';
       v.msg.append(h('b', 'No plots yet'), h('p', cfg().capture === false
         ? 'Showing plots here is off for new R consoles (⋯ menu).'
-        : 'Plots drawn in an R console started from Codeome appear here: ⌘↩ in an R script or chunk, or the R console in the terminal panel.'),
+        : App.uiText('Plots drawn in an R console started from Codeome appear here: ⌘↩ in an R script or chunk, or the R console in the terminal panel.')),
       h('button.btn.small', { onclick: () => App.views.terminals.rConsole() }, 'Start R console'));
       v.thumbs.hidden = true;
       return;

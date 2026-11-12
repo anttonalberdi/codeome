@@ -12,6 +12,7 @@
 //        {type:'context'} how full the context window is, {type:'turn_usage'} what a turn used.
 //
 // Conversations are saved (as the chat panel shows them) in ~/.codeome/chats/<project>/.
+const platformTools = require('./platform');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -285,7 +286,8 @@ class Session extends EventEmitter {
   }
 
   start() {
-    this.proc = spawn(this.shell, ['-l', '-c', this.prefix.length ? `exec ${this.prefix.join(' ')} "$0" "$@"` : 'exec "$0" "$@"', this.bin, ...this.args], { cwd: this.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const launch = platformTools.cliSpawnSpec(this.bin, this.args, { shell: this.shell, prefix: this.prefix });
+    this.proc = spawn(launch.file, launch.args, { cwd: this.cwd, env: this.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let buf = '';
     this.proc.stdout.on('data', (d) => {
       buf += d;
@@ -356,7 +358,7 @@ class Session extends EventEmitter {
     });
   }
 
-  stop() { try { touched.clear(this.cwd, this.id); } catch {} if (this.proc && this.proc.exitCode === null) { try { this.proc.stdin.end(); } catch {} try { this.proc.kill('SIGTERM'); } catch {} } }
+  stop() { try { touched.clear(this.cwd, this.id); } catch {} if (this.proc && this.proc.exitCode === null) { try { this.proc.stdin.end(); } catch {} try { platformTools.killTree(this.proc); } catch {} } }
 }
 
 // ---------- saved conversations ----------

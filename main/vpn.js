@@ -6,6 +6,7 @@
 //
 // Phases: starting → prompt ⇄ waiting → up, and stopped or failed when it ends.
 
+const { hpcSupported, HPC_UNSUPPORTED_MESSAGE } = require('./platform');
 const ANSI = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g;
 const clean = (s) => String(s).replace(ANSI, '');
 
@@ -41,6 +42,11 @@ function reasonOf(log, fallback = 'openconnect stopped.') {
 // o: spawn() → { onData, onExit, write, kill }; ready() → Promise<bool> (may take seconds);
 // user and password (may be empty); emit(state) on every change; onUp() once it is up.
 function start(o) {
+  if (!hpcSupported()) {
+    const state = () => ({ phase: 'failed', prompt: null, reason: HPC_UNSUPPORTED_MESSAGE, unsupported: true });
+    o.emit(state());
+    return { state, log: () => '', answer: () => false, stop() {}, ended: true };
+  }
   const st = { phase: 'starting', prompt: null, reason: '' };
   let buf = '', log = '', seq = 0, failed = false, stopping = false, timer = null, poll = null, ended = false, checking = false;
   const auto = { username: false, password: false };

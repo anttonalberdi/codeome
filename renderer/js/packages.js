@@ -52,7 +52,7 @@
   function pyRun(title, args) {
     const cmd = `${UI.pyInput.value.trim()} -m pip ${args}`;
     if (P.py.where === 'hpc') { if (!App.requireHpc()) return; App.views.terminals.hpcTask('pip ' + title, cmd, '~'); setTimeout(P.loadPy, 8000); }
-    else App.views.terminals.open({ kind: 'task', title: 'pip ' + title, command: cmd, cwd: App.project || '~', badge: 'Mac', onExit: () => P.loadPy() });
+    else App.views.terminals.open({ kind: 'task', title: 'pip ' + title, command: cmd, cwd: App.project || '~', badge: App.uiText('Mac'), onExit: () => P.loadPy() });
     setTimeout(P.loadPy, 15000);
   }
 
@@ -72,7 +72,7 @@
     for (const p of pk) list.append(h('div.pkg', h('span', p.name), h('span.v', p.version),
       h('span.row', { style: { gap: '0' } },
         App.iconBtn('up', 'Upgrade', () => pyRun('upgrade', `install --upgrade ${p.name}`)),
-        App.iconBtn('trash', 'Uninstall', async () => { if (await App.confirm(`Uninstall ${p.name}?`, `Removes ${p.name} ${p.version} from ${P.py.where === 'hpc' ? 'the HPC' : 'this Mac'} environment.`, 'Uninstall', true)) pyRun('uninstall', `uninstall -y ${p.name}`); }))));
+        App.iconBtn('trash', 'Uninstall', async () => { if (await App.confirm(`Uninstall ${p.name}?`, App.uiText(`Removes ${p.name} ${p.version} from ${P.py.where === 'hpc' ? 'the HPC' : 'this Mac'} environment.`), 'Uninstall', true)) pyRun('uninstall', `uninstall -y ${p.name}`); }))));
   }
 
   // ---------- R ----------
@@ -209,7 +209,7 @@
       if (onDone) App.views.terminals.open({ kind: 'hpc-task', title: t, command: cmd, cwd: rWhere().cwd, badge: 'HPC', onExit: refresh });
       else { App.views.terminals.hpcTask(t, cmd, rWhere().cwd); setTimeout(refresh, 20000); }
     }
-    else App.views.terminals.open({ kind: 'task', title: t, command: cmd, cwd: rWhere().cwd, badge: 'Mac', onExit: refresh });
+    else App.views.terminals.open({ kind: 'task', title: t, command: cmd, cwd: rWhere().cwd, badge: App.uiText('Mac'), onExit: refresh });
   }
   // A CRAN mirror when none is set, so install.packages() doesn't ask.
   const REPOS = 'local({ r <- getOption("repos"); if (is.null(r) || identical(unname(r["CRAN"]), "@CRAN@")) options(repos = c(CRAN = "https://cloud.r-project.org")) }); ';
@@ -303,7 +303,7 @@
         App.iconBtn('terminal', 'Load in the R console: library(' + p.name + ')', () => App.views.terminals.sendR(`library(${p.name})`, rWhere())),
         fixed ? null : App.iconBtn('up', newer ? 'Update to ' + newer : 'Reinstall the latest version', () => rRun('update ' + p.name, updateCode(p, lib.path))),
         fixed ? null : App.iconBtn('trash', 'Remove', async () => {
-          if (await App.confirm(`Remove ${p.name}?`, `Removes ${p.name} ${p.version} from ${App.tildify(lib.path)} on ${P.r.where === 'hpc' ? 'the HPC' : 'this Mac'}.`, 'Remove', true)) {
+          if (await App.confirm(`Remove ${p.name}?`, App.uiText(`Removes ${p.name} ${p.version} from ${App.tildify(lib.path)} on ${P.r.where === 'hpc' ? 'the HPC' : 'this Mac'}.`), 'Remove', true)) {
             rRun('remove ' + p.name, `remove.packages(${JSON.stringify(p.name)}, lib = ${JSON.stringify(lib.path)})`);
           }
         })));
@@ -311,7 +311,7 @@
 
   function whereSelect(label, onchange) {
     const sel = h('select', { 'aria-label': label, onchange: () => onchange(sel.value) },
-      h('option', { value: 'local' }, 'This Mac'), h('option', { value: 'hpc' }, 'HPC'));
+      h('option', { value: 'local' }, App.uiText('This Mac')), h('option', { value: 'hpc' }, 'HPC'));
     return sel;
   }
 })();

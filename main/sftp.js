@@ -1,6 +1,7 @@
 // Long-term storage over SFTP (e.g. ERDA). Archive servers often give no shell,
 // so everything is an `sftp` batch. Like the HPC, one master connection is opened
 // in the background (login.js asks for a password in a dialog) and batches reuse it.
+const { hpcSupported, HPC_UNSUPPORTED_MESSAGE } = require('./platform');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -28,6 +29,7 @@ function sq(p) {
 const isHome = (dir) => !dir || dir === '~' || dir === '.';
 
 async function batch(host, lines, opts = {}) {
+  if (!hpcSupported()) return { code: -1, stdout: '', stderr: HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   if (!host) return { code: -1, stdout: '', stderr: 'No storage host configured' };
   return run('sftp', [...muxOpts(), '-b', '-', host], { input: lines.join('\n') + '\n', timeout: opts.timeout || 60000 });
 }
@@ -86,6 +88,7 @@ function tmpFile(name) {
 
 // Copies a remote file to a local temp file.
 async function fetch(host, p, timeout = 10 * 60000) {
+  if (!hpcSupported()) return { error: HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   const local = tmpFile(p);
   const r = await batch(host, [`get ${sq(p)} ${sq(local)}`], { timeout });
   return r.code === 0 ? { local } : { error: errorOf(r, 'Download failed') };
@@ -102,6 +105,7 @@ async function readFile(host, p) {
 }
 
 async function writeFile(host, p, content) {
+  if (!hpcSupported()) return { error: HPC_UNSUPPORTED_MESSAGE, unsupported: true };
   const local = tmpFile(p);
   fs.writeFileSync(local, content, 'utf8');
   try {

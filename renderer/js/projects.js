@@ -137,7 +137,7 @@
             dismiss();
             resolve(await P.newProject());
           } }, 'Create a new project…')),
-          h('fieldset', h('label.field', h('span', 'A folder on this Mac'),
+          h('fieldset', h('label.field', h('span', App.uiText('A folder on this Mac')),
             h('button.btn', { onclick: async () => { if (busy) return; const d = await codeome.dialog.folder({ defaultPath: App.isIdeas() ? App.cfg.localRoot : App.project || App.cfg.localRoot }); if (d) close(d); } }, 'Choose folder…'))),
           h('fieldset', h('button.btn', { onclick: async () => { if (busy) return; close(); await P.openIdeas(); } }, '💡 Discuss an idea (no project)')),
           h('fieldset', h('label.field', h('span', 'Or a git URL'), url,
@@ -620,7 +620,7 @@
     document.getElementById('project-name').textContent = dir ? (App.isIdeas(dir) ? '💡 Ideas' : App.basename(dir)) : 'No folder open';
     tag.classList.toggle('empty', !dir);
     if (dir) tag.style.setProperty('--ph', colorOf(dir)); else tag.style.removeProperty('--ph');
-    tag.title = dir ? (App.isIdeas(dir) ? 'Ideas · chat and forum' : App.tildify(dir)) : 'Open a project folder (⌘O)';
+    tag.title = dir ? (App.isIdeas(dir) ? 'Ideas · chat and forum' : App.tildify(dir)) : App.uiText('Open a project folder (⌘O)');
     tag.setAttribute('aria-label', dir ? (App.isIdeas(dir) ? 'Ideas' : `Project ${App.basename(dir)}`) : 'Open a project folder');
     // The projects connected to it follow as smaller tags, each after a chain link.
     const links = document.getElementById('project-links');
@@ -662,8 +662,8 @@
   function tagMenu() {
     const dir = App.project, tag = document.getElementById('project-btn');
     if (App.isIdeas(dir)) return [
-      { label: 'Open a project…', key: '⌘O', run: () => P.open() },
-      { label: 'Close Ideas', key: '⇧⌘W', run: () => P.close(dir) }
+      { label: 'Open a project…', key: App.uiText('⌘O'), run: () => P.open() },
+      { label: 'Close Ideas', key: App.uiText('⇧⌘W'), run: () => P.close(dir) }
     ];
     return [
       { label: 'Project color…', run: () => pickColor(dir, tag) },
@@ -672,9 +672,9 @@
       { label: 'Connect to projects…', run: () => pickLinks(dir, tag) },
       App.views.packages.r.detected && !App.views.packages.r.project ? { label: 'Set up as R project…', run: () => App.views.packages.setupRProject() } : null,
       '-',
-      { label: 'Open another project…', key: '⌘O', run: () => P.open() },
+      { label: 'Open another project…', key: App.uiText('⌘O'), run: () => P.open() },
       { label: 'Deselect project (no-project chat)', run: () => P.openIdeas() },
-      { label: 'Close project', key: '⇧⌘W', danger: true, run: () => P.close(dir) }
+      { label: 'Close project', key: App.uiText('⇧⌘W'), danger: true, run: () => P.close(dir) }
     ];
   }
 
@@ -699,7 +699,7 @@
     members(null).filter((dir) => !App.isIdeas(dir)).forEach((dir) => list.append(card(dir)));
     const collapsed = !!App.cfg.ui.projectsCollapsed;
     el.append(list, h('div.proj-foot',
-      h('button.proj-add', { title: 'Open a project (⌘O)', 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Project')),
+      h('button.proj-add', { title: App.uiText('Open a project (⌘O)'), 'aria-label': 'Open a project', onclick: () => P.open() }, h('span', { html: App.icons.plus }), collapsed ? null : h('span', 'Project')),
       h('button.proj-add', { title: 'New group of projects', 'aria-label': 'New group of projects', onclick: () => P.addGroup(true) }, h('span', { html: collapsed ? GROUP_ICON : App.icons.plus }), collapsed ? null : h('span', 'Group')),
       h('button.proj-add', { title: 'Project groups', 'aria-label': 'Project groups', onclick: (e) => savedGroupsPopover(e.currentTarget) }, h('span', { html: GROUP_ICON }), collapsed ? null : h('span', 'Saved')),
       h('button.proj-fold', { title: collapsed ? 'Show project names' : 'Hide project names', 'aria-label': collapsed ? 'Expand project column' : 'Collapse project column', onclick: toggleCollapsed },
@@ -794,7 +794,7 @@
       { label: 'Move to a new group…', run: async () => { const x = await P.addGroup(); if (x) moveTo(dir, x); } },
       g ? { label: `Remove from ${g.name}`, run: () => moveTo(dir, null) } : null,
       '-',
-      { label: 'Close project', key: '⇧⌘W', danger: true, run: () => P.close(dir) }
+      { label: 'Close project', key: App.uiText('⇧⌘W'), danger: true, run: () => P.close(dir) }
     ];
   }
 

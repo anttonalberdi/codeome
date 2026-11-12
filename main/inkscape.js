@@ -1,5 +1,6 @@
 // Inkscape, used to turn R and Python figures into publication-ready ones (see the figures skill).
 // It is a desktop app, so it is usually not on the PATH: look in the Applications folders first.
+const platformTools = require('./platform');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -32,9 +33,9 @@ function resolve(p) {
 async function detect({ configured = '', shell } = {}) {
   let bin = '';
   for (const c of candidates(configured)) { bin = resolve(c); if (bin) break; }
-  if (!bin && shell) {
-    const r = await run(shell, ['-l', '-c', 'command -v inkscape'], { timeout: 8000 });
-    if (r.code === 0) bin = resolve(r.stdout.trim().split('\n').pop());
+  if (!bin && (shell || platformTools.isWin)) {
+    const r = await run(platformTools.isWin ? platformTools.requireLoginShell() : shell, ['-l', '-c', 'command -v inkscape'], { timeout: 8000 });
+    if (r.code === 0) bin = resolve(platformTools.fromPosixForShell(r.stdout.trim().split('\n').pop()));
   }
   if (!bin) return { path: '' };
   const v = await run(bin, ['--version'], { timeout: 15000 });

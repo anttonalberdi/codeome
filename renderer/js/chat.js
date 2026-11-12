@@ -521,7 +521,7 @@
   }
 
   async function start(chat) {
-    if (!(await App.setup.ensureCli(engineOf(chat)))) { chat.startError = `${ENGINE[engineOf(chat)]} is not installed on this Mac, so this chat cannot start.`; note(chat, chat.startError, 'error'); return false; }
+    if (!(await App.setup.ensureCli(engineOf(chat)))) { chat.startError = App.uiText(`${ENGINE[engineOf(chat)]} is not installed on this Mac, so this chat cannot start.`); note(chat, chat.startError, 'error'); return false; }
     // A conversation lives in its account's config folder, so it resumes there.
     const r = await codeome.chat.start({ id: chat.id, project: chat.project, code: chat.code, engine: engineOf(chat), role: chat.role || '', account: chat.started ? chat.accountName || chat.account : chat.account, resume: chat.started, mode: chat.mode,
       meter: chat.usage ? { context: chat.usage.context, run: chat.usage.run } : null });
@@ -611,7 +611,7 @@
     const { model, effort } = resolveDefaults(App.cfg, chat.project, store.get('codeome.chat.mode', 'default'));
     if (model) cmd = cmd.replace(/\s--model(=|\s+)\S+/, '') + ' --model ' + model;
     if (effort) cmd = cmd.replace(/\s--effort(=|\s+)\S+/, '') + ' --effort ' + effort;
-    App.views.terminals.open({ kind: 'agent-local', title: 'Agent chat', command: cmd + ' --resume ' + chat.id + App.views.projects.linksOf(chat.project).map((d) => ' --add-dir ' + App.shq(d)).join(''), cwd: chat.project, badge: 'Mac', engine: 'claude', account: chat.accountName || 'auto' });
+    App.views.terminals.open({ kind: 'agent-local', title: 'Agent chat', command: cmd + ' --resume ' + chat.id + App.views.projects.linksOf(chat.project).map((d) => ' --add-dir ' + App.shq(d)).join(''), cwd: chat.project, badge: App.uiText('Mac'), engine: 'claude', account: chat.accountName || 'auto' });
     note(chat, 'Continued in a terminal. Messages sent there are not shown here, but the agent remembers them.', 'info');
     save(chat);
   };
@@ -2001,14 +2001,14 @@
     try { p = decodeURI(p); } catch { /* keep the raw text */ }
     // file:///tmp/x.png (what agents often write for files outside the project) is an absolute path.
     p = p.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
-    if (!p.startsWith('/') && !p.startsWith('~')) {
+    if (!App.isAbs(p)) {
       const root = chat ? chat.project : App.project;
       // A path that starts with a connected project's folder name belongs to that project.
       const first = p.replace(/^\.\//, '').split('/')[0];
       const other = p.includes('/') ? App.views.projects.linksOf(root).find((d) => App.basename(d) === first) : null;
       if (other) p = App.join(other, p.replace(/^\.\//, '').slice(first.length + 1));
     }
-    if (!p.startsWith('/') && !p.startsWith('~')) {
+    if (!App.isAbs(p)) {
       const root = chat ? chat.project : App.project;
       const direct = App.join(root, p);
       // A bare name is often a file in a subfolder: look for it when it is not at the root.

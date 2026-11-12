@@ -14,6 +14,7 @@
   const title = (host) => F().title(host);
   const isUp = (host) => F().isUp(host);
   const where = (host) => ({ remote: host === 'remote', storage: host === 'storage' });
+  const paths = (host) => host === 'local' ? App : (App.posix || App);
   // Saved in App.cfg.ui.transfer: { left, right: { host, dirs }, queueH, parallel }.
   const ui = () => (App.cfg.ui.transfer = App.cfg.ui.transfer || {});
 
@@ -46,8 +47,8 @@
     if (r.error) { App.err(r.error); return []; }
     const added = [];
     for (const it of items) {
-      if (from === to && (App.dirname(it.path) === destDir || it.path === destDir || destDir.startsWith(it.path + '/'))) { App.toast(`${App.basename(it.path)} is already in that folder.`); continue; }
-      const t = { id: newId(), from, to, src: it.path, destDir, name: App.basename(it.path), dir: !!it.dir, size: it.dir ? null : it.size, status: 'queued', pct: 0, rate: '', error: '' };
+      if (from === to && (paths(from).dirname(it.path) === destDir || it.path === destDir || destDir.startsWith(it.path + '/'))) { App.toast(`${paths(from).basename(it.path)} is already in that folder.`); continue; }
+      const t = { id: newId(), from, to, src: it.path, destDir, name: paths(from).basename(it.path), dir: !!it.dir, size: it.dir ? null : it.size, status: 'queued', pct: 0, rate: '', error: '' };
       X.queue.push(t); added.push(t);
     }
     pump();
@@ -108,7 +109,7 @@
       if (!ok) return finish(t, 'failed', 'Could not start a terminal on the HPC');
       t.term = lane.term; X.changed();
       // The copy is typed into the lane's shell; the marker after it reports the exit code.
-      const cwd = t.from === 'remote' ? App.dirname(t.src) : t.destDir;
+      const cwd = t.from === 'remote' ? paths(t.from).dirname(t.src) : t.destDir;
       codeome.pty.write(lane.term, ` ( cd ${App.shPath(cwd)} 2>/dev/null; ${r.command} ); printf '\\033]7338;%s;%s\\007' ${App.shq(id)} $?\r`);
       return;
     }
@@ -299,7 +300,7 @@
     p.el = h('section.xf-pane', { 'aria-label': side + ' pane' },
       h('div.xf-head', p.seg, h('span.grow'),
         p.star, p.favBtn,
-        App.iconBtn('up', 'Parent folder', () => p.dir && go(p, App.dirname(p.dir))),
+        App.iconBtn('up', 'Parent folder', () => p.dir && go(p, paths(p.host).dirname(p.dir))),
         App.iconBtn('home', 'Start folder', () => go(p, F().startDir(p.host))),
         App.hiddenBtn(() => { panes().forEach((x) => go(x)); HOSTS.forEach(F().refresh); }),
         App.iconBtn('refresh', 'Refresh', () => go(p)),
@@ -342,7 +343,7 @@
     p.seg.innerHTML = '';
     paintStar(p);
     for (const host of HOSTS) {
-      const tip = host === 'local' ? 'Files on this Mac' : isUp(host) ? 'Connected' : configured(host) ? 'Not connected' : 'Not set up';
+      const tip = host === 'local' ? App.uiText('Files on this Mac') : isUp(host) ? 'Connected' : configured(host) ? 'Not connected' : 'Not set up';
       p.seg.append(h('button' + (host === p.host ? '.on' : ''), { role: 'tab', 'aria-selected': String(host === p.host), title: tip, onclick: () => X.setHost(p, host) },
         host === 'local' ? null : h('i.pane-dot' + (isUp(host) ? '.ok' : configured(host) ? '.bad' : '')), title(host)));
     }
@@ -427,7 +428,7 @@
     paintCols(p);
     p.list.innerHTML = '';
     p.shown = X.sortEntries(p.entries, p.sort);
-    if (p.dir && p.dir !== '/') p.list.append(h('div.fitem.xf-row.updir', { role: 'option', title: 'Parent folder', ondblclick: () => go(p, App.dirname(p.dir)) }, h('span', { html: App.icons.folder }), h('span.nm', '..'), h('span.sz'), h('span.mt')));
+    if (p.dir && p.dir !== '/') p.list.append(h('div.fitem.xf-row.updir', { role: 'option', title: 'Parent folder', ondblclick: () => go(p, paths(p.host).dirname(p.dir)) }, h('span', { html: App.icons.folder }), h('span.nm', '..'), h('span.sz'), h('span.mt')));
     if (!p.shown.length) p.list.append(h('div.empty', 'This folder is empty.'));
     for (const e of p.shown) {
       p.list.append(h('div.fitem.xf-row' + (e.dir ? '.dir' : ''), {
@@ -467,7 +468,7 @@
     if (ev.shiftKey && p.anchor != null && names.includes(p.anchor)) {
       const a = names.indexOf(p.anchor);
       p.sel = new Set(names.slice(Math.min(a, i), Math.max(a, i) + 1));
-    } else if (ev.metaKey) {
+    } else if (App.isMod(ev)) {
       if (p.sel.has(e.name)) p.sel.delete(e.name); else p.sel.add(e.name);
       p.anchor = e.name;
     } else { p.sel = new Set([e.name]); p.anchor = e.name; }
@@ -478,8 +479,8 @@
   function keyNav(p, e) {
     const names = p.shown.map((x) => x.name); if (!names.length) return;
     let i = names.indexOf(p.cursor);
-    if (e.key === 'a' && e.metaKey) { e.preventDefault(); p.sel = new Set(names); return paintSel(p); }
-    if (e.key === 'Backspace' && e.metaKey) return p.dir && go(p, App.dirname(p.dir));
+    if (e.key === 'a' && App.isMod(e)) { e.preventDefault(); p.sel = new Set(names); return paintSel(p); }
+    if (e.key === 'Backspace' && App.isMod(e)) return p.dir && go(p, paths(p.host).dirname(p.dir));
     if (e.key === 'Enter' && i >= 0) return openEntry(p, p.shown[i]);
     if (e.key === 'ArrowDown') i = Math.min(names.length - 1, i + 1);
     else if (e.key === 'ArrowUp') i = Math.max(0, i - 1);
@@ -501,7 +502,7 @@
     if (e.link && p.host !== 'local' && !(await api(p.host).list(full)).error) return go(p, full);
     const ed = App.views.editor;
     if (ed.isBinary(full) && ed.isPreviewable(full)) return ed.preview(full, where(p.host));
-    if (ed.isBinary(full)) return p.host === 'local' ? codeome.shell.openPath(full) : App.toast('Copy ' + e.name + ' to your Mac to open it.');
+    if (ed.isBinary(full)) return p.host === 'local' ? codeome.shell.openPath(full) : App.toast('Copy ' + e.name + App.uiText(' to your Mac to open it.'));
     ed.openFile(full, where(p.host));
   }
 
@@ -522,7 +523,7 @@
     const o = other(p), items = selected(p), one = items.length === 1;
     const full = App.join(p.dir, e.name);
     return [
-      { label: `Copy ${one ? '' : items.length + ' items '}to ${title(o.host)}${o.dir ? ': ' + App.basename(o.dir) : ''}`, disabled: !o.dir, run: () => X.copy(p.id) },
+      { label: `Copy ${one ? '' : items.length + ' items '}to ${title(o.host)}${o.dir ? ': ' + paths(o.host).basename(o.dir) : ''}`, disabled: !o.dir, run: () => X.copy(p.id) },
       one ? (e.dir ? { label: 'Open folder', run: () => go(p, full) } : { label: 'Open in the editor', run: () => openEntry(p, e) }) : null,
       '-',
       one && e.dir ? { label: X.isFav(p.host, full) ? 'Remove from favourites' : 'Add to favourites', run: () => { X.toggleFav(p.host, full); paintStar(p); } } : null,
@@ -537,7 +538,7 @@
     const host = p.host, dir = p.dir;
     return [
       { label: 'New folder…', disabled: !dir, run: () => newFolder(p) },
-      host !== 'local' ? { label: 'Upload files from Mac…', disabled: !dir, run: async () => { const fs = await codeome.dialog.files({ defaultPath: App.project || '~' }); X.enqueue('local', fs.map((path) => ({ path })), host, dir); } } : null,
+      host !== 'local' ? { label: App.uiText('Upload files from Mac…'), disabled: !dir, run: async () => { const fs = await codeome.dialog.files({ defaultPath: App.project || '~' }); X.enqueue('local', fs.map((path) => ({ path })), host, dir); } } : null,
       '-',
       { label: 'Show in the Files sidebar', disabled: !dir, run: () => F().show(host, dir) },
       host !== 'storage' ? { label: 'Terminal here', disabled: !dir, run: () => (host === 'remote' ? App.views.terminals.hpcShell(dir) : App.views.terminals.localShell(dir)) } : null,
@@ -560,8 +561,8 @@
 
   async function renameItem(p, full) {
     const host = p.host, dir = p.dir;
-    const name = await App.prompt('Rename', 'New name', App.basename(full), { ok: 'Rename' });
-    if (!name || name === App.basename(full)) return;
+    const name = await App.prompt('Rename', 'New name', paths(host).basename(full), { ok: 'Rename' });
+    if (!name || name === paths(host).basename(full)) return;
     const r = await api(host).rename(full, App.join(dir, name));
     if (r.error) return App.err(r.error);
     touched(host, dir);
@@ -569,7 +570,7 @@
 
   async function del(p, items) {
     const host = p.host, dir = p.dir;
-    const what = items.length === 1 ? App.basename(items[0].path) : items.length + ' items';
+    const what = items.length === 1 ? paths(host).basename(items[0].path) : items.length + ' items';
     if (host !== 'local') {
       const ok = await App.confirm(`Delete ${what} on ${title(host)}?`, `${items.length === 1 ? (items[0].dir ? 'This folder and everything in it' : 'This file') : 'These items, and everything in the folders among them,'} will be permanently deleted. This can't be undone.`, 'Delete permanently', true);
       if (!ok) return;

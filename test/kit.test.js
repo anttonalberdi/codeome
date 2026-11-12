@@ -842,3 +842,34 @@ test('the figure-designer role installs with its skill, and compose.py keeps pan
   assert.match(out, /url\(#p1-cp\)/);
   assert.match(out, />b<\/text>/);
 });
+
+test('installer normalizes CRLF only for bin files and hashes the written content', (t) => {
+  const original = fs.readFileSync;
+  t.mock.method(fs, 'readFileSync', function (file, ...args) {
+    const content = original.call(this, file, ...args);
+    if (typeof content === 'string' && String(file).startsWith(path.join(__dirname, '../kit') + path.sep)) {
+      return String(file).includes(path.sep + 'bin' + path.sep) ? content.replace(/\r?\n/g, '\r\n') : content + '\r\n';
+    }
+    return content;
+  });
+  const p = tmp();
+  kit.install(p);
+  const bin = fs.readFileSync(agentBin(p), 'utf8');
+  assert.doesNotMatch(bin, /\r/);
+  assert.match(fs.readFileSync(path.join(p, '.claude/skills/delegate/SKILL.md'), 'utf8'), /\r\n/);
+  const hash = require('crypto').createHash('sha256').update(bin).digest('hex');
+  assert.strictEqual(readJson(path.join(p, '.codeome/kit.json')).files['.codeome/bin/codeome-agent'], hash);
+  assert.deepStrictEqual(kit.install(p).written, []);
+  assert.deepStrictEqual(kit.status(p).modified, []);
+});
+
+test('codeome-agent runs without the POSIX pause FIFO API', () => {
+  const p = tmp();
+  kit.install(p);
+  const script = "import os, runpy, sys; os.__dict__.pop('mkfifo', None); sys.argv = [sys.argv[1], 'codex', '--role', 'implementer']; runpy.run_path(sys.argv[0], run_name='__main__')";
+  const r = spawnSync('python3', ['-c', script, agentBin(p)], {
+    cwd: p, input: 'Check Windows fallback.', encoding: 'utf8',
+    env: { ...process.env, CODEOME_CODEX: fakeCodex(p), CODEOME_HOME: p }
+  });
+  assert.strictEqual(r.status, 0, r.stderr);
+});

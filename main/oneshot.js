@@ -9,6 +9,7 @@
 // gets SIGKILL two seconds after SIGTERM.
 // Claude's optional strict MCP switch keeps ordinary calls isolated from connectors.
 // Callers may disable that switch when a connector is needed for the prompt.
+const platformTools = require('./platform');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { augmentedEnv, expandHome } = require('./util');
@@ -46,7 +47,7 @@ function abortError() {
 function minimalEnvironment(env = {}) {
   const source = augmentedEnv(env);
   const clean = {};
-  for (const key of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR'])
+  for (const key of ['PATH', 'Path', 'HOME', 'USERPROFILE', 'SystemRoot', 'APPDATA', 'LOCALAPPDATA', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData', 'ComSpec', 'windir', 'HOMEDRIVE', 'HOMEPATH', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'TMPDIR', 'CHERE_INVOKING', 'MSYS_NO_PATHCONV'])
     if (typeof source[key] === 'string') clean[key] = source[key];
   for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'])
     if (typeof env[key] === 'string' && env[key]) clean[key] = env[key];
@@ -71,12 +72,11 @@ function oneShot(engine, { prompt, model, effort, bin, dir, cwd, timeoutMs = 600
   const started = Date.now();
   return new Promise((resolve, reject) => {
     let child;
-    try { child = spawn(bin || engine, args, { cwd: workDir, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: true }); }
+    try { const launch = platformTools.cliSpawnSpec(bin || engine, args, { login: false }); child = spawn(launch.file, launch.args, { cwd: workDir, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: !platformTools.isWin }); }
     catch (error) { reject(error); return; }
     let stdout = '', stderr = '', failure = null, killTimer = null, exitTimer = null, settled = false;
     const killGroup = (sig) => {
-      try { if (child.pid) { process.kill(-child.pid, sig); return; } } catch {}
-      try { child.kill(sig); } catch {}
+      platformTools.killTree(child, sig, { group: true });
     };
     const settle = (code) => {
       if (settled) return;

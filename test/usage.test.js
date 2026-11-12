@@ -116,3 +116,17 @@ test('config folders that are no account yet are found by what their CLI leaves 
   assert.deepStrictEqual(usage.findFolders('claude', ['', path.join(h, '.claude-work')], h).map((d) => path.basename(d)), ['.claude-lab']);
   assert.deepStrictEqual(usage.findFolders('codex', [], h).map((d) => path.basename(d)), ['.codex-lab']);
 });
+
+test('claudeIdentity preserves HEAD darwin shell argv', async () => {
+  const vm = require('vm');
+  const source = fs.readFileSync(path.join(__dirname, '../main/usage.js'), 'utf8');
+  const calls = [];
+  const sandbox = {
+    require: name => name === './platform' ? { isWin: false } : name === './util' ? { ...require('../main/util'), run: async (...args) => { calls.push(args); return { stdout: '{"loggedIn":false}' }; } } : require(name),
+    module: { exports: {} }, process, __dirname: path.join(__dirname, '../main'), Buffer, console
+  };
+  vm.runInNewContext(source, sandbox);
+  await sandbox.module.exports.claudeIdentity(null, '/a/claude --flag');
+  assert.strictEqual(calls[0][0], '/bin/sh');
+  assert.deepStrictEqual(Array.from(calls[0][1]), ['-c', 'unset CLAUDE_CONFIG_DIR; /a/claude --flag auth status --json']);
+});

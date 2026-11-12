@@ -24,7 +24,7 @@
     G.stack = App.stack({ key: 'gitPanes', sections: SECTIONS });
     // Kept across refreshes, so a half-written message survives them.
     msg = h('textarea', { rows: 3, placeholder: 'Describe the change', 'aria-label': 'Commit message' });
-    msg.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) commit(); });
+    msg.addEventListener('keydown', (e) => { if (e.key === 'Enter' && App.isMod(e)) commit(); });
     App.listen('project', () => { msg.value = ''; issuesData = null; issuesError = ''; issuesLoading = false;
       assessingIssues.clear(); assessErrors.clear(); startingIssues.clear(); postingIssues.clear();
       workErrors.clear(); replyDrafts.clear(); postedComments.clear(); ++issuesSeq; G.refresh(); });
@@ -59,7 +59,7 @@
     const b = document.querySelector('#rail button[data-view="git"]');
     if (!b) return;
     b.classList.toggle('dirty', n > 0);
-    b.title = 'Git & GitHub (⌘4)' + (n ? ` — ${n} uncommitted change${n > 1 ? 's' : ''}` : '');
+    b.title = App.uiText('Git & GitHub (⌘4)') + (n ? ` — ${n} uncommitted change${n > 1 ? 's' : ''}` : '');
   }
 
   G.refresh = async () => {
@@ -125,7 +125,7 @@
     SECTIONS[1].dot.textContent = st.log.length ? String(st.log.length) : '';
     changes.append(h('div.pad.form', msg,
       h('div.row.wrap',
-        h('button.btn.primary.small', { onclick: commit, title: '⌘↩' }, staged.length ? `Commit ${staged.length} staged` : (unstaged.length ? 'Commit all changes' : 'Commit')),
+        h('button.btn.primary.small', { onclick: commit, title: App.uiText('⌘↩') }, staged.length ? `Commit ${staged.length} staged` : (unstaged.length ? 'Commit all changes' : 'Commit')),
         h('button.btn.small', { onclick: () => git(['pull', '--rebase', '--autostash'], 'Pulled.') }, 'Pull' + (behind ? ' ' + behind[1] : '')),
         h('button.btn.small', { onclick: () => git(track ? ['push'] : ['push', '-u', 'origin', branch], 'Pushed.') , disabled: !st.remote }, 'Push' + (ahead ? ' ' + ahead[1] : '')))));
 
@@ -167,7 +167,7 @@
         App.toast('Identity saved.');
       } }, 'Save'), h('div.hint', "Saved in this repository's .git/config only.")));
 
-    if (!App.env.tools.gh) ghSec.append(h('div.empty', 'Install the GitHub CLI (brew install gh) and run "gh auth login" to create repositories, pull requests and releases from here.'));
+    if (!App.env.tools.gh) ghSec.append(h('div.empty', App.uiText('Install the GitHub CLI (brew install gh) and run "gh auth login" to create repositories, pull requests and releases from here.')));
     else if (!st.gh && !st.accountId) ghSec.append(h('div.empty', 'GitHub CLI is not signed in.', h('br'), h('button.btn.small', { onclick: () => App.views.terminals.task('gh login', 'gh auth login', st.root) }, 'Sign in')));
     else if (!st.remote) ghSec.append(h('div.pad.form', h('div.hint', 'This repository is not on GitHub yet.'),
       h('button.btn.small.primary', { onclick: publishRepo }, 'Publish to GitHub…')));

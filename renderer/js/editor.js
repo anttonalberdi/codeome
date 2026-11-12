@@ -69,15 +69,15 @@
     const key = prefix({ remote, storage }) + path;
     const existing = E.tabs.find((t) => t.key === key && mine(t));
     if (existing) { E.activate(existing.id); return existing; }
-    if (E.isGdoc(path)) { if (remote || storage) { App.toast('Google files open from this Mac only.'); return; } return E.gdoc(path); }
-    if (E.isBinary(path)) { if (E.isPreviewable(path)) return E.preview(path, { remote, storage }); App.toast(App.basename(path) + ' is a binary file.'); return; }
+    if (E.isGdoc(path)) { if (remote || storage) { App.toast(App.uiText('Google files open from this Mac only.')); return; } return E.gdoc(path); }
+    if (E.isBinary(path)) { if (E.isPreviewable(path)) return E.preview(path, { remote, storage }); App.toast((remote || storage ? App.posix : App).basename(path) + ' is a binary file.'); return; }
     const r = await fileApi({ remote, storage }).read(path);
     if (r.error) { App.err(r.error); return; }
     const uri = monaco.Uri.from({ scheme: remote ? 'hpc' : storage ? 'store' : 'file', path: path.startsWith('/') ? path : '/' + path });
     const model = monaco.editor.getModel(uri) || monaco.editor.createModel(r.content, E.lang(path), uri);
     // Two projects can open the same file: they share its model (and its unsaved edits).
     const twin = E.tabs.find((t) => t.model === model);
-    const tab = { id: 'e' + (++E.seq), key, kind: 'file', path, remote, storage, title: App.basename(path), model, project: App.project, saved: twin ? twin.saved : model.getAlternativeVersionId(), viewState: null };
+    const tab = { id: 'e' + (++E.seq), key, kind: 'file', path, remote, storage, title: (remote || storage ? App.posix : App).basename(path), model, project: App.project, saved: twin ? twin.saved : model.getAlternativeVersionId(), viewState: null };
     model.onDidChangeContent(() => { tab.dirty = model.getAlternativeVersionId() !== tab.saved; renderTabs(); });
     E.tabs.push(tab);
     E.activate(tab.id);
@@ -319,9 +319,9 @@
     if (ext === 'r' && !t.storage) return App.views.terminals.sourceR(t.path, App.views.rmd.whereFor(t));
     const runner = { r: 'Rscript', py: App.cfg.python[t.remote ? 'remote' : 'local'], sh: 'bash', bash: 'bash' }[ext];
     if (!runner) return App.toast('No runner for .' + ext + ' files.');
-    if (t.storage) return App.toast('Copy the file to this Mac or the HPC to run it.');
+    if (t.storage) return App.toast(App.uiText('Copy the file to this Mac or the HPC to run it.'));
     const cmd = `${runner} '${t.path.replace(/'/g, "'\\''")}'`;
-    if (t.remote) App.views.terminals.hpcTask(t.title, cmd, App.dirname(t.path)); else App.views.terminals.task(t.title, cmd, App.dirname(t.path));
+    if (t.remote) App.views.terminals.hpcTask(t.title, cmd, App.posix.dirname(t.path)); else App.views.terminals.task(t.title, cmd, App.dirname(t.path));
   };
 
   // Puts a reference to the file (and selected lines) in the Agent chat's composer.
@@ -341,7 +341,7 @@
     const renderable = ['qmd', 'rmd', 'ipynb'].includes(ext);
     const away = remote || storage;
     return E.openCustom({
-      key: 'preview:' + prefix({ remote, storage }) + path, title: App.basename(path), badge: 'Preview',
+      key: 'preview:' + prefix({ remote, storage }) + path, title: (remote || storage ? App.posix : App).basename(path), badge: 'Preview',
       render: (el, tab) => {
         const frameWrap = h('div', { style: { flex: 1, display: 'flex', minHeight: 0 } });
         const status = h('span.hint');
@@ -620,7 +620,7 @@
           !group && groupsFor(project).length ? { header: 'Add to group…' } : null,
           !group ? groupsFor(project).map((g) => ({ label: `${g.name} (${g.code})`, run: () => changeGroups(project, Groups.addToGroup(groupsFor(project), g.code, [t.id])) })) : null,
           group ? { label: 'Remove from group', run: () => changeGroups(project, Groups.removeFromGroup(groupsFor(project), [t.id])) } : null,
-          { label: 'Copy name', run: () => navigator.clipboard.writeText(t.path ? App.basename(t.path) : t.title) },
+          { label: 'Copy name', run: () => navigator.clipboard.writeText(t.path ? (t.remote || t.storage ? App.posix : App).basename(t.path) : t.title) },
           t.path ? { label: 'Copy path', run: () => navigator.clipboard.writeText(t.path) } : null,
           t.kind === 'file' || t.reload ? { label: 'Refresh', run: () => E.refresh(t) } : null,
           '-',

@@ -19,7 +19,7 @@
     App.views.settings.close();
     let done;
     const ended = new Promise((r) => { done = r; });
-    const t = await T().open({ cwd: '~', badge: 'Mac', ...spec, onExit: (code) => done(code) });
+    const t = await T().open({ cwd: '~', badge: App.uiText('Mac'), ...spec, onExit: (code) => done(code) });
     if (!t.alive) done(-1);
     const code = await ended;
     if (code === 0) setTimeout(() => T().get(t.id) && T().close(t.id), 1500);
@@ -29,13 +29,14 @@
   // ---------- installing tools ----------
   // Ask, then install with Homebrew (installing Homebrew first if it is missing).
   U.install = async (tools, why) => {
+    if (App.platform === 'win32') { App.toast('Install this tool from its website, then restart Codeome.'); return false; }
     const ic = await codeome.setup.install(tools);
     if (!ic) { App.err(`Codeome cannot install ${and(tools)} by itself.`); return false; }
     const st = U.status || await U.refresh();
     const needBrew = ic.brew && !st.brew;
     const ok = await App.modal({
       title: `Install ${and(ic.labels)}?`,
-      text: (why ? why + ' ' : '') + (needBrew ? 'Homebrew, the Mac package manager, is not installed, so Codeome first installs it (it asks for your Mac password), then runs:' : 'Codeome runs this in a terminal:'),
+      text: (why ? why + ' ' : '') + (needBrew ? App.uiText('Homebrew, the Mac package manager, is not installed, so Codeome first installs it (it asks for your Mac password), then runs:') : 'Codeome runs this in a terminal:'),
       body: h('pre.sp-code', (needBrew ? ic.brewInstall + '\n' : '') + ic.command),
       ok: 'Install'
     });
@@ -56,7 +57,7 @@
   U.ensureCli = async (engine) => {
     if (!App.env.tools || App.env.tools[engine] !== false) return true;
     const label = engine === 'codex' ? 'Codex' : 'Claude Code';
-    return U.install([engine], `${label} is not installed on this Mac, and Codeome needs it for this.`);
+    return U.install([engine], App.uiText(`${label} is not installed on this Mac, and Codeome needs it for this.`));
   };
 
   // Update Claude Code and/or Codex in a terminal, each the way it was installed.
@@ -133,7 +134,7 @@
       const who = App.cfg.hpc.vpn.user;
       r = await show({ title, text: pr.error || (who ? `The VPN password for ${who}.` : 'Your VPN password.'), ok: 'Sign in',
         fields: [{ key: 'v', label: 'Password', type: 'password' },
-          { key: 'save', type: 'check', label: pr.saved ? 'Replace the saved password once it works' : 'Save in the Keychain once it works', value: true }] });
+          { key: 'save', type: 'check', label: pr.saved ? 'Replace the saved password once it works' : App.uiText('Save in the Keychain once it works'), value: true }] });
       value = r && r.v; save = !!(r && r.save);
     } else if (pr.kind === 'group') {
       r = await show({ title, text: pr.error || 'Pick your group.', ok: 'Continue',

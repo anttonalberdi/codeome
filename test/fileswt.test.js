@@ -39,6 +39,7 @@ function load() {
   let trees = [], missing = null, now = 100000;
   let worktreeLoader = async () => ({ worktrees: trees });
   const App = {
+    uiText: (text) => text,
     h: element, project: '/a/proj', views: { transfer: {
       queueList: () => ({ el: element('queue'), count: () => 0 }), open() {}, summary: () => ''
     } },

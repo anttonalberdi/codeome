@@ -6,7 +6,7 @@
 (function () {
   const h = App.h;
   const SIDES = ['local', 'remote', 'storage'];
-  const DEFAULT_TITLE = { local: 'This Mac', remote: 'HPC', storage: 'ERDA' };
+  const DEFAULT_TITLE = { local: App.uiText('This Mac'), remote: 'HPC', storage: 'ERDA' };
   const F = { panes: {} };
   for (const s of SIDES) F[s] = { dir: null, entries: [], sel: null };
   F.worktrees = [];
@@ -15,7 +15,7 @@
   let worktreeRoot = null, worktreeProjectRoot = null, worktreeSig = '[]', worktreeSeq = 0, worktreePollAt = 0;
 
   const api = (side) => ({ local: codeome.local, remote: codeome.remote, storage: codeome.storage })[side];
-  const host = (side) => (side === 'remote' ? App.cfg.hpc.host : side === 'storage' ? App.cfg.storage.host : 'this Mac');
+  const host = (side) => (side === 'remote' ? App.cfg.hpc.host : side === 'storage' ? App.cfg.storage.host : App.uiText('this Mac'));
   // Layout and names live in App.cfg.ui.panes[side]: { title, collapsed, weight } (see stack.js).
   F.title = (side) => (F.stack ? F.stack.title(side) : (App.cfg.ui.panes || {})[side]?.title || DEFAULT_TITLE[side]);
   F.isUp = (side) => side === 'local' || (side === 'remote' ? App.hpcConnected : App.storageConnected);
@@ -34,7 +34,7 @@
     F.txEl = h('div.transfers', { hidden: true }, F.tx.el);
     const sum = h('span.hint.grow');
     root.append(F.stack.el, F.txEl, h('div.files-foot',
-      h('button.btn.ghost.small', { title: 'Two panes side by side, with the transfer queue (⌘8)', onclick: () => X.open() }, h('span', { html: App.icons.swap }), 'Transfer view'), sum));
+      h('button.btn.ghost.small', { title: App.uiText('Two panes side by side, with the transfer queue (⌘8)'), onclick: () => X.open() }, h('span', { html: App.icons.swap }), 'Transfer view'), sum));
     App.listen('transfers', (queue) => { F.txEl.hidden = !F.tx.count(); sum.textContent = X.summary(queue); });
     App.listen('transferred', (t) => { if (F[t.to].dir === t.destDir) F.refresh(t.to); });
     App.listen('local-changed', () => F.refresh('local'));
@@ -190,7 +190,7 @@
     if (e.key === 'ArrowDown') i = Math.min(items.length - 1, i + 1);
     else if (e.key === 'ArrowUp') i = Math.max(0, i - 1);
     else if (e.key === 'Enter' && i >= 0) return openEntry(side, items[i]);
-    else if (e.key === 'Backspace' && e.metaKey) return F.go(side, App.dirname(s.dir));
+    else if (e.key === 'Backspace' && App.isMod(e)) return F.go(side, App.dirname(s.dir));
     else return;
     e.preventDefault(); s.sel = items[i].name; render(side);
     F.panes[side].list.querySelector('.sel')?.scrollIntoView({ block: 'nearest' });
@@ -269,6 +269,7 @@
   }
   // What a remote host shows while it can't list anything: how to set it up, or connect.
   F.stateNote = (side) => {
+    if (App.platform === 'win32' && side !== 'local') return h('div.empty', App.hpcUnsupportedMessage);
     if (side === 'remote') {
       if (!App.cfg.hpc.host) return h('div.empty', 'Add your cluster login in Settings to browse HPC files.', h('br'), h('button.btn.small', { onclick: () => App.views.settings.open('hpc') }, 'Open Settings'));
       return h('div.empty', `Not connected to ${App.hpcName()}. Make sure the VPN is on, then connect.`, h('br'), h('button.btn.small.primary', { onclick: () => App.connectHpc() }, 'Connect'));
@@ -311,7 +312,7 @@
     if (e.link && side !== 'local' && !(await api(side).list(full)).error) return F.go(side, full);
     const ed = App.views.editor;
     if (ed.isBinary(full) && ed.isPreviewable(full)) return ed.preview(full, where(side));
-    if (ed.isBinary(full)) return side === 'local' ? codeome.shell.openPath(full) : App.toast('Download it to open ' + e.name + ' on your Mac.');
+    if (ed.isBinary(full)) return side === 'local' ? codeome.shell.openPath(full) : App.toast('Download it to open ' + e.name + App.uiText(' on your Mac.'));
     ed.openFile(full, where(side));
   }
 
@@ -365,7 +366,7 @@
       { label: 'New file…', disabled: !dir, run: () => newItem(side, false) },
       { label: 'New folder…', disabled: !dir, run: () => newItem(side, true) },
       local ? { label: 'Open another project…', run: () => App.openProject() }
-        : { label: 'Upload files from Mac…', disabled: !dir, run: async () => { const fs = await codeome.dialog.files({ defaultPath: F.local.dir }); fs.forEach((f) => F.transfer('local', f, side, dir)); } },
+        : { label: App.uiText('Upload files from Mac…'), disabled: !dir, run: async () => { const fs = await codeome.dialog.files({ defaultPath: F.local.dir }); fs.forEach((f) => F.transfer('local', f, side, dir)); } },
       '-',
       side !== 'storage' ? { label: 'Terminal here', disabled: !dir, run: () => remote ? App.views.terminals.hpcShell(dir) : App.views.terminals.localShell(dir) } : null,
       side !== 'storage' ? { label: 'R console here', disabled: !dir, run: () => App.views.terminals.rConsole({ remote, cwd: dir }) } : null,
