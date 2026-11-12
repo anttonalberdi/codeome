@@ -27,3 +27,44 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  # Non-blocking until the Windows test baseline is fixed (Windows port in progress).
+  test-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run smoke
+        if: ${{ !cancelled() }}
+
+  # Non-blocking: the Windows installer is untested until this job runs.
+  build-win:
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codeome-windows-x64
+          path: dist/*.exe
+          if-no-files-found: error

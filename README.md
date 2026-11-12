@@ -31,6 +31,14 @@ Open the `.dmg` and drag Codeome to Applications. The app is not signed with an 
 
 See the [guide](https://www.alberdilab.dk/codeome/guide/getting-started) for each area, the [settings](https://www.alberdilab.dk/codeome/settings) for first-time set-up, and the [keyboard shortcuts](https://www.alberdilab.dk/codeome/reference/keyboard).
 
+## Windows (early support)
+
+A Windows x64 installer can be built with `npm run dist:win`. It has so far been built and tested only through CI and stub tests; it has not been run on a real Windows machine yet. The installer is unsigned, so SmartScreen will warn.
+
+- **Needs**: [Git for Windows](https://git-scm.com/download/win) (it provides bash) and Python 3 on your PATH (the Microsoft Store `python3` stub does not count) for the `codeome-agent` helper. Install the Claude Code and Codex CLIs as on macOS.
+- **Not yet supported**: the HPC connection (terminals, SFTP, transfers, Slurm, agents on the cluster), because Windows OpenSSH has no ControlMaster. It is planned for a later release; the app shows a "not yet supported" note instead of the HPC controls.
+- **Known quirks**: shortcuts use Ctrl instead of Cmd. In the terminal, Ctrl+C copies only when text is selected (otherwise it interrupts), Ctrl+Shift+C/V copy and paste, Ctrl+Shift+K clears and Ctrl+F finds. Some File-menu accelerators (Ctrl+W, N, T, J, O, S and 1-9) take priority over the same keys in the terminal.
+
 ## Advanced: run from source
 
 Needs Node.js 20+ and the Xcode command-line tools.

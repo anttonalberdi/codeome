@@ -12,7 +12,9 @@
     "rebuild": "electron-builder install-app-deps",
     "postinstall": "electron-builder install-app-deps",
     "dist": "electron-builder --mac && electron-builder install-app-deps",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "smoke": "node test/smoke-win.js",
+    "dist:win": "electron-builder --win --x64 --publish never"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -44,6 +46,22 @@
       "hardenedRuntime": false,
       "identity": "-"
     },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
     "files": [
       "main/**",
       "renderer/**",
@@ -53,6 +71,7 @@
     ],
     "asarUnpack": [
       "node_modules/node-pty/**",
+      "**/node_modules/node-pty/**",
       "kit/**"
     ]
   },

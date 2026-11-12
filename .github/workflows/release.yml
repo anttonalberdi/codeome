@@ -67,3 +67,25 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "Codeome ${GITHUB_REF_NAME#v}" \
             --generate-notes
+
+  # Windows installer: artifact only, never attached to a release. Non-blocking and untested until CI runs.
+  build-win:
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Codeome-windows-x64
+          path: dist/*.exe
+          if-no-files-found: error

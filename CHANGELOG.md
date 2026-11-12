@@ -7,6 +7,7 @@ What changed in each version of Codeome, newest first. The version is the one in
 ### Added
 - **Drop a folder to open a project**: drag a folder from Finder onto the Projects column to open it as a project; several folders at once open together. Dropping something that is not a folder shows a short hint.
 - **Resizable columns in the Transfer window**: drag the handle on the left edge of the Size or Modified header to change its width (double-click to reset). Both panes share the widths, and they are remembered between sessions.
+- **Early Windows support (x64)**: Codeome can now be built for Windows with an installer (`npm run dist:win`) and is checked by non-blocking Windows jobs in CI. Local terminals, Claude and Codex chats and one-shot calls run through Git for Windows' bash; the setup screen checks for Git for Windows and a working Python 3. Shortcuts use Ctrl instead of Cmd (in the terminal, Ctrl+C copies only when text is selected, Ctrl+Shift+C/V copy and paste, Ctrl+Shift+K clears, Ctrl+F finds), the window has the native Windows frame, and on-screen text no longer mentions the Mac, Homebrew or ⌘. The HPC connection is not yet supported on Windows and shows a note instead of its controls. This is untested on a real Windows machine and the installer is unsigned. See the README.
 
 ### Changed
 - **Renaming a chat tab**: the rename box now opens empty, with the current name shown as greyed placeholder text, so you can type a new name without deleting the old one first. Confirming an empty name leaves the title unchanged.
