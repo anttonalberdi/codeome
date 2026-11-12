@@ -353,8 +353,32 @@
     for (const [key, label] of [['name', 'Name'], ['size', 'Size'], ['mtime', 'Modified']]) {
       const on = p.sort.key === key;
       p.cols.append(h('button' + (on ? '.on' : ''), { title: 'Sort by ' + label.toLowerCase(), 'aria-pressed': String(on),
-        onclick: () => { p.sort = { key, asc: on ? !p.sort.asc : key === 'name' }; render(p); } }, label, on ? (p.sort.asc ? ' ↑' : ' ↓') : ''));
+        onclick: () => { p.sort = { key, asc: on ? !p.sort.asc : key === 'name' }; render(p); } }, label, on ? (p.sort.asc ? ' ↑' : ' ↓') : '',
+        key === 'name' ? null : grip(key)));
     }
+  }
+
+  // Column widths are shared by both panes and kept in the config.
+  const COLW = { size: { min: 40, def: 68 }, mtime: { min: 56, def: 84 } };
+  function applyCols() {
+    if (!root) return;
+    const w = ui().colW || {};
+    for (const k in COLW) root.style.setProperty('--xf-' + k, (w[k] || COLW[k].def) + 'px');
+  }
+  // A handle on the left edge of a header: drag left to widen the column.
+  function grip(key) {
+    const g = h('span.xf-grip', { role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to resize the column; double-click to reset',
+      onclick: (e) => e.stopPropagation() });
+    g.addEventListener('dblclick', (e) => { e.stopPropagation(); const u = ui(); if (u.colW) delete u.colW[key]; applyCols(); App.saveConfig(); });
+    g.addEventListener('mousedown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const w0 = parseFloat(root.style.getPropertyValue('--xf-' + key)) || COLW[key].def, x0 = e.clientX;
+      document.body.classList.add('col-resizing');
+      const move = (ev) => { (ui().colW = ui().colW || {})[key] = Math.round(Math.max(COLW[key].min, Math.min(400, w0 + x0 - ev.clientX))); applyCols(); };
+      const up = () => { removeEventListener('mousemove', move); removeEventListener('mouseup', up); document.body.classList.remove('col-resizing'); App.saveConfig(); };
+      addEventListener('mousemove', move); addEventListener('mouseup', up);
+    });
+    return g;
   }
 
   X.setHost = (p, host) => {
@@ -624,6 +648,7 @@
     });
 
     root = h('div.xfer', h('div.xf-panes', X.panes.left.el, h('div.xf-mid', mid.toRight, mid.toLeft, swap), X.panes.right.el), rz, queue);
+    applyCols();
     App.listen('transfers', paintQueueHead);
     paintQueueHead();
   }
