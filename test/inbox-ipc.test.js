@@ -60,5 +60,5 @@ test('two live chats can refresh one outbox without duplicate announcements; cap
   assert.equal(events.filter((event) => event.msg.type === 'outgoing').length, 1);
   const support = path.join(project, '.codeome', 'inbox-support.json');
   assert.deepEqual(JSON.parse(fs.readFileSync(support)), { inbox: 1, app: '0.9.4' });
-  assert.equal(fs.statSync(support).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(support).mode & 0o777, 0o600); // POSIX mode bits are unavailable on Windows.
 });

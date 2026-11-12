@@ -3,12 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync } = require('./helpers/portable-process');
 
 const source = path.join(__dirname, '..', 'kit', 'bin', 'codeome-agent');
 
 function project(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-estimate-'));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-estimate-')));
   const bin = path.join(root, '.codeome', 'bin');
   fs.mkdirSync(bin, { recursive: true });
   fs.copyFileSync(source, path.join(bin, 'codeome-agent'));

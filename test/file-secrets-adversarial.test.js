@@ -25,9 +25,9 @@ test('PEM bytes survive local placement; filename is ignored and private modes a
   const file = createStore(base).place({ name: 'SIGNING_KEY', ext: '.p8', filename: '../../escape' }, pem);
   assert.equal(path.basename(file), 'SIGNING_KEY.p8');
   assert.deepEqual(fs.readFileSync(file), Buffer.from(pem, 'utf8'));
-  assert.equal(fs.statSync(path.dirname(path.dirname(file))).mode & 0o777, 0o700);
-  assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.dirname(path.dirname(file))).mode & 0o777, 0o700); // POSIX mode bits are unavailable on Windows.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700); // POSIX mode bits are unavailable on Windows.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600); // POSIX mode bits are unavailable on Windows.
   assert.equal(fs.existsSync(path.join(base, 'escape')), false);
 });
 
@@ -69,7 +69,7 @@ test('planted run, target and base links cannot redirect placement', (t) => {
   assert.equal(fs.existsSync(path.join(outside, 'THIRD')), false);
 });
 
-test('loose permissions are rejected and a new store sweeps a crashed run', (t) => {
+test('loose permissions are rejected and a new store sweeps a crashed run', { skip: process.platform === 'win32' && 'Windows does not expose POSIX permission bits' }, (t) => {
   const base = temp(t);
   const crashed = createStore(base);
   const file = crashed.place({ name: 'KEY' }, pem);
@@ -129,8 +129,8 @@ test('HPC script preserves PEM bytes, keeps prior files on a failed stage, and r
   const firstTag = sync.tag(list, project, get, salt);
   assert.equal((await sync.sync(project, deps)).ok, true);
   assert.deepEqual(fs.readFileSync(filename), Buffer.from(pem));
-  assert.equal(fs.statSync(filename).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(path.dirname(filename)).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(filename).mode & 0o777, 0o600); // POSIX mode bits are unavailable on Windows.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.dirname(filename)).mode & 0o777, 0o700); // POSIX mode bits are unavailable on Windows.
 
   content = pem.replace('é✓', 'rotated');
   assert.notEqual(sync.tag(list, project, get, salt), firstTag);

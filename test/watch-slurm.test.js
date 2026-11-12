@@ -125,7 +125,8 @@ async function until(check, timeout = 8000) {
   assert.fail('timed out waiting for Slurm watcher');
 }
 
-test('array progress counts completed tasks poll by poll', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('array progress counts completed tasks poll by poll', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const p = project(t, [
     { out: fixture('array-pending.txt') },
     ...Array(8).fill({ out: fixture('array-one.txt') }),
@@ -144,7 +145,8 @@ test('array progress counts completed tasks poll by poll', async (t) => {
   ['slurm:hpc-jobs', 'HPC jobs', 3, 3, 'tasks', 'done']);
 });
 
-test('each terminal Slurm failure ends failed with completed count', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('each terminal Slurm failure ends failed with completed count', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const states = ['FAILED', 'OUT_OF_MEMORY', 'TIMEOUT', 'NODE_FAIL', 'BOOT_FAIL',
     'DEADLINE', 'REVOKED', 'CANCELLED'];
   await Promise.all(states.map(async (state, i) => {
@@ -157,14 +159,16 @@ test('each terminal Slurm failure ends failed with completed count', async (t) =
   }));
 });
 
-test('CANCELLED by uid and collapsed array rows count their tasks', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('CANCELLED by uid and collapsed array rows count their tasks', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t, [{ out: fixture('cancelled.txt') }]);
   const r = run(p, args('cancelled', '45804133'));
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual([stage(p, 'cancelled').done, stage(p, 'cancelled').total, stage(p, 'cancelled').state], [1, 4, 'failed']);
 });
 
-test('collapsed rows count ranges, commas and throttle suffixes', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('collapsed rows count ranges, commas and throttle suffixes', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t, [
     { out: fixture('collapsed.txt') },
     { out: '45804244_[0-2%1]|COMPLETED\n45870000_[0,2-4%2]|COMPLETED\n' }
@@ -174,7 +178,8 @@ test('collapsed rows count ranges, commas and throttle suffixes', (t) => {
   assert.deepEqual([stage(p, 'collapsed').done, stage(p, 'collapsed').total, stage(p, 'collapsed').state], [7, 7, 'done']);
 });
 
-test('largest observed array total does not shrink', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('largest observed array total does not shrink', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t, [
     { out: fixture('growing-small.txt') },
     { out: fixture('growing-large.txt') },
@@ -186,7 +191,8 @@ test('largest observed array total does not shrink', (t) => {
   assert.deepEqual([stage(p, 'growing').done, stage(p, 'growing').total, stage(p, 'growing').state], [4, 4, 'done']);
 });
 
-test('plain job ignores step rows; explicit total takes precedence', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('plain job ignores step rows; explicit total takes precedence', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const cases = [
     ['plain', [], [1, 1, 'done']],
     ['total', ['--total', '2'], [1, 2, 'failed']]
@@ -200,7 +206,8 @@ test('plain job ignores step rows; explicit total takes precedence', async (t) =
   }));
 });
 
-test('a failure from an earlier poll does not stick after completion', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('a failure from an earlier poll does not stick after completion', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t, [
     { out: '123_0|FAILED\n123_1|RUNNING\n' },
     { out: '123_0|COMPLETED\n123_1|COMPLETED\n' }
@@ -210,7 +217,8 @@ test('a failure from an earlier poll does not stick after completion', (t) => {
   assert.deepEqual([stage(p, 'persistent').done, stage(p, 'persistent').total, stage(p, 'persistent').state], [2, 2, 'done']);
 });
 
-test('preempted and special-exit tasks can complete after requeue', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('preempted and special-exit tasks can complete after requeue', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   for (const state of ['PREEMPTED', 'SPECIAL_EXIT']) {
     const p = project(t, [{ out: `123_0|${state}\n123_1|COMPLETED\n` },
       { out: '123_0|COMPLETED\n123_1|COMPLETED\n' }]);
@@ -221,7 +229,8 @@ test('preempted and special-exit tasks can complete after requeue', (t) => {
   }
 });
 
-test('other active states keep polling and a collapsed expansion is bounded', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('other active states keep polling and a collapsed expansion is bounded', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const active = ['CONFIGURING', 'COMPLETING', 'SUSPENDED', 'REQUEUED', 'RESIZING'];
   const p = project(t, [
     { out: active.map((state, i) => `123_${i}|${state}`).join('\n') + '\n' },
@@ -239,7 +248,8 @@ test('other active states keep polling and a collapsed expansion is bounded', as
   assert.deepEqual([stage(large, 'capped').done, stage(large, 'capped').total], [100000, 100000]);
 });
 
-test('bad ids are rejected before SSH starts', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('bad ids are rejected before SSH starts', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   for (const [i, jobs] of ['1;rm', '12_[1-3]', 'abc', '', Array.from({ length: 51 }, (_, n) => String(n)).join(','), '-j'].entries()) {
     const argv = jobs === '-j' ? args(`bad-${i}`, '1').slice(0, -2).concat('--jobs=-j') : args(`bad-${i}`, jobs);
@@ -253,7 +263,8 @@ test('bad ids are rejected before SSH starts', (t) => {
   assert.deepEqual(calls(p), []);
 });
 
-test('missing connection and invalid host or socket write failed cards without SSH', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('missing connection and invalid host or socket write failed cards without SSH', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   const cases = [
     ['missing-host', { CODEOME_HPC_HOST: '' }],
@@ -274,7 +285,8 @@ test('missing connection and invalid host or socket write failed cards without S
   assert.deepEqual(calls(p), []);
 });
 
-test('SSH argv uses the control connection and exact validated sacct command', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('SSH argv uses the control connection and exact validated sacct command', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t, [{ out: '123|COMPLETED\n456_7|COMPLETED\n' }]);
   const r = run(p, args('argv', '123,456_7'));
   assert.equal(r.status, 0, r.stderr);
@@ -288,7 +300,8 @@ test('SSH argv uses the control connection and exact validated sacct command', (
   assert.doesNotMatch(data, /mjolnirgate|codeome-ssh/);
 });
 
-test('a dead master prevents data commands', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('a dead master prevents data commands', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   const r = run(p, args('dead-master', '123'), { CODEOME_TEST_SSH_MASTER: 'dead' });
   assert.equal(r.status, 0, r.stderr);
@@ -298,7 +311,8 @@ test('a dead master prevents data commands', (t) => {
   assert.equal(allCalls(p).length, 1);
 });
 
-test('a timed-out master check reports unavailable before data commands', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('a timed-out master check reports unavailable before data commands', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   const r = run(p, args('slow-master', '123'), {
     CODEOME_WATCH_SSH_TIMEOUT: '0.2', CODEOME_TEST_SSH_MASTER_SLEEP: '5'
@@ -310,7 +324,8 @@ test('a timed-out master check reports unavailable before data commands', (t) =>
   assert.ok(allCalls(p).every((call) => call.includes('-O')));
 });
 
-test('three SSH failures and three empty results fail with short reasons', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('three SSH failures and three empty results fail with short reasons', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const cases = [
     ['disconnect', [{ out: '', err: 'sensitive host and socket', exit: '255' }], 'lost connection to HPC'],
     ['empty', [{ out: '' }], 'no job data']
@@ -326,7 +341,8 @@ test('three SSH failures and three empty results fail with short reasons', async
   }));
 });
 
-test('empty results must be consecutive', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('empty results must be consecutive', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t, [
     { out: '' }, { out: '', exit: '255' }, { out: '' }, { out: '' }, { out: '' }
   ]);
@@ -336,7 +352,8 @@ test('empty results must be consecutive', (t) => {
   assert.equal(calls(p).length, 5);
 });
 
-test('SIGTERM settles a pending stage', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('SIGTERM settles a pending stage', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const p = project(t, [{ out: '123|PENDING\n' }]);
   const watch = launch(t, p, args('stopped', '123'), { CODEOME_WATCH_SLURM_POLL: '5' });
   await until(() => calls(p).length >= 1);
@@ -349,7 +366,8 @@ test('SIGTERM settles a pending stage', async (t) => {
   assert.ok(stage(p, 'stopped').endedAt);
 });
 
-test('SIGTERM kills an in-flight SSH command promptly', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('SIGTERM kills an in-flight SSH command promptly', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const p = project(t, [{ out: '123|PENDING\n', sleep: '5' }]);
   const watch = launch(t, p, args('stopped-ssh', '123'), { CODEOME_WATCH_SLURM_POLL: '5' });
   await until(() => calls(p).length >= 1);
@@ -361,7 +379,8 @@ test('SIGTERM kills an in-flight SSH command promptly', async (t) => {
   assert.equal(stage(p, 'stopped-ssh').state, 'failed');
 });
 
-test('--log with Slurm is a reported failed stage', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('--log with Slurm is a reported failed stage', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   const r = run(p, args('log-conflict', '123', ['--log', '/tmp/local.log']));
   assert.equal(r.status, 0, r.stderr);
@@ -370,7 +389,8 @@ test('--log with Slurm is a reported failed stage', (t) => {
   assert.equal(allCalls(p).length, 0);
 });
 
-test('SSH timeout is bounded by the test override', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('SSH timeout is bounded by the test override', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t, [{ out: '123|COMPLETED\n', sleep: '10' }]);
   const r = run(p, args('ssh-timeout', '123'), { CODEOME_WATCH_SSH_TIMEOUT: '2' }, 20000);
   assert.equal(r.status, 0, r.stderr);

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('./helpers/portable-process');
 const inbox = require('../main/inbox');
 
 const id = '123-abcdef12';
@@ -12,7 +12,7 @@ const peer = { code: 'BCDF', chat_id: 'peer' };
 const extra = { code: 'TVWX', chat_id: 'extra' };
 
 function project(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-inbox-'));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-inbox-')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return root;
 }
@@ -71,8 +71,8 @@ test('delivery fans out with private files, handoff waits, and claims exactly on
   assert.equal(approve(root, row, { textHash: hash(row) }).ok, true);
   assert.equal(inbox.deliver(root, row, [peer, extra]).length, 2);
   for (const chat of ['peer', 'extra']) {
-    assert.equal(fs.statSync(inFile(root, chat)).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(path.dirname(inFile(root, chat))).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(inFile(root, chat)).mode & 0o777, 0o600); // POSIX mode bits are unavailable on Windows.
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.dirname(inFile(root, chat))).mode & 0o777, 0o700); // POSIX mode bits are unavailable on Windows.
     assert.equal(JSON.parse(fs.readFileSync(inFile(root, chat))).to.chat_id, chat);
   }
   assert.equal(inbox.readOutbox(root, sender, id).status, 'delivered');

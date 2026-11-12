@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync } = require('./helpers/portable-process');
 const jobs = require('../main/jobs');
 
 function project(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-jobs-progress-'));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-jobs-progress-')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return root;
 }

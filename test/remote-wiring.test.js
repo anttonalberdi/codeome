@@ -166,21 +166,21 @@ test('remote tabs IPC accepts known projects, coalesces latest payload and prune
   const clearTimeout = (id) => timers.delete(id);
   const tick = () => { const pending = [...timers.values()]; timers.clear(); pending.forEach((fn) => fn()); };
   const context = { ipcMain: { handle: (name, fn) => { handlers[name] = fn; } }, remote,
-    path, setTimeout, clearTimeout, validateTabsPayload, cfg: { openProjects: ['/known'], activeProject: '/known' }, chats: new Map() };
+    path, setTimeout, clearTimeout, validateTabsPayload, cfg: { openProjects: [path.resolve('/known')], activeProject: path.resolve('/known') }, chats: new Map() };
   vm.runInNewContext(section('const pendingRemoteTabs', "ipcMain.handle('remote:pair'"), context);
   const tab = { id: 'chat', title: 'Chat', state: 'idle', label: 'Finished; session open',
     jobs: 0, engine: 'claude', role: '', active: true, updatedAt: 12 };
-  assert.equal(handlers['remote:tabs'](null, { project: '/known', tabs: [tab] }).ok, true);
-  assert.equal(remote.tabs.get('/known').tabs[0].id, 'chat');
-  handlers['remote:tabs'](null, { project: '/known/', tabs: [{ ...tab, title: 'Second' }] });
-  handlers['remote:tabs'](null, { project: '/known', tabs: [{ ...tab, title: 'Latest' }] });
-  assert.equal(remote.tabs.get('/known').tabs[0].title, 'Chat');
+  assert.equal(handlers['remote:tabs'](null, { project: path.resolve('/known'), tabs: [tab] }).ok, true);
+  assert.equal(remote.tabs.get(path.resolve('/known')).tabs[0].id, 'chat');
+  handlers['remote:tabs'](null, { project: path.resolve('/known/') + path.sep, tabs: [{ ...tab, title: 'Second' }] });
+  handlers['remote:tabs'](null, { project: path.resolve('/known'), tabs: [{ ...tab, title: 'Latest' }] });
+  assert.equal(remote.tabs.get(path.resolve('/known')).tabs[0].title, 'Chat');
   tick();
-  assert.equal(remote.tabs.get('/known').tabs[0].title, 'Latest');
+  assert.equal(remote.tabs.get(path.resolve('/known')).tabs[0].title, 'Latest');
   tick();
   assert.equal(timers.size, 0);
   assert.match(handlers['remote:tabs'](null, { project: '/forged', tabs: [] }).error, /Invalid/);
-  assert.match(handlers['remote:tabs'](null, { project: '/known', tabs: [{ ...tab, jobs: NaN }] }).error, /Invalid/);
+  assert.match(handlers['remote:tabs'](null, { project: path.resolve('/known'), tabs: [{ ...tab, jobs: NaN }] }).error, /Invalid/);
   context.cfg = { openProjects: ['/other'], activeProject: '/other' };
   handlers['remote:tabs'](null, { project: '/other', tabs: [] });
   assert.deepEqual([...remote.tabs.keys()], ['/other']);

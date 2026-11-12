@@ -105,7 +105,8 @@ async function until(check, timeout = 10000) {
   assert.fail('timed out waiting for remote watcher');
 }
 
-test('remote vitest follows split lines and finishes after counts rise', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('remote vitest follows split lines and finishes after counts rise', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const p = project(t);
   fs.writeFileSync(p.log, '');
   const watch = launch(t, p, args(p, 'vitest', 'vitest', ['--total', '2']));
@@ -122,7 +123,8 @@ test('remote vitest follows split lines and finishes after counts rise', async (
   assert.deepEqual([stage(p, 'vitest').done, stage(p, 'vitest').total, stage(p, 'vitest').state], [2, 2, 'done']);
 });
 
-test('remote snakemake counts steps and waits for its summary', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('remote snakemake counts steps and waits for its summary', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const p = project(t);
   fs.writeFileSync(p.log, '');
   const watch = launch(t, p, args(p, 'snake', 'snakemake'));
@@ -137,7 +139,8 @@ test('remote snakemake counts steps and waits for its summary', async (t) => {
   assert.deepEqual([stage(p, 'snake').done, stage(p, 'snake').total, stage(p, 'snake').state], [2, 2, 'done']);
 });
 
-test('remote vitest failure summary ends failed with completed count', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('remote vitest failure summary ends failed with completed count', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   fs.writeFileSync(p.log, '   ✗ src/lib/foo.test.ts\n Test Files  1 failed (1)\n');
   const r = run(p, args(p, 'failed', 'vitest', ['--total', '1']));
@@ -145,7 +148,8 @@ test('remote vitest failure summary ends failed with completed count', (t) => {
   assert.deepEqual([stage(p, 'failed').done, stage(p, 'failed').state], [1, 'failed']);
 });
 
-test('truncation restarts the offset and discards an old partial line', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('truncation restarts the offset and discards an old partial line', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const p = project(t);
   fs.writeFileSync(p.log, 'x'.repeat(200));
   const watch = launch(t, p, args(p, 'rotated', 'vitest', ['--total', '1']));
@@ -160,7 +164,8 @@ test('truncation restarts the offset and discards an old partial line', async (t
   assert.ok(tails.slice(1).some((call) => /^tail -c \+1 -- /.test(call.at(-1))));
 });
 
-test('SSH argv contains both exact remote commands and the next byte offset', async (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('SSH argv contains both exact remote commands and the next byte offset', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, async (t) => {
   const p = project(t);
   fs.writeFileSync(p.log, '   ✓ src/lib/foo.test.ts\n');
   const initialSize = fs.statSync(p.log).size;
@@ -182,7 +187,8 @@ test('SSH argv contains both exact remote commands and the next byte offset', as
   assert.doesNotMatch(progress, /mjolnirgate|codeome-remote-socket/);
 });
 
-test('bad remote paths fail without any SSH call', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('bad remote paths fail without any SSH call', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   const bad = ['/a/../b', 'relative', '/a b', '/a;b', '/a$(x)', '/a\nb', '-x', '/' + 'a'.repeat(1024), '/a//b'];
   for (const [i, remote] of bad.entries()) {
@@ -197,7 +203,8 @@ test('bad remote paths fail without any SSH call', (t) => {
   assert.deepEqual(calls(p), []);
 });
 
-test('conflicting options and missing HPC environment fail before SSH', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('conflicting options and missing HPC environment fail before SSH', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   fs.writeFileSync(p.log, '');
   const cases = [
@@ -215,7 +222,8 @@ test('conflicting options and missing HPC environment fail before SSH', (t) => {
   assert.deepEqual(calls(p), []);
 });
 
-test('a missing remote file waits and then fails', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('a missing remote file waits and then fails', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   const r = run(p, args(p, 'missing', 'vitest', ['--total', '1']));
   assert.equal(r.status, 0, r.stderr);
@@ -224,7 +232,8 @@ test('a missing remote file waits and then fails', (t) => {
   assert.ok(calls(p).length >= 2);
 });
 
-test('three SSH failures fail with a short reason', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('three SSH failures fail with a short reason', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   fs.writeFileSync(p.env.CODEOME_TEST_SSH_MODE, 'fail');
   const r = run(p, args(p, 'disconnect', 'vitest', ['--total', '1']));
@@ -234,7 +243,8 @@ test('three SSH failures fail with a short reason', (t) => {
   assert.equal(calls(p).filter((call) => call.at(-1).startsWith('stat ')).length, 3);
 });
 
-test('SSH output beyond one mebibyte is capped and does not hang', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('SSH output beyond one mebibyte is capped and does not hang', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   fs.writeFileSync(p.env.CODEOME_TEST_SSH_MODE, 'overflow');
   const r = run(p, args(p, 'overflow', 'vitest', ['--total', '1']));
@@ -244,7 +254,8 @@ test('SSH output beyond one mebibyte is capped and does not hang', (t) => {
   assert.equal(calls(p).filter((call) => call.at(-1).startsWith('stat ')).length, 3);
 });
 
-test('dead control socket prevents remote data reads', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('dead control socket prevents remote data reads', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   const p = project(t);
   fs.writeFileSync(p.env.CODEOME_TEST_SSH_MODE, 'dead');
   const r = run(p, args(p, 'dead', 'vitest', ['--total', '1']));
@@ -255,7 +266,8 @@ test('dead control socket prevents remote data reads', (t) => {
   assert.ok(calls(p)[0].includes('-O'));
 });
 
-test('remote non-regular files fail before tail', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('remote non-regular files fail before tail', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   for (const mode of ['fifo', 'device', 'directory']) {
     const p = project(t);
     fs.writeFileSync(p.env.CODEOME_TEST_SSH_MODE, mode);
@@ -267,7 +279,8 @@ test('remote non-regular files fail before tail', (t) => {
   }
 });
 
-test('drain uses normal SSH and missing-file limits', (t) => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('drain uses normal SSH and missing-file limits', { skip: process.platform === 'win32' && 'HPC watches require POSIX SSH ControlMaster and pipe polling' }, (t) => {
   for (const [mode, expected] of [['drain-fail', 'lost connection to HPC'], ['drain-missing', 'log file did not appear']]) {
     const p = project(t);
     fs.writeFileSync(p.log, '   ✓ src/lib/foo.test.ts\n Test Files  1 passed (1)\n');

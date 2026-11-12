@@ -25,7 +25,8 @@ test('prompts are told apart', () => {
   assert.strictEqual(vpn.lastLine('Please enter your username and password.\r\n\x1b[1mPassword:'), 'Password:');
 });
 
-test('the saved username and password are typed in, then it waits for the MFA approval and comes up', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('the saved username and password are typed in, then it waits for the MFA approval and comes up', { skip: process.platform === 'win32' && 'HPC VPN login is intentionally unavailable on Windows' }, async () => {
   let saved = 0;
   const f = fakeTunnel({ user: 'abc123', password: 's3cret', onUp: () => saved++ });
   await f.say('Please enter your username and password.\r\nUsername:');
@@ -40,7 +41,8 @@ test('the saved username and password are typed in, then it waits for the MFA ap
   f.exit();
 });
 
-test('a rejected saved password is not sent again: the window is asked, with the reason', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('a rejected saved password is not sent again: the window is asked, with the reason', { skip: process.platform === 'win32' && 'HPC VPN login is intentionally unavailable on Windows' }, async () => {
   const f = fakeTunnel({ user: 'abc123', password: 'wrong' });
   await f.say('Password:');
   await f.say('\r\nLogin failed.\r\nPassword:');
@@ -56,7 +58,8 @@ test('a rejected saved password is not sent again: the window is asked, with the
   f.exit();
 });
 
-test('without saved details the window is asked, and a second-factor code prompt too', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('without saved details the window is asked, and a second-factor code prompt too', { skip: process.platform === 'win32' && 'HPC VPN login is intentionally unavailable on Windows' }, async () => {
   const f = fakeTunnel();
   await f.say('Username:');
   assert.strictEqual(f.last().prompt.kind, 'username');
@@ -68,7 +71,8 @@ test('without saved details the window is asked, and a second-factor code prompt
   f.exit();
 });
 
-test('when openconnect stops on its own the reason is reported; stopping it says stopped', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('when openconnect stops on its own the reason is reported; stopping it says stopped', { skip: process.platform === 'win32' && 'HPC VPN login is intentionally unavailable on Windows' }, async () => {
   const f = fakeTunnel();
   await f.say('POST https://vpn.example.org/\r\nFailed to obtain WebVPN cookie\r\n');
   f.exit();

@@ -21,8 +21,8 @@ test('tab summaries validate every field and clear on window close', () => {
   const { remote } = setup(undefined, { now: () => time });
   const tab = { id: 'chat', title: 'Chat', state: 'ready', label: 'Reply ready', jobs: 2,
     engine: 'claude', role: '', active: true, updatedAt: 50 };
-  const valid = { project: '/known', tabs: [tab] };
-  assert.equal(validateTabsPayload(valid, new Set(['/known'])), true);
+  const valid = { project: path.resolve('/known'), tabs: [tab] };
+  assert.equal(validateTabsPayload(valid, new Set([path.resolve('/known')])), true);
   for (const payload of [
     { ...valid, project: '/unknown' }, { ...valid, tabs: Array(51).fill(tab) },
     { ...valid, tabs: [{ ...tab, title: 'x'.repeat(201) }] },
@@ -35,23 +35,23 @@ test('tab summaries validate every field and clear on window close', () => {
     { ...valid, tabs: [{ ...tab, active: 'true' }] },
     { ...valid, tabs: [{ ...tab, engine: 'other' }] },
     { ...valid, tabs: [{ ...tab, extra: 'ignored' }] }
-  ]) assert.equal(validateTabsPayload(payload, new Set(['/known'])), false);
-  const clamped = { project: '/known/', tabs: [{ ...tab, updatedAt: Number.MAX_SAFE_INTEGER }] };
-  assert.equal(validateTabsPayload(clamped, new Set(['/known']), 100), true);
+  ]) assert.equal(validateTabsPayload(payload, new Set([path.resolve('/known')])), false);
+  const clamped = { project: path.resolve('/known/') + path.sep, tabs: [{ ...tab, updatedAt: Number.MAX_SAFE_INTEGER }] };
+  assert.equal(validateTabsPayload(clamped, new Set([path.resolve('/known')]), 100), true);
   assert.equal(clamped.tabs[0].updatedAt, 86400100);
   clamped.tabs[0].updatedAt = -10;
-  assert.equal(validateTabsPayload(clamped, new Set(['/known']), 100), true);
+  assert.equal(validateTabsPayload(clamped, new Set([path.resolve('/known')]), 100), true);
   assert.equal(clamped.tabs[0].updatedAt, 0);
   const changed = [];
   remote.events.on('tabs', (project) => changed.push(project));
-  assert.equal(remote.setTabs('/known', [tab]), true);
-  assert.equal(remote.setTabs('/known/', [tab]), true);
+  assert.equal(remote.setTabs(path.resolve('/known'), [tab]), true);
+  assert.equal(remote.setTabs(path.resolve('/known/') + path.sep, [tab]), true);
   assert.equal(remote.tabs.size, 1);
-  assert.equal(remote.tabs.get('/known').receivedAt, 100);
+  assert.equal(remote.tabs.get(path.resolve('/known')).receivedAt, 100);
   time = 200;
   remote.clearTabs();
   assert.equal(remote.tabs.size, 0);
-  assert.deepEqual(changed, ['/known', '/known', '/known']);
+  assert.deepEqual(changed, [path.resolve('/known'), path.resolve('/known'), path.resolve('/known')]);
 });
 
 test('live fallback tracks busy, error and last activity from turns', () => {

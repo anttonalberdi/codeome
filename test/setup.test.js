@@ -20,7 +20,8 @@ test('ports outside the user range fall back to the default', () => {
   assert.strictEqual(setup.portOf({}), setup.DEFAULT_PORT);
 });
 
-test('the tunnel command survives the shell intact', () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('the tunnel command survives the shell intact', { skip: process.platform === 'win32' && 'POSIX shell / HPC networking is unavailable on Windows' }, () => {
   const cmd = setup.tunnelCommand({ server: 'vpn.example.org', user: "o'neil", port: 11080, args: '' });
   // Replace exec with printf to see the words the shell hands to openconnect.
   const out = execFileSync('/bin/sh', ['-c', cmd.replace(/^exec 'openconnect'/, "printf '%s\\n'")], { encoding: 'utf8' });
@@ -36,7 +37,7 @@ test('the proxy command uses the tunnel when it listens and goes direct otherwis
   assert.match(p, /' %h %p$/);
 });
 
-test('install plans group Homebrew formulae, casks and other installers', () => {
+test('install plans group Homebrew formulae, casks and other installers', { skip: process.platform === 'win32' && 'Homebrew installation plans apply to macOS' }, () => {
   const ic = setup.installCommand(['openconnect', 'ocproxy', 'quarto', 'R', 'Rscript', 'nope']);
   assert.strictEqual(ic.command, 'brew install openconnect ocproxy && brew install --cask quarto r');
   assert.strictEqual(ic.brew, true);
@@ -47,7 +48,7 @@ test('install plans group Homebrew formulae, casks and other installers', () => 
   assert.strictEqual(setup.installCommand(['nope']), null);
 });
 
-test('Tailscale installs the app cask with its bundled CLI', () => {
+test('Tailscale installs the app cask with its bundled CLI', { skip: process.platform === 'win32' && 'Homebrew installation plans apply to macOS' }, () => {
   const ic = setup.installCommand(['tailscale']);
   assert.strictEqual(ic.command, 'brew install --cask tailscale-app');
   assert.strictEqual(ic.brew, true);
@@ -81,7 +82,8 @@ test('check hosts and ProxyJump hops give a host and port', () => {
   assert.strictEqual(setup.hostPort(''), null);
 });
 
-test('the VPN check uses the check host, else the HPC login', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('the VPN check uses the check host, else the HPC login', { skip: process.platform === 'win32' && 'POSIX shell / HPC networking is unavailable on Windows' }, async () => {
   assert.deepStrictEqual(await setup.vpnTarget({ hpc: { host: 'x', vpnCheckHost: 'gate.example:2022', vpn: { mode: 'system' } } }), { host: 'gate.example', port: 2022 });
   assert.deepStrictEqual(await setup.vpnTarget({ hpc: { host: 'me@hpc.example', vpnCheckHost: '', vpn: { mode: 'system' } } }), { host: 'hpc.example', port: 22 });
   // Through the tunnel only the login itself counts.
@@ -98,7 +100,8 @@ test('failed VPN probes are sorted by what they say about the VPN', () => {
   assert.strictEqual(setup.classifyProbe(1, ''), 'other');
 });
 
-test('a probe reports a refused port', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('a probe reports a refused port', { skip: process.platform === 'win32' && 'POSIX shell / HPC networking is unavailable on Windows' }, async () => {
   const r = await setup.probe('127.0.0.1', 1);
   assert.strictEqual(r.result, 'refused');
 });

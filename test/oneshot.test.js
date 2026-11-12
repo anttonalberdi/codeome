@@ -88,7 +88,7 @@ test('Claude passes the verified arguments, account and cwd; stdin reaches EOF',
   assert.deepEqual(call.args, ['-p', 'hello', '--model', 'sonnet', '--no-session-persistence', '--permission-mode', 'plan',
     '--strict-mcp-config', '--setting-sources', '', '--output-format', 'json']);
   assert.equal(call.claude, path.join(os.homedir(), 'account-claude'));
-  assert.equal(call.cwd, fs.realpathSync(process.env.CODEOME_HOME));
+  assert.equal(call.cwd, fs.realpathSync.native(process.env.CODEOME_HOME));
   assert.equal(result.text, 'Claude answer');
   assert.deepEqual(result.usage, { input_tokens: 3, output_tokens: 5, total_cost_usd: 0.002 });
   assert.ok(result.ms >= 0);
@@ -99,7 +99,7 @@ test('Claude can omit strict MCP and unset the inherited config dir', async () =
   await oneShot('claude', options);
   const call = recorded(options);
   assert.equal(call.claude, null);
-  assert.equal(call.cwd, fs.realpathSync(tmp));
+  assert.equal(call.cwd, fs.realpathSync.native(tmp));
   assert.deepEqual(call.args, ['-p', 'hello', '--model', 'haiku', '--no-session-persistence', '--permission-mode', 'plan',
     '--setting-sources', '', '--output-format', 'json']);
 });
@@ -128,7 +128,7 @@ test('minimal one-shot child receives no inherited secret variables', async () =
     assert.ok(call.envKeys.includes('ANTHROPIC_AUTH_TOKEN'));
     for (const key of secretKeys) assert.ok(!call.envKeys.includes(key), key);
     assert.ok(!call.envKeys.includes('CODEX_HOME'));
-    assert.ok(call.envKeys.includes('PATH'));
+    assert.ok(call.envKeys.some((key) => key.toUpperCase() === 'PATH'));
     assert.ok(call.envKeys.includes('HOME'));
   } finally {
     for (const [key, value] of Object.entries(previous)) {
@@ -166,7 +166,7 @@ test('non-zero exit rejects with the stderr tail', async () => {
   await assert.rejects(oneShot('claude', options), (error) => error.message.includes('last stderr') && !error.message.includes('x'.repeat(410)));
 });
 
-test('timeout terminates and reaps the child', async () => {
+test('timeout terminates and reaps the child', { skip: process.platform === 'win32' && 'Requires catchable SIGTERM and POSIX process groups' }, async () => {
   const options = opts({ prompt: 'hang', timeoutMs: 500 });
   await assert.rejects(oneShot('codex', options), /^Error: one-shot timed out/);
   const call = recorded(options);
@@ -175,7 +175,7 @@ test('timeout terminates and reaps the child', async () => {
   reaped(call.pid);
 });
 
-test('timeout force kills a child that ignores SIGTERM', async () => {
+test('timeout force kills a child that ignores SIGTERM', { skip: process.platform === 'win32' && 'Requires catchable SIGTERM and POSIX process groups' }, async () => {
   const options = opts({ prompt: 'resist', timeoutMs: 500 });
   await assert.rejects(oneShot('codex', options), /^Error: one-shot timed out/);
   const call = recorded(options);
@@ -184,7 +184,7 @@ test('timeout force kills a child that ignores SIGTERM', async () => {
   reaped(call.pid);
 });
 
-test('timeout kills a resistant process group whose grandchild holds stdout', async () => {
+test('timeout kills a resistant process group whose grandchild holds stdout', { skip: process.platform === 'win32' && 'Requires catchable SIGTERM and POSIX process groups' }, async () => {
   const options = opts({ prompt: 'pipe-resist', timeoutMs: 500 });
   await assert.rejects(oneShot('claude', options), /^Error: one-shot timed out/);
   const call = recorded(options);
@@ -195,7 +195,7 @@ test('timeout kills a resistant process group whose grandchild holds stdout', as
   await eventuallyReaped(grandchild);
 });
 
-test('an exited wrapper settles after stdout grace and kills a pipe holder', async () => {
+test('an exited wrapper settles after stdout grace and kills a pipe holder', { skip: process.platform === 'win32' && 'Requires catchable SIGTERM and POSIX process groups' }, async () => {
   const options = opts({ prompt: 'pipe-exit' });
   const result = await oneShot('claude', options);
   assert.equal(result.text, 'done');
@@ -203,7 +203,7 @@ test('an exited wrapper settles after stdout grace and kills a pipe holder', asy
   await eventuallyReaped(Number(fs.readFileSync(options.env.FAKE_GRANDCHILD, 'utf8')));
 });
 
-test('abort terminates and reaps the child', async () => {
+test('abort terminates and reaps the child', { skip: process.platform === 'win32' && 'Requires catchable SIGTERM and POSIX process groups' }, async () => {
   const controller = new AbortController();
   const options = opts({ prompt: 'hang', signal: controller.signal });
   const pending = oneShot('claude', options);

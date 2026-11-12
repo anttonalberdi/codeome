@@ -3,13 +3,13 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawnSync } = require('./helpers/portable-process');
 const kit = require('../main/kit');
 
 const fixture = path.join(__dirname, 'fixtures', 'codex-events.jsonl');
 
 function project() {
-  const p = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-codex-events-'));
+  const p = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-codex-events-')));
   kit.install(p);
   return p;
 }

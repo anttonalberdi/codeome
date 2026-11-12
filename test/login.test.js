@@ -26,7 +26,8 @@ test('ssh prompts are told apart', () => {
   assert.strictEqual(login.classifyPrompt('Warning: Permanently added hpc (ED25519) to the list of known hosts.'), null);
 });
 
-test('with a key nothing is asked: ssh exits 0 and the shared connection is up', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('with a key nothing is asked: ssh exits 0 and the shared connection is up', { skip: process.platform === 'win32' && 'HPC SSH login is intentionally unavailable on Windows' }, async () => {
   let saved = 0;
   const f = fakeSsh({ onUp: () => saved++ });
   assert.strictEqual(f.last().phase, 'starting');
@@ -36,7 +37,8 @@ test('with a key nothing is asked: ssh exits 0 and the shared connection is up',
   assert.deepStrictEqual(f.typed, []);
 });
 
-test('the saved password is typed once; a rejected one is asked for in the window', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('the saved password is typed once; a rejected one is asked for in the window', { skip: process.platform === 'win32' && 'HPC SSH login is intentionally unavailable on Windows' }, async () => {
   const f = fakeSsh({ password: 'wrong' });
   await f.say("me@hpc's password: ");
   assert.deepStrictEqual(f.typed, ['wrong\r']);
@@ -54,7 +56,8 @@ test('the saved password is typed once; a rejected one is asked for in the windo
   assert.strictEqual(f.last().phase, 'up');
 });
 
-test('keyboard-interactive asking the password again counts as rejected', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('keyboard-interactive asking the password again counts as rejected', { skip: process.platform === 'win32' && 'HPC SSH login is intentionally unavailable on Windows' }, async () => {
   const f = fakeSsh();
   await f.say('(me@hpc) Password:');
   f.t.answer(f.last().prompt.id, 'bad');
@@ -63,7 +66,8 @@ test('keyboard-interactive asking the password again counts as rejected', async 
   await f.exit();
 });
 
-test('a new host shows its fingerprint and is trusted with yes', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('a new host shows its fingerprint and is trusted with yes', { skip: process.platform === 'win32' && 'HPC SSH login is intentionally unavailable on Windows' }, async () => {
   const f = fakeSsh();
   await f.say("The authenticity of host 'hpc (10.0.0.1)' can't be established.\r\nED25519 key fingerprint is SHA256:abc.\r\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ");
   const s = f.last();
@@ -74,7 +78,8 @@ test('a new host shows its fingerprint and is trusted with yes', async () => {
   await f.exit();
 });
 
-test('a failed login says why; stopping it says stopped', async () => {
+// TODO(windows-slice2): exercise this when Windows HPC/SSH support is available.
+test('a failed login says why; stopping it says stopped', { skip: process.platform === 'win32' && 'HPC SSH login is intentionally unavailable on Windows' }, async () => {
   const f = fakeSsh();
   await f.say('Warning: Permanently added hpc to the list of known hosts.\r\nme@hpc: Permission denied (publickey,password).\r\n');
   await f.exit(255);

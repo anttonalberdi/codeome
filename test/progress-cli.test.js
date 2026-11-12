@@ -3,12 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('./helpers/portable-process');
 
 const source = path.join(__dirname, '..', 'kit', 'bin', 'codeome-agent');
 
 function project(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-progress-'));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-progress-')));
   const bin = path.join(root, '.codeome', 'bin');
   fs.mkdirSync(bin, { recursive: true });
   fs.copyFileSync(source, path.join(bin, 'codeome-agent'));
@@ -388,7 +388,7 @@ test('history reader drops junk and caps keys and entries', (t) => {
   assert.deepEqual(written.junk, [{ s: 3 }, 4]);
 });
 
-test('watch uses a parser and label key, falls back to parser history, and stopped watch writes nothing', async (t) => {
+test('watch uses a parser and label key, falls back to parser history, and stopped watch writes nothing', { skip: process.platform === 'win32' && 'Requires catchable SIGTERM to settle the stopped watch' }, async (t) => {
   const root = project(t);
   const log = path.join(root, 'vitest.log');
   fs.writeFileSync(log, '');

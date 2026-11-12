@@ -20,9 +20,9 @@ test('places private files lazily, reuses unchanged content and replaces changed
   const file = store.place(meta, 'first\nline');
   assert.strictEqual(path.basename(file), 'API_KEY.p8');
   assert.strictEqual(path.dirname(path.dirname(file)), path.join(base, 'secret-files'));
-  assert.strictEqual(fs.statSync(path.join(base, 'secret-files')).mode & 0o777, 0o700);
-  assert.strictEqual(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
-  assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(path.join(base, 'secret-files')).mode & 0o777, 0o700); // POSIX mode bits are unavailable on Windows.
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(path.dirname(file)).mode & 0o777, 0o700); // POSIX mode bits are unavailable on Windows.
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600); // POSIX mode bits are unavailable on Windows.
   const first = fs.statSync(file).ino;
   assert.strictEqual(store.place(meta, 'first\nline'), file);
   assert.strictEqual(fs.statSync(file).ino, first);

@@ -121,7 +121,8 @@ function cliSpawnSpec(bin, args, { platform = process.platform, env = process.en
   if (!login && !isWinPlatform(platform)) return { file: bin, args };
   const file = isWinPlatform(platform) ? requireLoginShell({ platform, env, bashPath }) : shell || requireLoginShell({ platform, env });
   const command = prefix.length ? `exec ${prefix.join(' ')} "$0" "$@"` : 'exec "$0" "$@"';
-  return { file, args: ['-l', '-c', command, isWinPlatform(platform) ? toPosixForShell(bin) : bin, ...args] };
+  // Keep a native drive path: with MSYS_NO_PATHCONV, shebang Node cannot open /c/... .
+  return { file, args: ['-l', '-c', command, isWinPlatform(platform) ? bin.replace(/\\/g, '/') : bin, ...args] };
 }
 
 

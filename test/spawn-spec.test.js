@@ -27,7 +27,7 @@ test('chat launch preserves Darwin argv and converts the Windows binary operand'
     file: '/bin/zsh', args: ['-l', '-c', 'exec "$0" "$@"', '/Users/me/bin/claude', '-p']
   });
   assert.deepEqual(cliSpawnSpec('C:\\Users\\me\\bin\\claude.cmd', ['-p'], { platform: 'win32', env: {}, bashPath }), {
-    file: bashPath, args: ['-l', '-c', 'exec "$0" "$@"', '/c/Users/me/bin/claude.cmd', '-p']
+    file: bashPath, args: ['-l', '-c', 'exec "$0" "$@"', 'C:/Users/me/bin/claude.cmd', '-p']
   });
 });
 

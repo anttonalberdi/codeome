@@ -3,13 +3,13 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('./helpers/portable-process');
 const kit = require('../main/kit');
 const jobs = require('../main/jobs');
 
 const testDirs = new Set();
 const tmp = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-kit-'));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-kit-')));
   testDirs.add(dir);
   return dir;
 };
@@ -58,7 +58,7 @@ test('install writes roles, skills, routing, runner, hooks and gitignore', () =>
   assert.match(routing, /\| `implementer` \| Codex \| writes \|/);
   assert.match(routing, /\| `reviewer` \| the other engine \| read-only \|/);
   assert.ok(fs.existsSync(path.join(p, '.claude/skills/orchestrate/SKILL.md')));
-  assert.ok(fs.statSync(agentBin(p)).mode & 0o100);
+  if (process.platform !== 'win32') assert.ok(fs.statSync(agentBin(p)).mode & 0o100); // POSIX mode bits are unavailable on Windows.
   const s = readJson(path.join(p, '.claude/settings.json'));
   assert.strictEqual(s.hooks.PreToolUse[0].matcher, 'Agent');
   assert.ok(s.hooks.PreToolUse.some((g) => g.matcher === 'Bash'));
@@ -198,7 +198,7 @@ test('codeome-agent runs a Codex job with the role prompt and records it', async
   assert.match(r.stdout, /done — fake/);
   const call = readJson(path.join(p, 'call.json'));
   assert.deepStrictEqual([call.argv[0], call.argv[1], call.argv[3], call.argv[4]], ['exec', '-C', '-s', 'workspace-write']);
-  assert.strictEqual(fs.realpathSync(call.argv[2]), fs.realpathSync(p));
+  assert.strictEqual(fs.realpathSync.native(call.argv[2]), fs.realpathSync.native(p));
   assert.match(call.prompt, /You are the implementer/);
   assert.match(call.prompt, /# Your job\nAdd a --threads flag\./);
   assert.match(call.prompt, /## Report/);
@@ -225,7 +225,7 @@ test('codeome-agent runs a Codex job with the role prompt and records it', async
   assert.ok(readJson(path.join(p, 'call.json')).argv.includes('read-only'));
 });
 
-test('codeome-agent pauses a captured session and main jobs resumes it as a linked job', async () => {
+test('codeome-agent pauses a captured session and main jobs resumes it as a linked job', { skip: process.platform === 'win32' && 'Requires POSIX pause FIFOs, process signals, or login-shell PATH' }, async () => {
   const p = tmp();
   kit.install(p);
   const codex = path.join(p, 'slow-codex');
@@ -286,7 +286,7 @@ else:
   }
 });
 
-test('resume finds Codex through the login shell when the app PATH is minimal', async () => {
+test('resume finds Codex through the login shell when the app PATH is minimal', { skip: process.platform === 'win32' && 'Requires POSIX pause FIFOs, process signals, or login-shell PATH' }, async () => {
   const p = tmp();
   kit.install(p);
   const binDir = path.join(p, 'login-bin');
@@ -318,7 +318,7 @@ test('resume finds Codex through the login shell when the app PATH is minimal', 
   }
 });
 
-test('pause waits for a complete reply and removes an empty reply on timeout', async () => {
+test('pause waits for a complete reply and removes an empty reply on timeout', { skip: process.platform === 'win32' && 'Requires POSIX pause FIFOs, process signals, or login-shell PATH' }, async () => {
   const p = tmp();
   try {
     kit.install(p);
@@ -361,7 +361,7 @@ os.close(read); os.close(write)
   } finally { fs.rmSync(p, { recursive: true, force: true }); }
 });
 
-test('cancel during pausing records cancelled instead of paused', async () => {
+test('cancel during pausing records cancelled instead of paused', { skip: process.platform === 'win32' && 'Requires POSIX pause FIFOs, process signals, or login-shell PATH' }, async () => {
   const p = tmp();
   kit.install(p);
   const codex = path.join(p, 'slow-stop-codex');
@@ -393,7 +393,7 @@ time.sleep(30)
   }
 });
 
-test('pause refuses a job started by an older wrapper after the kit is updated', async () => {
+test('pause refuses a job started by an older wrapper after the kit is updated', { skip: process.platform === 'win32' && 'Requires POSIX pause FIFOs, process signals, or login-shell PATH' }, async () => {
   const p = tmp();
   try {
     kit.install(p);
@@ -409,7 +409,7 @@ test('pause refuses a job started by an older wrapper after the kit is updated',
   } finally { fs.rmSync(p, { recursive: true, force: true }); }
 });
 
-test('pause refuses a reused PID when the original wrapper FIFO has no reader', async () => {
+test('pause refuses a reused PID when the original wrapper FIFO has no reader', { skip: process.platform === 'win32' && 'Requires POSIX pause FIFOs, process signals, or login-shell PATH' }, async () => {
   const p = tmp();
   try {
     kit.install(p);
@@ -427,7 +427,7 @@ test('pause refuses a reused PID when the original wrapper FIFO has no reader', 
   } finally { fs.rmSync(p, { recursive: true, force: true }); }
 });
 
-test('pause after Codex exits preserves the completed result', async () => {
+test('pause after Codex exits preserves the completed result', { skip: process.platform === 'win32' && 'Requires POSIX pause FIFOs, process signals, or login-shell PATH' }, async () => {
   const p = tmp();
   kit.install(p);
   const codex = path.join(p, 'finished-codex');
@@ -488,7 +488,7 @@ test('codeome-agent --worktree runs the job on its own branch', async () => {
   const j = (await jobs.list(p))[0];
   assert.strictEqual(j.branch, 'codeome/' + j.id);
   assert.ok(fs.existsSync(path.join(p, '.codeome/worktrees', j.id)));
-  assert.strictEqual(fs.realpathSync(readJson(path.join(p, 'call.json')).cwd), fs.realpathSync(j.worktree));
+  assert.strictEqual(fs.realpathSync.native(readJson(path.join(p, 'call.json')).cwd), fs.realpathSync.native(j.worktree));
 });
 
 test('hooks record a Claude subagent job from Agent call to stop', async () => {

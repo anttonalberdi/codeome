@@ -5,11 +5,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
-const { spawnSync } = require('node:child_process');
+const { spawnSync } = require('./helpers/portable-process');
 const kit = require('../main/kit');
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-agents-scope-'));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-agents-scope-')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const dir = (name) => {
     const p = path.join(root, name);

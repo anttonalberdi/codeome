@@ -76,9 +76,9 @@ test('darwin toolDirs matches augmentedEnv paths in util.js', () => {
   const home = os.homedir();
   assert.deepEqual(platform.toolDirs({ platform: 'darwin', env: { HOME: home } }), [
     '/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin',
-    path.join(home, '.local/bin'), path.join(home, 'bin'),
-    path.join(home, 'miniforge3/bin'), path.join(home, 'miniconda3/bin'), path.join(home, 'anaconda3/bin'),
-    path.join(home, '.npm-global/bin'), path.join(home, '.cargo/bin'),
+    path.posix.join(home, '.local/bin'), path.posix.join(home, 'bin'),
+    path.posix.join(home, 'miniforge3/bin'), path.posix.join(home, 'miniconda3/bin'), path.posix.join(home, 'anaconda3/bin'),
+    path.posix.join(home, '.npm-global/bin'), path.posix.join(home, '.cargo/bin'),
     '/Applications/quarto/bin', '/Library/Frameworks/R.framework/Resources/bin',
     '/usr/bin', '/bin', '/usr/sbin', '/sbin'
   ]);

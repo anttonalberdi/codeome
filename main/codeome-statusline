@@ -13,6 +13,11 @@ import subprocess
 import sys
 import time
 
+if os.name == 'nt':
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8')
+
 HOME = os.environ.get('CODEOME_HOME') or os.path.expanduser('~/.codeome')
 
 

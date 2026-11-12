@@ -106,7 +106,7 @@ async function waitFor(stream, pattern) {
 
 test('project state derives live tabs, earlier chats, counts, sorting and retains summaries', async (t) => {
   let time = 1_000_000;
-  const alpha = '/projects/alpha-phone-test', beta = '/projects/beta-phone-test';
+  const alpha = path.resolve('/projects/alpha-phone-test'), beta = path.resolve('/projects/beta-phone-test');
   const saved = Array.from({ length: 34 }, (_, i) => ({ id: `old-${i}`, project: alpha,
     title: `Earlier ${i}`, updatedAt: 500 - i, engine: 'claude', role: 'reviewer' }));
   saved.push({ id: 'beta-old', project: beta, title: 'Beta', updatedAt: 700, engine: 'codex' });
@@ -148,7 +148,7 @@ test('project state derives live tabs, earlier chats, counts, sorting and retain
 });
 
 test('main chat ownership defeats a forged tab in another project', async (t) => {
-  const alpha = '/projects/alpha-ownership', beta = '/projects/beta-ownership';
+  const alpha = path.resolve('/projects/alpha-ownership'), beta = path.resolve('/projects/beta-ownership');
   const f = await fixture(t, { noListen: true, projects: [alpha, beta], savedByProject: true,
     saved: [{ id: 'owned', project: beta, title: 'Owned chat', updatedAt: 50 }] });
   const session = f.session('owned', beta);
@@ -162,32 +162,32 @@ test('main chat ownership defeats a forged tab in another project', async (t) =>
 });
 
 test('project paths normalize, ties sort by name then path, and state caps at 30', async (t) => {
-  const projects = ['/b/shared/', '/a/shared', ...Array.from({ length: 32 }, (_, i) => `/projects/p${String(i).padStart(2, '0')}`)];
+  const projects = [path.resolve('/b/shared/') + path.sep, path.resolve('/a/shared'), ...Array.from({ length: 32 }, (_, i) => path.resolve(`/projects/p${String(i).padStart(2, '0')}`))];
   const f = await fixture(t, { noListen: true, projects });
   const models = f.server.projectState();
   assert.equal(models.length, 30);
-  assert.equal(models[0].path, '/projects/p00');
-  f.remote.setTabs('/a/shared/', [{ id: 'tab', title: 'Tab', state: 'idle', label: 'Open',
+  assert.equal(models[0].path, path.resolve('/projects/p00'));
+  f.remote.setTabs(path.resolve('/a/shared/') + path.sep, [{ id: 'tab', title: 'Tab', state: 'idle', label: 'Open',
     jobs: 0, engine: 'claude', role: '', active: true, updatedAt: 10 }]);
-  assert.equal(f.server.projectState()[0].path, '/a/shared');
-  assert.equal(f.server.projectState()[0].key, crypto.createHash('sha1').update('/a/shared').digest('hex').slice(0, 12));
-  assert.equal(f.server.projectState().filter((entry) => entry.path === '/a/shared').length, 1);
+  assert.equal(f.server.projectState()[0].path, path.resolve('/a/shared'));
+  assert.equal(f.server.projectState()[0].key, crypto.createHash('sha1').update(path.resolve('/a/shared')).digest('hex').slice(0, 12));
+  assert.equal(f.server.projectState().filter((entry) => entry.path === path.resolve('/a/shared')).length, 1);
   f.remote.clearTabs();
-  f.config.openProjects = ['/b/shared', '/a/shared'];
+  f.config.openProjects = [path.resolve('/b/shared'), path.resolve('/a/shared')];
   const ties = f.server.projectState().filter((entry) => entry.name === 'shared');
-  assert.deepEqual(ties.map((entry) => entry.path), ['/a/shared', '/b/shared']);
-  const session = f.session('aliased', '/a/shared/');
+  assert.deepEqual(ties.map((entry) => entry.path), [path.resolve('/a/shared'), path.resolve('/b/shared')]);
+  const session = f.session('aliased', path.resolve('/a/shared/') + path.sep);
   f.prompt(session, 'aliased-decision', 'Bash', { command: 'pwd' }, 'aliased');
-  assert.equal(f.server.projectState().find((entry) => entry.path === '/a/shared').counts.waiting, 1);
+  assert.equal(f.server.projectState().find((entry) => entry.path === path.resolve('/a/shared')).counts.waiting, 1);
 });
 
 test('message events retain the chat cache while registry additions refresh it', async (t) => {
   const timers = new Map();
   let nextTimer = 0;
-  const f = await fixture(t, { noListen: true, projects: ['/projects/cache'],
+  const f = await fixture(t, { noListen: true, projects: [path.resolve('/projects/cache')],
     setTimer: (fn) => { const id = ++nextTimer; timers.set(id, fn); return id; },
     clearTimer: (id) => timers.delete(id) });
-  const session = f.session('cached', '/projects/cache');
+  const session = f.session('cached', path.resolve('/projects/cache'));
   f.server.projectState();
   const calls = f.listCalls();
   session.emit('message', { type: 'text_delta', text: 'hello' });
@@ -202,24 +202,24 @@ test('message events retain the chat cache while registry additions refresh it',
 test('tab timer builds only the changed project model', async (t) => {
   const timers = new Map();
   let nextTimer = 0;
-  const f = await fixture(t, { noListen: true, projects: ['/projects/one', '/projects/two'],
+  const f = await fixture(t, { noListen: true, projects: [path.resolve('/projects/one'), path.resolve('/projects/two')],
     setTimer: (fn) => { const id = ++nextTimer; timers.set(id, fn); return id; },
     clearTimer: (id) => timers.delete(id) });
   const tab = { id: 'one', title: 'One', state: 'idle', label: 'Open', jobs: 0,
     engine: 'claude', role: '', active: true, updatedAt: 1 };
-  f.remote.setTabs('/projects/one', [tab]);
-  f.remote.setTabs('/projects/two', [{ ...tab, id: 'two' }]);
+  f.remote.setTabs(path.resolve('/projects/one'), [tab]);
+  f.remote.setTabs(path.resolve('/projects/two'), [{ ...tab, id: 'two' }]);
   for (const fn of [...timers.values()]) fn();
   timers.clear();
   const gets = [];
   f.remote.tabs.get = function (key) { gets.push(key); return Map.prototype.get.call(this, key); };
-  f.remote.events.emit('tabs', '/projects/one');
+  f.remote.events.emit('tabs', path.resolve('/projects/one'));
   for (const fn of [...timers.values()]) fn();
-  assert.deepEqual(gets, ['/projects/one', '/projects/two', '/projects/one']);
+  assert.deepEqual(gets, [path.resolve('/projects/one'), path.resolve('/projects/two'), path.resolve('/projects/one')]);
 });
 
 test('closed empty project disappears after config change', async (t) => {
-  const project = '/projects/closed-phone';
+  const project = path.resolve('/projects/closed-phone');
   const f = await fixture(t, { noListen: true, projects: [project] });
   assert.equal(f.server.projectState()[0].path, project);
   f.config.openProjects = [];
@@ -241,7 +241,7 @@ test('tab changes publish the same project shape over SSE', async (t) => {
 });
 
 test('phone state limits issue summaries to enabled open projects and safe fields', async (t) => {
-  const project = process.cwd(), disabled = '/projects/disabled-issues', closed = '/projects/closed-issues';
+  const project = process.cwd(), disabled = path.resolve('/projects/disabled-issues'), closed = path.resolve('/projects/closed-issues');
   const hostile = '<script>alert(1)</script>\u0000\u001b\u202e' + 'x'.repeat(150);
   const issue = (number, status = 'new') => ({ number, title: number === 12 ? hostile : `Issue ${number}`,
     status, body: 'private body', author: 'private author', url: 'https://example.test/private',

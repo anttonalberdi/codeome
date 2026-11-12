@@ -3,15 +3,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync } = require('./helpers/portable-process');
 const touched = require('../main/touched');
 
 const meta = { engine: 'claude', title: 'First chat' };
 
 function project(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-touched-'));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-touched-')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  return fs.realpathSync(root);
+  return fs.realpathSync.native(root);
 }
 
 function recordFile(root, chatId) {
@@ -376,7 +376,7 @@ test('clear removes only this chat inbox and outbox files', (t) => {
 test('clear skips an unsafe inbox directory and continues with outbox', (t) => {
   const root = project(t);
   const base = path.join(root, '.codeome');
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-unsafe-inbox-'));
+  const outside = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-unsafe-inbox-')));
   t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
   touched.record(root, 'first', meta, 'notes.txt', 'Edit');
   fs.symlinkSync(outside, path.join(base, 'inbox'));

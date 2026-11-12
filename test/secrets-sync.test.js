@@ -130,9 +130,9 @@ test('remote script round-trips file content and prunes files on text-only and e
   try {
     assert.strictEqual((await run(entries)).ok, true);
     assert.strictEqual(fs.readFileSync(filePath, 'utf8'), content);
-    assert.strictEqual(fs.statSync(fileDir).mode & 0o777, 0o700);
-    assert.strictEqual(fs.statSync(filePath).mode & 0o777, 0o600);
-    assert.strictEqual(fs.statSync(envPath).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.strictEqual(fs.statSync(fileDir).mode & 0o777, 0o700); // POSIX mode bits are unavailable on Windows.
+    if (process.platform !== 'win32') assert.strictEqual(fs.statSync(filePath).mode & 0o777, 0o600); // POSIX mode bits are unavailable on Windows.
+    if (process.platform !== 'win32') assert.strictEqual(fs.statSync(envPath).mode & 0o777, 0o600); // POSIX mode bits are unavailable on Windows.
     assert.ok(fs.readFileSync(envPath, 'utf8').includes(`export SIGNING_KEY="$HOME/.codeome/secrets/files/${S.slug(project)}/SIGNING_KEY.p8"`));
     assert.strictEqual(execFileSync('sh', ['-c', `. "$HOME/.codeome/secrets/${S.slug(project)}.env"; printf '%s' "$SIGNING_KEY"`], { env: { ...process.env, HOME: home }, encoding: 'utf8' }), filePath);
     for (const suffix of ['tmp.stale', 'old.stale']) {

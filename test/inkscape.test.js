@@ -22,7 +22,7 @@ test('a configured path may name the binary or the app bundle, and must be execu
   assert.strictEqual(inkscape.resolve(''), '');
 });
 
-test('detect uses the configured path first and reads the version', async () => {
+test('detect uses the configured path first and reads the version', { skip: process.platform === 'win32' && 'Uses an executable POSIX shell fixture for Inkscape' }, async () => {
   const bin = fake(tmp(), '9.9.9');
   assert.deepStrictEqual(await inkscape.detect({ configured: bin }), { path: bin, version: '9.9.9' });
 });
@@ -45,7 +45,7 @@ test('only figure formats can be opened', () => {
   for (const f of ['a.png', 'a.R', 'a.svg.sh', 'svg']) assert.ok(!inkscape.OPENABLE.test(f), f);
 });
 
-test('the detection result is recorded for the agents, and the kit points them at that file', async () => {
+test('the detection result is recorded for the agents, and the kit points them at that file', { skip: process.platform === 'win32' && 'Uses an executable POSIX shell fixture for Inkscape' }, async () => {
   const home = tmp();
   const bin = fake(tmp(), '1.4.4');
   inkscape.writeStatus(await inkscape.detect({ configured: bin }), home);
@@ -64,5 +64,5 @@ test('the detection result is recorded for the agents, and the kit points them a
 
 test('CODEOME_HOME moves the status file', () => {
   const old = process.env.CODEOME_HOME; process.env.CODEOME_HOME = '/x/y';
-  try { assert.strictEqual(inkscape.statusFile(), '/x/y/inkscape.json'); } finally { if (old === undefined) delete process.env.CODEOME_HOME; else process.env.CODEOME_HOME = old; }
+  try { assert.strictEqual(inkscape.statusFile(), path.join('/x/y', 'inkscape.json')); } finally { if (old === undefined) delete process.env.CODEOME_HOME; else process.env.CODEOME_HOME = old; }
 });

@@ -3,14 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('./helpers/portable-process');
 
 const source = path.join(__dirname, '..', 'kit', 'bin', 'codeome-agent');
 const fixtures = path.join(__dirname, 'fixtures', 'watch');
 const snakemakeFixtures = path.join(__dirname, 'fixtures', 'snakemake');
 
 function project(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-watch-'));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-watch-')));
   const bin = path.join(root, '.codeome', 'bin');
   fs.mkdirSync(bin, { recursive: true });
   fs.copyFileSync(source, path.join(bin, 'codeome-agent'));
@@ -381,7 +381,7 @@ test('regex accepts an unmatched optional done group', (t) => {
   assert.doesNotMatch(r.stderr, /TypeError/);
 });
 
-test('a catastrophic regex worker exits after its watcher is killed', async (t) => {
+test('a catastrophic regex worker exits after its watcher is killed', { skip: process.platform === 'win32' && 'Requires POSIX ps fixtures or catchable process signals' }, async (t) => {
   const root = project(t);
   const log = path.join(root, 'catastrophic.log');
   fs.writeFileSync(log, `${'a'.repeat(200)}!\n`);
@@ -467,7 +467,7 @@ test('pid exit finishes a final read without signalling the process', async (t) 
   assert.equal(sleeper.signalCode, null);
 });
 
-test('a changed pid start time is treated as process exit', async (t) => {
+test('a changed pid start time is treated as process exit', { skip: process.platform === 'win32' && 'Requires POSIX ps fixtures or catchable process signals' }, async (t) => {
   const root = project(t);
   const log = path.join(root, 'pid-reuse.log');
   fs.writeFileSync(log, '1 of 2\n');
@@ -576,7 +576,7 @@ test('pruning keeps the newest 50 valid task directories', (t) => {
   assert.equal(fs.existsSync(path.join(taskRoot, 'task-48')), true);
 });
 
-test('SIGTERM writes a stopped state', async (t) => {
+test('SIGTERM writes a stopped state', { skip: process.platform === 'win32' && 'Requires POSIX ps fixtures or catchable process signals' }, async (t) => {
   const root = project(t);
   const log = path.join(root, 'log');
   fs.writeFileSync(log, '');

@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawnSync } = require('./helpers/portable-process');
 const usage = require('../main/usage');
 
 const SCRIPT = path.join(__dirname, '..', 'main', 'codeome-statusline');
@@ -73,8 +73,8 @@ test('the default folder is stored as empty so the variable is never set for it'
 });
 
 test('the status line records rate limits under the account key Codeome reads, then shows a line', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-usage-'));
-  const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-claude-'));
+  const home = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-usage-')));
+  const cfgDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-claude-')));
   const input = { model: { display_name: 'Opus' }, context_window: { used_percentage: 12 }, workspace: { project_dir: home },
     rate_limits: { five_hour: { used_percentage: 23.5, resets_at: now }, seven_day: { used_percentage: 41.2, resets_at: now + 1 } } };
   const run = (env) => spawnSync('python3', [SCRIPT], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CODEOME_HOME: home, ...env } });
@@ -108,7 +108,7 @@ test('an account is an email address: its folder is derived, and only a matching
 });
 
 test('config folders that are no account yet are found by what their CLI leaves in them', () => {
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-home-'));
+  const h = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'codeome-home-')));
   for (const [d, f] of [['.claude-lab', '.claude.json'], ['.claude-work', 'settings.json'], ['.claude-empty', 'notes.txt'], ['.codex-lab', 'auth.json'], ['.claude', '.claude.json']]) {
     fs.mkdirSync(path.join(h, d));
     fs.writeFileSync(path.join(h, d, f), '{}');

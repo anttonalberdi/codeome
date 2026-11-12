@@ -62,14 +62,14 @@ test('chat and forum sessions receive the project model and effort', () => {
     create({ id: 'claude', project: __dirname, engine: 'claude', forum });
     assert.equal(built.at(-1).model, 'opus');
     assert.equal(built.at(-1).effort, 'high');
-    assert.deepEqual(made.at(-1).prefix, expected.prefix);
-    assert.equal(made.at(-1).env.OMP_NUM_THREADS, expected.env.OMP_NUM_THREADS);
-    assert.equal(made.at(-1).env.CODEOME_MAX_CORES, expected.env.CODEOME_MAX_CORES);
+    assert.deepEqual(Array.from(made.at(-1).prefix), expected?.prefix || []);
+    assert.equal(made.at(-1).env.OMP_NUM_THREADS, expected?.env.OMP_NUM_THREADS || '99');
+    assert.equal(made.at(-1).env.CODEOME_MAX_CORES, expected?.env.CODEOME_MAX_CORES || '99');
     create({ id: 'codex', project: __dirname, engine: 'codex', forum });
     assert.equal(made.at(-1).model, 'gpt-project');
     assert.equal(made.at(-1).effort, 'xhigh');
-    assert.deepEqual(made.at(-1).prefix, expected.prefix);
-    assert.equal(made.at(-1).env.OMP_NUM_THREADS, expected.env.OMP_NUM_THREADS);
-    assert.equal(made.at(-1).env.CODEOME_MAX_CORES, expected.env.CODEOME_MAX_CORES);
+    assert.deepEqual(Array.from(made.at(-1).prefix), expected?.prefix || []);
+    assert.equal(made.at(-1).env.OMP_NUM_THREADS, expected?.env.OMP_NUM_THREADS || '99');
+    assert.equal(made.at(-1).env.CODEOME_MAX_CORES, expected?.env.CODEOME_MAX_CORES || '99');
   }
 });
