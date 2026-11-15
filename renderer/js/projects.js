@@ -17,15 +17,19 @@
   P.init = () => {
     el = document.getElementById('projects');
     // Dropping a folder from Finder opens it as a project.
-    const external = (e) => !dragging && !draggingGroup && [...(e.dataTransfer?.types || [])].includes('Files');
+    // Internal drags carry only text, so 'Files' alone tells a Finder drop apart (a card that re-renders
+    // mid-drag never fires dragend and would leave `dragging` stale).
+    const external = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
     el.addEventListener('dragover', (e) => { if (!external(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; el.classList.add('file-drop'); });
     el.addEventListener('dragleave', (e) => { if (!el.contains(e.relatedTarget)) el.classList.remove('file-drop'); });
     el.addEventListener('drop', async (e) => {
       el.classList.remove('file-drop');
       if (!external(e)) return;
       e.preventDefault();
-      const dirs = [...e.dataTransfer.items].filter((i) => i.kind === 'file' && i.webkitGetAsEntry()?.isDirectory)
-        .map((i) => codeome.pathForFile(i.getAsFile())).filter(Boolean);
+      dragging = draggingGroup = null;
+      const paths = [...e.dataTransfer.files].map((f) => codeome.pathForFile(f)).filter(Boolean);
+      const dirs = [];
+      for (const p of paths) if (!(await codeome.local.list(p)).error) dirs.push(p);
       if (!dirs.length) { App.err('Drop a folder to open it as a project.'); return; }
       for (const [i, dir] of dirs.entries()) await P.open(dir, null, { activate: i === dirs.length - 1 });
     });
