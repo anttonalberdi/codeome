@@ -13,6 +13,9 @@ What changed in each version of Codeome, newest first. The version is the one in
 - **Tab groups**: editor files and agent chats can be gathered into groups, each with a 4-letter code like chats have. An agent can list a group's members with `codeome-agent groups CODE`.
 - **Open in browser**: the file context menu has an *Open in browser* item for local HTML files.
 
+### Fixed
+- **Agent kit 0.9.6**: the `vitest` parser of `codeome-agent watch` now understands the `|project|` prefix vitest prints on every line when a config defines several projects (it showed 0/N files and then failed). Files are counted per project and path. Existing projects must update the kit to get the new script.
+
 ### Changed
 - **Agent kit 0.9.5**: adds the `groups` command and a note in the chat rules about group codes; projects must update the kit to get them. `.codeome/groups/` is git-ignored.
 - **Renaming a chat tab**: the rename box now opens empty, with the current name shown as greyed placeholder text, so you can type a new name without deleting the old one first. Confirming an empty name leaves the title unchanged.

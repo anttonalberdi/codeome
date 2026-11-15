@@ -588,3 +588,36 @@ test('SIGTERM writes a stopped state', { skip: process.platform === 'win32' && '
   assert.equal(stage(root, 'stop').state, 'failed');
   assert.ok(stage(root, 'stop').endedAt);
 });
+
+function vitestRun(t, text, total, key) {
+  const root = project(t);
+  const log = path.join(root, `${key}.log`);
+  fs.writeFileSync(log, text.includes('Test Files') ? text : `${text} Test Files  ${total} passed (${total})\n`);
+  const r = run(root, ['watch', '--log', log, '--parser', 'vitest', '--total', String(total), '--label', 'Tests', '--task', key]);
+  assert.equal(r.status, 0, r.stderr);
+  return { r, s: stage(root, key) };
+}
+
+test('vitest counts lines with a |project| prefix and fails on the × line', (t) => {
+  const { r, s } = vitestRun(t, fixture('vitest-projects.txt'), 3, 'prefixed');
+  assert.equal(s.done, 3);
+  assert.equal(s.state, 'failed');
+  assert.doesNotMatch(r.stderr, /no progress lines matched/);
+});
+
+test('vitest counts the same relative path in two projects as two files', (t) => {
+  const text = ' ✓ |a| src/index.test.ts > x\n ✓ |b| src/index.test.ts > y\n ✓ |a| src/index.test.ts > z\n';
+  const { s } = vitestRun(t, text, 2, 'two-projects');
+  assert.equal(s.done, 2);
+  assert.equal(s.state, 'done');
+});
+
+test('vitest prefixed pass lines, FAIL header with prefix, and summary-only logs', (t) => {
+  let { s } = vitestRun(t, ' ✓ |engine| test/a.test.ts > ok\n', 1, 'prefixed-pass');
+  assert.equal(s.state, 'done');
+  ({ s } = vitestRun(t, ' ✓ |engine| test/a.test.ts > ok\n FAIL |engine| test/a.test.ts > ok\n', 1, 'prefixed-fail'));
+  assert.equal(s.state, 'failed');
+  ({ s } = vitestRun(t, ' Test Files  2 failed | 1 passed (3)\n', 3, 'summary-only'));
+  assert.equal(s.state, 'failed');
+  assert.equal(s.done, 0);
+});
