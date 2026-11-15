@@ -13,3 +13,9 @@ dist/
 
 # Codeome agent jobs
 .codeome/touched/
+.codeome/groups/
+
+# Codeome agent jobs
+.codeome/inbox/
+.codeome/outbox/
+.codeome/inbox-support.json

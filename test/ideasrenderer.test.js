@@ -11,7 +11,7 @@ function element() {
     append(...items) { this.children.push(...items); },
     replaceChildren(...items) { this.children = [...items]; },
     contains() { return false; }, querySelector() { return null; }, querySelectorAll() { return []; },
-    setAttribute() {}, focus() {}
+    setAttribute() {}, focus() {}, addEventListener() {}
   };
 }
 
@@ -36,6 +36,7 @@ test('Ideas restores as a chat workspace without becoming project metadata', asy
     },
     icons: { plus: '<svg></svg>' }, basename: (dir) => path.basename(dir),
     dirname: (dir) => path.dirname(dir), tildify: (dir) => dir,
+    uiText: (text) => text,
     listen() {}, emit() {}, closePopover() {}, saveConfig: async () => {},
     err: (message) => { throw new Error(message); }
   };

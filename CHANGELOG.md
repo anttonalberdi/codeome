@@ -2,7 +2,7 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
-## Unreleased
+## 1.7.0 (2026-11-15)
 
 ### Added
 - **Agent resource monitor**: a gauge button left of Settings in the title bar opens a Resource monitor page that lists, for each open project, the running Claude and Codex chats, terminals and background jobs with CPU, memory and process count, including the processes the agents started. It adds a project total and a Codeome app row and refreshes every 5 seconds while open. CPU is a percentage of one core (a smoothed `ps` figure on macOS and Linux, not shown on Windows); only local processes are measured, so Slurm jobs and remote work are not included. See [Projects](/guide/projects#resource-monitor).
@@ -10,7 +10,11 @@ What changed in each version of Codeome, newest first. The version is the one in
 - **Resizable columns in the Transfer window**: drag the handle on the left edge of the Size or Modified header to change its width (double-click to reset). Both panes share the widths, and they are remembered between sessions.
 - **Early Windows support (x64)**: Codeome can now be built for Windows with an installer (`npm run dist:win`) and is checked by non-blocking Windows jobs in CI. Local terminals, Claude and Codex chats and one-shot calls run through Git for Windows' bash; the setup screen checks for Git for Windows and a working Python 3. Shortcuts use Ctrl instead of Cmd (in the terminal, Ctrl+C copies only when text is selected, Ctrl+Shift+C/V copy and paste, Ctrl+Shift+K clears, Ctrl+F finds), the window has the native Windows frame, and on-screen text no longer mentions the Mac, Homebrew or ⌘. The HPC connection is not yet supported on Windows and shows a note instead of its controls. This is untested on a real Windows machine and the installer is unsigned. See the README.
 
+- **Tab groups**: editor files and agent chats can be gathered into groups, each with a 4-letter code like chats have. An agent can list a group's members with `codeome-agent groups CODE`.
+- **Open in browser**: the file context menu has an *Open in browser* item for local HTML files.
+
 ### Changed
+- **Agent kit 0.9.5**: adds the `groups` command and a note in the chat rules about group codes; projects must update the kit to get them. `.codeome/groups/` is git-ignored.
 - **Renaming a chat tab**: the rename box now opens empty, with the current name shown as greyed placeholder text, so you can type a new name without deleting the old one first. Confirming an empty name leaves the title unchanged.
 
 ## 1.6.0
