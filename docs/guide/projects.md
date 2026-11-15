@@ -19,3 +19,16 @@ The title bar shows the 5-hour and weekly usage of Claude and Codex for the acti
 <Shot src="/screens/usage-popover.webp" alt="Claude usage popover over the editor listing two accounts with 5-hour and weekly meters, reset times and a Make active button" caption="Clicking the Claude meter opens a popover with each account's 5-hour and weekly usage, its reset times, Make active, Add account… and Settings." width="1500" height="940" />
 
 <Shot bare src="/screens/detail-usage-meters.webp" alt="Title-bar usage meters for Claude and Codex above the open usage popover" caption="The title-bar meters show 5-hour and weekly use per tool; in the popover the account at 93% is drawn in red." width="554" height="388" />
+
+## Resource monitor
+
+The gauge button just left of Settings in the title bar opens the **Resource monitor** page (it closes Settings if that is open). Press Escape or **Done** to close it. There is no keyboard shortcut.
+
+For each open project it lists every running Claude or Codex chat, terminal and background job (the Codex and Claude job runners), with CPU, memory and number of processes. Each row includes everything the agent started under it (R, Python, test runs and so on). A **Project total** row sums the project, and a **Codeome app** row at the bottom shows Codeome itself.
+
+The page refreshes every 5 seconds while it is open. Nothing is sampled when it is closed.
+
+- **CPU** is a percentage of one core, so 100% is one full core and a multi-threaded process can show more. On macOS and Linux it is the figure from `ps`, a smoothed average over the process's life, so it lags behind what is happening right now. On Windows CPU shows "–" and only memory is shown.
+- **Memory** is resident memory summed over the whole process tree. Shared pages are counted once per process, so totals can over-count slightly.
+
+Only processes on your own computer are measured. Slurm jobs and work done on the HPC over ssh do not appear (an ssh terminal counts only its local `ssh` process). Background jobs are listed only for open projects, and one-shot background runs are not shown.

@@ -26,6 +26,8 @@ const kit = require('./kit');
 const instructions = require('./instructions');
 const inkscape = require('./inkscape');
 const jobs = require('./jobs');
+const procstats = require('./procstats');
+const { buildPayload } = require('./metricsview');
 const { parseWorktrees } = require('./worktrees');
 const usage = require('./usage');
 const scratch = require('./scratch');
@@ -93,6 +95,7 @@ try { pty = require('node-pty'); } catch (e) { ptyError = String(e.message || e)
 
 let win = null;
 const ptys = new Map();
+const ptyMeta = new Map();
 const chats = new Map(); // chat id → chat.Session
 const notifyThrottle = createNotifyThrottle({ notify: (chatId, payload, merged) => showChatNotification(chatId, payload.kind, merged) });
 const transfers = new Map();
@@ -366,6 +369,7 @@ ipcMain.handle('pty:spawn', async (_e, spec) => {
     if (acct) for (const k of acct.unset) delete env[k];
     const p = pty.spawn(s.file, s.args, { name: 'xterm-256color', cols: spec.cols || 100, rows: spec.rows || 30, cwd: fs.existsSync(s.cwd) ? s.cwd : os.homedir(), env });
     ptys.set(spec.id, p);
+    ptyMeta.set(spec.id, { project: spec.project, kind: spec.kind });
     if (notice) send('pty:data', { id: spec.id, data: '\r\n[Codeome: your HPC secrets could not be updated, so this session did not load them.]\r\n' });
     p.onData((d) => send('pty:data', { id: spec.id, data: d }));
     // The saved password goes from the Keychain into ssh's prompt; the UI never sees it.
@@ -373,14 +377,14 @@ ipcMain.handle('pty:spawn', async (_e, spec) => {
     if (spec.kind === 'storage-login') p.onData(ssh.passwordFiller(config.getSecret('storage:password'), (s) => p.write(s)));
     p.onExit(({ exitCode, signal }) => {
       crashlog.log(exitCode === 0 && !signal ? 'info' : 'warn', 'pty exit', { id: spec.id, code: exitCode, signal });
-      ptys.delete(spec.id); send('pty:exit', { id: spec.id, code: exitCode });
+      ptys.delete(spec.id); ptyMeta.delete(spec.id); send('pty:exit', { id: spec.id, code: exitCode });
     });
     return { ok: true, pid: p.pid, account: acct && acct.info };
   } catch (e) { return { error: String(e.message || e) }; }
 });
 ipcMain.on('pty:write', (_e, { id, data }) => { const p = ptys.get(id); if (p) p.write(data); });
 ipcMain.on('pty:resize', (_e, { id, cols, rows }) => { const p = ptys.get(id); if (p && cols > 0 && rows > 0) { try { p.resize(cols, rows); } catch {} } });
-ipcMain.on('pty:kill', (_e, { id }) => { spawning.delete(id); const p = ptys.get(id); if (p) { try { p.kill(); } catch {} ptys.delete(id); } });
+ipcMain.on('pty:kill', (_e, { id }) => { spawning.delete(id); const p = ptys.get(id); if (p) { try { p.kill(); } catch {} ptys.delete(id); ptyMeta.delete(id); } });
 
 // ---------- config & secrets ----------
 ipcMain.handle('config:get', () => { const { remoteDevices, ...publicConfig } = cfg; return publicConfig; });
@@ -1497,6 +1501,23 @@ ipcMain.handle('agents:models', () => {
   const c = cfg.accounts.codex;
   const acct = c.list.find((a) => a.name === c.active) || c.list[0] || { dir: '' };
   return { codex: usage.codexModels(acct.dir) };
+});
+ipcMain.handle('metrics:agents', async () => {
+  try {
+    const items = [...chats].map(([id, session]) => ({ kind: 'chat', id, project: session.cwd, label: session.getTitle() || id, pid: session.proc?.pid }));
+    for (const [id, p] of ptys) {
+      const meta = ptyMeta.get(id);
+      if (meta) items.push({ kind: 'terminal', id, project: meta.project, label: meta.kind || id, pid: p.pid });
+    }
+    const projects = [...new Set(cfg.openProjects || [])];
+    const listed = await Promise.all(projects.map((project) => jobs.list(project).catch(() => [])));
+    listed.forEach((entries, i) => {
+      for (const j of entries) if (['running', 'pausing'].includes(j.status) && Number.isInteger(j.pid) && j.pid > 4 && jobs.alive(j.pid)) items.push({ kind: 'job', id: j.id, project: projects[i], label: j.title || j.role || j.id, pid: j.pid });
+    });
+    const roots = [...new Set(items.map((item) => item.pid).filter((pid) => Number.isInteger(pid) && pid > 0))];
+    const totals = await procstats.sample(roots);
+    return buildPayload({ items, totals, appMetrics: app.getAppMetrics(), ncpu: os.cpus().length });
+  } catch (e) { return { error: String(e.message || e) }; }
 });
 ipcMain.handle('jobs:list', (_e, project) => jobs.list(project));
 ipcMain.handle('jobs:read', (_e, { project, id, part }) => jobs.read(project, id, part));

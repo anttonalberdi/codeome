@@ -131,6 +131,7 @@ contextBridge.exposeInMainWorld('codeome', {
     set: (project, name, patch) => ipcRenderer.invoke('agents:set', { project, name, patch }),
     create: invoke('agents:create'), promote: invoke('agents:promote')
   },
+  metrics: { agents: invoke('metrics:agents') },
   jobs: {
     list: invoke('jobs:list'), clear: invoke('jobs:clear'),
     read: (project, id, part) => ipcRenderer.invoke('jobs:read', { project, id, part }),

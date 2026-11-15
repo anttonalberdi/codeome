@@ -307,4 +307,4 @@ async function clear(project) {
   return { removed: n };
 }
 
-module.exports = { list, read, cancel, pause, resume, clear, settle, readProgressFile, tasks };
+module.exports = { alive, list, read, cancel, pause, resume, clear, settle, readProgressFile, tasks };

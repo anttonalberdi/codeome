@@ -44,6 +44,7 @@
 
   // ---------- page ----------
   S.open = async (section) => {
+    App.views.metrics?.close();
     if (!page) build();
     S.isOpen = true;
     page.hidden = false;

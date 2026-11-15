@@ -280,6 +280,7 @@
     'next-project': () => App.views.projects.cycle(1), 'prev-project': () => App.views.projects.cycle(-1), 'new-file': () => !App.isIdeas() && App.views.editor.newFile(), save: () => !App.isIdeas() && App.views.editor.save(),
     'close-tab': () => { const t = App.views.editor.cur(); if (t) App.views.editor.close(t.id); },
     settings: () => App.views.settings.toggle(),
+    metrics: () => App.views.metrics.toggle(),
     'view-files': () => App.setView('files'), 'view-slurm': () => App.setView('slurm'), 'view-git': () => App.setView('git'),
     'new-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.newChat(); },
     'next-chat': () => { App.setView('agents'); App.views.agents.show('chat'); App.views.chat.cycle(1); },
@@ -311,12 +312,14 @@
     App.views.terminals.init();
     App.views.transfer.init(); App.views.files.init(); App.views.slurm.init(); App.views.git.init(); App.views.publish.init(); App.views.packages.init(); App.views.plots.init(); App.views.projectSettings.init(); App.views.agents.init();
     App.views.projects.init();
+    App.views.metrics.init();
     App.views.usage.init();
     App.views.editor.initMonaco();
     App.applyTheme();
     initResize();
     // Rail buttons switch the sidebar; the Transfer one opens its tab instead.
     document.querySelectorAll('#rail button').forEach((b) => { b.onclick = () => (b.dataset.view ? App.setView(b.dataset.view) : commands[b.dataset.action]()); });
+    document.getElementById('metrics-btn').onclick = () => App.views.metrics.toggle();
     document.getElementById('settings-btn').onclick = () => App.views.settings.toggle();
     const cl = document.getElementById('cluster');
     cl.onclick = () => clusterMenu(cl);
