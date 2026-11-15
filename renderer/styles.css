@@ -1384,9 +1384,8 @@ input.sec-note:hover, input.sec-note:focus { border-color: var(--line-strong); b
 .metrics-table-wrap { overflow-x: auto; }
 .metrics-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .metrics-table th, .metrics-table td { padding: 9px 14px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
-.metrics-table th:first-child, .metrics-table td:first-child { text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.metrics-table :is(th, td):nth-child(-n+2) { text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .metrics-table thead { color: var(--muted); }
-.metrics-table tfoot { font-weight: 600; background: var(--surface-2); }
-.metrics-table tr:last-child > * { border-bottom: 0; }
+.metrics-total { font-weight: 600; background: var(--surface-2); }
 .metrics-kind { display: inline-block; font-size: 11px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 8px; }
 #metrics-btn[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }

@@ -86,16 +86,18 @@
       if (M.isOpen && session !== generation) sample();
     }
   }
-  function row(label, values, kind) {
-    const tr = el('tr'), name = el('th', label);
+  const projectName = (path) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+  function row(project, label, values, kind, className) {
+    const tr = el('tr', undefined, className), proj = el('td', project ? projectName(project) : '–'), name = el('th', label);
+    if (project) proj.title = project;
     name.setAttribute('scope', 'row');
     if (kind) name.append(el('span', { chat: 'Chat', terminal: 'Terminal', job: 'Job' }[kind] || kind, 'metrics-kind'));
-    tr.append(name, el('td', cpu(values.cpu)), el('td', memory(values.rssKb)), el('td', values.nproc ?? '–'));
+    tr.append(proj, name, el('td', cpu(values.cpu)), el('td', memory(values.rssKb)), el('td', values.nproc ?? '–'));
     return tr;
   }
   function table() {
     const t = el('table', undefined, 'metrics-table'), head = el('thead'), tr = el('tr');
-    for (const label of ['Agent', 'CPU', 'Memory', 'Processes']) {
+    for (const label of ['Project', 'Agent', 'CPU', 'Memory', 'Processes']) {
       const th = el('th', label); th.setAttribute('scope', 'col');
       if (label === 'CPU') th.title = 'Average CPU since the process was last sampled by the OS (ps), as % of one core';
       if (label === 'Memory') th.title = 'Resident memory including child processes; shared pages are counted per process, so totals can over-count slightly';
@@ -107,19 +109,16 @@
     cores.textContent = data.ncpu + ' cores';
     content.replaceChildren();
     if (!data.projects.some((group) => group.items.length)) content.append(el('p', 'No agents running.', 'sp-intro'));
+    const t = table(), wrap = el('div', undefined, 'metrics-table-wrap sp-card');
+    t.setAttribute('aria-label', 'Resource usage by project and agent');
     for (const group of data.projects) {
-      const card = el('section', undefined, 'sp-card');
-      const basename = group.project.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || group.project;
-      const title = el('h2', basename, 'sp-card-h'); title.title = group.project;
-      const t = table(), body = el('tbody'), foot = el('tfoot');
-      t.setAttribute('aria-label', 'Agents in ' + group.project);
-      for (const item of group.items) body.append(row(item.label, item, item.kind));
-      foot.append(row('Project total', group.totals)); t.append(body, foot);
-      const wrap = el('div', undefined, 'metrics-table-wrap'); wrap.append(t);
-      card.append(title, wrap); content.append(card);
+      const body = el('tbody');
+      for (const item of group.items) body.append(row(group.project, item.label, item, item.kind));
+      body.append(row(group.project, 'Project total', group.totals, null, 'metrics-total'));
+      t.append(body);
     }
-    const card = el('div', undefined, 'sp-card metrics-table-wrap'), t = table(), body = el('tbody');
-    t.setAttribute('aria-label', 'Codeome app resource usage');
-    body.append(row('Codeome app', data.app)); t.append(body); card.append(t); content.append(card);
+    const body = el('tbody');
+    body.append(row(null, 'Codeome app', data.app, null, 'metrics-total'));
+    t.append(body); wrap.append(t); content.append(wrap);
   }
 })();

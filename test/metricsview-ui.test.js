@@ -50,7 +50,7 @@ test('polling is open-only, skips overlapping calls, retains good data on errors
   assert.match(page.textContent, /8 cores/); assert.match(page.textContent, /<script>hello<\/script>/);
   s.poll(); resolve({ error: 'offline' }); await flush();
   assert.match(page.textContent, /Could not load resource usage: offline/);
-  assert.match(page.textContent, /Project total/);
+  assert.match(page.textContent, /Project total/); assert.match(page.textContent, /Project/); assert.match(page.textContent, /demo/);
   s.listeners.view(); s.poll(); assert.equal(calls, 2); assert.equal(s.M.isOpen, false);
   assert.ok(s.cleared() > 0);
 });
