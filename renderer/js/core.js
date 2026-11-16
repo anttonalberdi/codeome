@@ -218,6 +218,16 @@ App.modal = ({ title, text, fields = [], ok = 'OK', cancel = 'Cancel', danger = 
   const inputs = {};
   const renderField = (f) => {
     if (f.legend) return h('legend', f.legend);
+    if (f.filter) {
+      // Narrows the checkboxes after it in the same fieldset by their label text; not part of the result.
+      const box = h('input', { type: 'text', value: '', placeholder: f.placeholder || 'Filter…', spellcheck: 'false', autocomplete: 'off', 'aria-label': f.placeholder || 'Filter' });
+      box.dataset.filter = '1';
+      box.oninput = () => {
+        const q = box.value.trim().toLowerCase();
+        for (const l of box.closest('fieldset').querySelectorAll('label.check')) l.style.display = !q || l.textContent.toLowerCase().includes(q) ? '' : 'none';
+      };
+      return h('label.field', box);
+    }
     let input;
     if (f.type === 'textarea') input = h('textarea', { rows: f.rows || 4, placeholder: f.placeholder || '' }, f.value || '');
     else if (f.type === 'select') { input = h('select', (f.options || []).map((o) => h('option', { value: o.value ?? o, selected: (o.value ?? o) === f.value }, o.label ?? o))); }
@@ -230,7 +240,7 @@ App.modal = ({ title, text, fields = [], ok = 'OK', cancel = 'Cancel', danger = 
   const collect = () => { const o = {}; for (const [k, el] of Object.entries(inputs)) o[k] = el.type === 'checkbox' ? el.checked : el.value; return o; };
   const onKey = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); close(null); }
-    if (e.key === 'Enter' && (App.isMod(e) || e.target.tagName === 'INPUT')) { e.preventDefault(); close(fields.length ? collect() : true); }
+    if (e.key === 'Enter' && (App.isMod(e) || (e.target.tagName === 'INPUT' && !e.target.dataset.filter))) { e.preventDefault(); close(fields.length ? collect() : true); }
   };
   const groups = []; let cur = null;
   for (const f of fields) {

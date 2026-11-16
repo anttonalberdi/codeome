@@ -413,7 +413,7 @@
     const v = await App.modal({
       title: 'New group', ok: 'Create',
       fields: [{ key: 'name', label: 'Name', placeholder: 'e.g. Thesis' },
-        ...(choices.length ? [{ legend: 'Projects to put in it' }] : []),
+        ...(choices.length ? [{ legend: 'Projects to put in it' }, { filter: true, placeholder: 'Filter projects…' }] : []),
         ...choices.map((d, i) => ({ key: 'p' + i, type: 'check', label: App.basename(d) + (groupOf(d) ? ` (now in ${groupOf(d).name})` : ''), value: false }))]
     });
     const name = v && v.name.trim();
