@@ -11,7 +11,7 @@ function element() {
     append(...items) { this.children.push(...items); },
     replaceChildren(...items) { this.children = [...items]; },
     contains() { return false; }, querySelector() { return null; }, querySelectorAll() { return []; },
-    setAttribute() {}, focus() {}, addEventListener() {}
+    setAttribute() {}, focus() {}, addEventListener() {}, after() {}
   };
 }
 
@@ -42,7 +42,7 @@ test('Ideas restores as a chat workspace without becoming project metadata', asy
   };
   let jobCalls = 0;
   const codeome = { scratch: { dir: async () => ({ dir: scratch }) }, jobs: { list: async () => { jobCalls++; return []; } } };
-  const document = { hidden: false, activeElement: null, getElementById: get };
+  const document = { hidden: false, activeElement: null, getElementById: get, createElement: element, documentElement: element() };
   const source = fs.readFileSync(path.join(__dirname, '../renderer/js/projects.js'), 'utf8');
   vm.runInNewContext(source, { App, codeome, document, setInterval() {}, requestAnimationFrame() {} });
 

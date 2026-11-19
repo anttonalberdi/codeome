@@ -230,7 +230,7 @@ function createService({ createServer, createAuth, createLimiter, remote, sessio
     } catch { return { value: null, known: false }; }
   }
   function mutationCliPath() {
-    return ['/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale', TAILSCALE_APP].find(fileExists) || null;
+    return ['/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale', '/usr/bin/tailscale', TAILSCALE_APP].find(fileExists) || null;
   }
   async function tailscaleRead() {
     const port = selectedPort();

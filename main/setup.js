@@ -159,7 +159,9 @@ const BREW_INSTALL = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.c
 // One command that installs the given tools; null when none has a recipe.
 function installCommand(tools) {
   if (platformTools.isWin) return null;
-  const known = [...new Set(tools)].filter((t) => RECIPES[t]);
+  // Linux has no Homebrew recipes here: only the vendors' own installers apply; the rest comes from the distro's package manager.
+  const linux = process.platform === 'linux';
+  const known = [...new Set(tools)].filter((t) => RECIPES[t] && (!linux || (RECIPES[t].command && !/xcode-select/.test(RECIPES[t].command))));
   if (!known.length) return null;
   const formulae = [...new Set(known.map((t) => RECIPES[t].formula).filter(Boolean))];
   const casks = [...new Set(known.map((t) => RECIPES[t].cask).filter(Boolean))];
