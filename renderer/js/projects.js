@@ -54,6 +54,7 @@
     const tag = document.getElementById('project-btn');
     tag.onclick = () => (App.project ? App.menuAt(tag, tagMenu()) : P.open());
     tag.oncontextmenu = (e) => { e.preventDefault(); if (App.project) App.menu(e.clientX, e.clientY, tagMenu()); };
+    initWidthHandle();
     applyCollapsed();
     // Unsaved files and live sessions change the cards.
     App.listen('view', () => P.rememberView(true));
@@ -814,6 +815,36 @@
   function applyCollapsed() {
     const c = !!App.cfg.ui.projectsCollapsed;
     document.getElementById('app').classList.toggle('proj-collapsed', c);
+    const w = App.cfg.ui.projectsWidth;
+    if (!c && w) document.documentElement.style.setProperty('--proj-w', w + 'px');
+    else document.documentElement.style.removeProperty('--proj-w');
+  }
+  // A handle on the column's right edge sets its width; double-click restores the default.
+  function initWidthHandle() {
+    const grip = document.createElement('div');
+    grip.className = 'proj-grip';
+    grip.title = 'Drag to resize (double-click to reset)';
+    el.after(grip);
+    const MIN = 150, MAX = 420;
+    grip.addEventListener('mousedown', (e) => {
+      if (App.cfg.ui.projectsCollapsed) return;
+      e.preventDefault();
+      const left = el.getBoundingClientRect().left;
+      const move = (ev) => {
+        App.cfg.ui.projectsWidth = Math.round(Math.min(MAX, Math.max(MIN, ev.clientX - left)));
+        applyCollapsed();
+      };
+      const up = () => {
+        removeEventListener('mousemove', move); removeEventListener('mouseup', up);
+        document.body.style.cursor = '';
+        App.saveConfig(); App.views.editor.layout();
+      };
+      document.body.style.cursor = 'col-resize';
+      addEventListener('mousemove', move); addEventListener('mouseup', up);
+    });
+    grip.addEventListener('dblclick', () => {
+      delete App.cfg.ui.projectsWidth; App.saveConfig(); applyCollapsed(); App.views.editor.layout();
+    });
   }
   function toggleCollapsed() {
     App.cfg.ui.projectsCollapsed = !App.cfg.ui.projectsCollapsed;

@@ -74,6 +74,9 @@ svg { width: 18px; height: 18px; display: block; }
 .ptint { --p-soft: hsl(var(--ph) 36% 88%); --p-ink: hsl(var(--ph) 45% 27%); --p-strong: hsl(var(--ph) 50% 42%); }
 
 /* ---------- project column ---------- */
+.proj-grip { grid-area: proj; justify-self: end; width: 6px; margin-right: -3px; z-index: 5; cursor: col-resize; }
+.proj-grip:hover { background: var(--accent); opacity: .5; }
+#app.proj-collapsed .proj-grip { display: none; }
 #projects { grid-area: proj; display: flex; flex-direction: column; min-height: 0; background: var(--bg); border-right: 1px solid var(--line); }
 .proj-list { flex: 1; overflow-y: auto; padding: 8px 6px; display: flex; flex-direction: column; gap: 3px; }
 /* The scrollbar stays invisible (but keeps its width, so nothing shifts) until the pointer is over the list. */
