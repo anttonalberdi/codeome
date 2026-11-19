@@ -11,10 +11,12 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 
 ## Download
 
-**[Download the latest release](https://github.com/anttonalberdi/codeome/releases/latest)** and pick the `.dmg` under *Assets*:
+**[Download the latest release](https://github.com/anttonalberdi/codeome/releases/latest)** and pick your file under *Assets*:
 
-- **Apple silicon** (M1 and later): `Codeome-<version>-arm64.dmg`
-- **Intel**: `Codeome-<version>.dmg` (x64)
+- **Mac, Apple silicon** (M1 and later): `Codeome-<version>-arm64.dmg`
+- **Mac, Intel**: `Codeome-<version>.dmg` (x64)
+- **Windows** (x64, early support): `Codeome Setup <version>.exe`
+- **Linux** (x64, early support): `Codeome-<version>.AppImage` or the `.deb`
 
 Open the `.dmg` and drag Codeome to Applications. The app is not signed with an Apple Developer certificate, so the first time: right-click Codeome in Applications → **Open** → **Open**. More in [Getting started](https://www.alberdilab.dk/codeome/guide/getting-started).
 
@@ -33,7 +35,7 @@ See the [guide](https://www.alberdilab.dk/codeome/guide/getting-started) for eac
 
 ## Windows (early support)
 
-A Windows x64 installer can be built with `npm run dist:win`. It has so far been built and tested only through CI and stub tests; it has not been run on a real Windows machine yet. The installer is unsigned, so SmartScreen will warn.
+A Windows x64 installer is attached to each release (or build it with `npm run dist:win`). It has so far been built and tested only through CI and stub tests; it has not been run on a real Windows machine yet. The installer is unsigned, so SmartScreen will warn.
 
 - **Needs**: [Git for Windows](https://git-scm.com/download/win) (it provides bash) and Python 3 on your PATH (the Microsoft Store `python3` stub does not count) for the `codeome-agent` helper. Install the Claude Code and Codex CLIs as on macOS.
 - **Not yet supported**: the HPC connection (terminals, SFTP, transfers, Slurm, agents on the cluster), because Windows OpenSSH has no ControlMaster. It is planned for a later release; the app shows a "not yet supported" note instead of the HPC controls.

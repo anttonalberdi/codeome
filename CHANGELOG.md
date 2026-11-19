@@ -2,6 +2,17 @@
 
 What changed in each version of Codeome, newest first. The version is the one in `package.json`, shown next to the name in the title bar. The agent kit installed into projects has its own version (`kit/manifest.json`), noted here when it changes.
 
+## 1.8.0 (2026-11-19)
+
+### Added
+- **Linux build (x64)**: an AppImage and a `.deb` are now attached to each release (`npm run dist:linux`). Early support, like Windows: it is built and checked in CI but not yet run on a real Linux machine, and the packages are unsigned. In the setup screen, Linux only offers the vendors' own installers (not Homebrew or Xcode), and the phone companion finds the Tailscale CLI in `/usr/bin`.
+- **Windows installer on the release page**: the unsigned Windows x64 installer (`.exe`) is now attached to each release alongside the Mac and Linux downloads.
+- **Resizable Projects column**: drag the right edge of the project column to change its width; it is remembered between sessions and a double-click resets it.
+- **Filter in the New group dialog**: a filter field narrows the project list by name.
+
+### Fixed
+- **Agent kit 0.9.6**: the `vitest` parser of `codeome-agent watch` now understands the `|project|` prefix vitest prints on every line when a config defines several projects (it showed 0/N files and then failed). Files are counted per project and path. Existing projects must update the kit to get the new script.
+
 ## 1.7.0 (2026-11-15)
 
 ### Added
@@ -12,9 +23,6 @@ What changed in each version of Codeome, newest first. The version is the one in
 
 - **Tab groups**: editor files and agent chats can be gathered into groups, each with a 4-letter code like chats have. An agent can list a group's members with `codeome-agent groups CODE`.
 - **Open in browser**: the file context menu has an *Open in browser* item for local HTML files.
-
-### Fixed
-- **Agent kit 0.9.6**: the `vitest` parser of `codeome-agent watch` now understands the `|project|` prefix vitest prints on every line when a config defines several projects (it showed 0/N files and then failed). Files are counted per project and path. Existing projects must update the kit to get the new script.
 
 ### Changed
 - **Agent kit 0.9.5**: adds the `groups` command and a note in the chat rules about group codes; projects must update the kit to get them. `.codeome/groups/` is git-ignored.

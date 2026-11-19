@@ -7,14 +7,16 @@ One Mac app for research computing that spans your laptop and the HPC: a code ed
 ### Download the app (easiest)
 
 1. Open the [latest release](https://github.com/anttonalberdi/codeome/releases/latest).
-2. Under *Assets*, download the `.dmg` for your Mac: `arm64` for Apple silicon (M1 and later), `x64` for Intel.
-3. Open the `.dmg` and drag Codeome to Applications.
+2. Under *Assets*, download the file for your system:
+   - **Mac**: the `.dmg`, `arm64` for Apple silicon (M1 and later) or the one without a suffix for Intel. Open it and drag Codeome to Applications.
+   - **Windows** (x64, early support): the `.exe` installer. It is unsigned, so SmartScreen will warn.
+   - **Linux** (x64, early support): the `.AppImage` (make it executable and run it) or the `.deb`.
 
 ::: tip The app is not signed
 The app is not signed with an Apple Developer certificate, so the first time: right-click Codeome in Applications → **Open** → **Open**. (Or run `xattr -dr com.apple.quarantine /Applications/Codeome.app`.)
 :::
 
-Releases are made by pushing a tag like `v1.1.0` (it must match the version in `package.json`); the build attaches the `.dmg` files to the release. Every push to `main` also builds the app on GitHub (Actions tab → latest *Build macOS app* run → *Codeome-mac* artifact), and the tests run on every push and pull request (*CI* workflow).
+Releases are made by pushing a tag like `v1.1.0` (it must match the version in `package.json`); the build attaches the Mac `.dmg`, Windows `.exe` and Linux `.AppImage` and `.deb` files to the release. Every push to `main` also builds the app on GitHub (Actions tab → latest *Build macOS app* run → *Codeome-mac* artifact), and the tests run on every push and pull request (*CI* workflow).
 
 ### Advanced — run or build from source
 

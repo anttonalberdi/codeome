@@ -16,6 +16,9 @@ hero:
       text: Advanced tour
       link: /slides/advanced
     - theme: alt
+      text: Download
+      link: https://github.com/anttonalberdi/codeome/releases/latest
+    - theme: alt
       text: Full guide
       link: /guide/getting-started
 
